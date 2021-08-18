@@ -1,0 +1,161 @@
+---
+swagger: '2.0'
+info:
+  title: Groups.io data source
+  version: '1.0'
+  description: Groups.io data source V2
+paths:    # swagger forces me to add at least one path
+  /noop:
+    get:
+      description: no-op
+      responses:
+        200:
+          description: ok
+definitions:
+  DataSource:
+    type: object
+    properties:
+      Slug:
+        type: string
+        example: groupsio
+      Name:
+        type: string
+        example: Groups.io
+  MetaData:
+    type: object
+    properties:
+      BackendName:
+        type: string
+        example: insights-datasource-groupsio
+      BackendVersion:
+        type: string
+        example: v0.1.0
+      Project:
+        type: string
+        example: Kubernetes
+      Tags:
+        type: array
+        items:
+          type: string
+          example: my-tag
+  Identity:
+    type: object
+    properties:
+      Id:
+        type: string
+        example: 1234567890abcdef
+        description: PK - up to 50 chars
+      Name:
+        type: string
+        example: Lukasz Gryglicki
+      Username:
+        type: string
+        example: lgryglicki
+      Email:
+        type: string
+        example: lgryglicki@cncf.io
+      DataSourceId:
+        type: string
+        example: groupsio
+        description: data source type slug (FK)
+  MailingList:
+    type: object
+    properties:
+      Id:
+        type: string
+        example: 1234567890abcdef
+        description: PK - up to 50 chars
+      MailingListId:
+        type: string
+        example: 107625428
+        description: groups.io internal id - can be any string
+      URL:
+        type: string
+        example: https://groups.io/g/hyperledger+fabric
+        description: This always 'https://groups.io/g/' + group name
+      Name:
+        type: string
+        example: hyperledger+fabric
+        description: group name
+  Message:
+    type: object
+    properties:
+      Id:
+        type: string
+        example: 1234567890abcdef
+        description: PK - up to 50 chars
+      MessageId:
+        type: string
+        example: '<CAGh20b-Gyh4U0b62dQgxzmHkspAN2_bO1uk7V36ES_XdS7WupA@mail.gmail.com>'
+        description: groups.io internal id - can be any string
+      CreatedAt:
+        type: string
+        format: date-time
+        example: '2019-09-02 03:00:33.000000'
+      CreatedAtInTZ:
+        type: string
+        format: date-time
+        example: '2019-09-02 03:00:33.000000'
+      CreatedTZ:
+        type: number
+        example: -2.5
+        description: time zone offset from UTC in hours
+      Subject:
+        type: string
+        example: My message subject
+      Body:
+        type: string
+        # x-nullable: true V2 schema is not allowing body = null, but obviously body can be null IMHO
+        example: My message body
+      DataSourceId:
+        type: string
+        example: groupsio
+        description: data source type slug (FK)
+      MailingList:
+        type: object
+        description: mailing list that message belongs to
+        $ref: "#/definitions/MailingList"
+      ParentMessageID:
+        type: string
+        x-nullable: true
+        example: '<CAGh20b-Gyh4U0b62dQgxzmHkspAN2_bO1uk7V36ES_XdS7WupA@mail.gmail.com>'
+        description: parent message internal ID (system dependent, if present)
+      ParentID:
+        type: string
+        x-nullable: true
+        example: 1234567890abcdef
+        description: parent message (if present)
+      Sender:
+        type: object
+        description: message sender
+        $ref: "#/definitions/Identity"
+      Recipients:
+        type: array
+        description: message recipients
+        items:
+          $ref: "#/definitions/Identity"
+  Event:
+    type: object
+    description: single event in Groups.io is a message, it also includes its extra properties, sender, recipients, replies hierarchy etc.
+    properties:
+      Message:
+        type: object
+        $ref: "#/definitions/Message"
+  Data:
+    type: object
+    description: this is the final output of insights-datasource-groupsio, data source will output packs up to some fixed size, like 500 events pack at once
+    properties:
+      DataSource:
+        type: object
+        $ref: "#/definitions/DataSource"
+      Endpoint:
+        type: string
+        description: Groups.io endpoint for which data is being sent
+        example: hyperledger+fabric
+      MetaData:
+        type: object
+        $ref: "#/definitions/MetaData"
+      Events:
+        type: array
+        items:
+          $ref: "#/definitions/Event"
