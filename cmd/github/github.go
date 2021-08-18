@@ -22,7 +22,7 @@ import (
 	jsoniter "github.com/json-iterator/go"
 )
 
-// Init - initialize groups.io data source
+// Init - initialize github data source
 func (j *DSGitHub) Init(ctx *shared.Ctx) (err error) {
 	shared.NoSSLVerify()
 	ctx.InitEnv("GitHub")
@@ -42,7 +42,7 @@ func (j *DSGitHub) Init(ctx *shared.Ctx) (err error) {
 	return
 }
 
-// Sync - sync groups.io data source
+// Sync - sync github data source
 func (j *DSGitHub) Sync(ctx *shared.Ctx) (err error) {
 	thrN := shared.GetThreadsNum(ctx)
 	if ctx.DateFrom != nil {

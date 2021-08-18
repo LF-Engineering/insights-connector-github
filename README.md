@@ -1,5 +1,5 @@
 # insights-datasource-github
-Groups.io data source V2
+GitHub data source V2
 
 - run `make swagger` to generate models.
 - run `make` to build app.
