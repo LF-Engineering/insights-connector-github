@@ -39,6 +39,8 @@ github.com/LF-Engineering/insights-datasource-shared v0.0.0-20210818100325-30835
 github.com/LF-Engineering/insights-datasource-shared v0.0.0-20210818100325-30835e42b5c4/go.mod h1:ETFWFXJbKtsIQsu6ms7zfbVzZ5yYO8MMNcON+7QUAjg=
 github.com/LF-Engineering/insights-datasource-shared v0.0.0-20210819055029-90bc20b8e783 h1:oh8K42g/+eLqXhJ9tWOWbohXUujiljVNDURyMyzTyVs=
 github.com/LF-Engineering/insights-datasource-shared v0.0.0-20210819055029-90bc20b8e783/go.mod h1:BZs2/PMXgDQmx9tN/yhdrXgM4N4xz+jTyWGDutdhsnE=
+github.com/LF-Engineering/insights-datasource-shared v0.0.0-20210819071109-e6f9513076ca h1:TLBizcvQdIP59T9bMfh45npzpSmB+oXal2Kqw0hhhDU=
+github.com/LF-Engineering/insights-datasource-shared v0.0.0-20210819071109-e6f9513076ca/go.mod h1:BZs2/PMXgDQmx9tN/yhdrXgM4N4xz+jTyWGDutdhsnE=
 github.com/PuerkitoBio/purell v1.1.0/go.mod h1:c11w/QuzBsJSee3cPx9rAFu61PvFxuPbtSwDGJws/X0=
 github.com/PuerkitoBio/purell v1.1.1 h1:WEQqlqaGbrPkxLJWfBwQmfEAE1Z7ONdDLqrN38tNFfI=
 github.com/PuerkitoBio/purell v1.1.1/go.mod h1:c11w/QuzBsJSee3cPx9rAFu61PvFxuPbtSwDGJws/X0=

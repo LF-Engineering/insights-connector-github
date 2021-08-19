@@ -5,7 +5,9 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
+	"math/rand"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -13,6 +15,7 @@ import (
 	"github.com/LF-Engineering/insights-datasource-github/gen/models"
 	shared "github.com/LF-Engineering/insights-datasource-shared"
 	"github.com/google/go-github/v38/github"
+	jsoniter "github.com/json-iterator/go"
 	"golang.org/x/oauth2"
 )
 
@@ -127,6 +130,7 @@ type DSGitHub struct {
 	// Others (calculated)
 	URL                             string
 	Categories                      []string
+	CurrentCategory                 string
 	Clients                         []*github.Client
 	Context                         context.Context
 	OAuthKeys                       []string
@@ -233,6 +237,10 @@ func (j *DSGitHub) Validate(ctx *shared.Ctx) (err error) {
 	}
 	if j.Repo == "" {
 		err = fmt.Errorf("github repo must be set")
+		return
+	}
+	if j.Tokens == "" {
+		err = fmt.Errorf("at least one github oauth token must be provided")
 		return
 	}
 	j.URL = GitHubURLRoot + j.Org + "/" + j.Repo
@@ -383,6 +391,14 @@ func (j *DSGitHub) Init(ctx *shared.Ctx) (err error) {
 	return
 }
 
+// Endpoint - return unique endpoint string representation
+func (j *DSGitHub) Endpoint() string {
+	if j.CurrentCategory == "" {
+		return j.URL
+	}
+	return j.URL + " " + j.CurrentCategory
+}
+
 func (j *DSGitHub) getRateLimits(gctx context.Context, ctx *shared.Ctx, gcs []*github.Client, core bool) (int, []int, []int, []time.Duration) {
 	var (
 		limits     []int
@@ -447,7 +463,7 @@ func (j *DSGitHub) handleRate(ctx *shared.Ctx) (aHint int, canCache bool) {
 		j.GitHubRateMtx.RUnlock()
 	}
 	if handled {
-		shared.Printf("%s/%v: rate is already handled elsewhere, returning #%d token\n", j.URL, j.Categories, aHint)
+		shared.Printf("%s/%s: rate is already handled elsewhere, returning #%d token\n", j.URL, j.CurrentCategory, aHint)
 		return
 	}
 	if j.GitHubRateMtx != nil {
@@ -478,30 +494,455 @@ func (j *DSGitHub) handleRate(ctx *shared.Ctx) (aHint int, canCache bool) {
 		shared.Printf("Found usable token %d/%d/%v, cache enabled: %v\n", aHint, rem[h], wait[h], canCache)
 	}
 	j.RateHandled = true
-	shared.Printf("%s/%v: selected new token #%d\n", j.URL, j.Categories, j.Hint)
+	shared.Printf("%s/%s: selected new token #%d\n", j.URL, j.CurrentCategory, j.Hint)
+	return
+}
+
+func (j *DSGitHub) isAbuse(e error) (abuse, rateLimit bool) {
+	if e == nil {
+		return
+	}
+	defer func() {
+		// if abuse || rateLimit {
+		// Clear rate handled flag on every error - chances are that next rate handle will recover
+		shared.Printf("%s/%s: GitHub error: abuse:%v, rate limit:%v\n", j.URL, j.CurrentCategory, abuse, rateLimit)
+		if e != nil {
+			if j.GitHubRateMtx != nil {
+				j.GitHubRateMtx.Lock()
+			}
+			j.RateHandled = false
+			if j.GitHubRateMtx != nil {
+				j.GitHubRateMtx.Unlock()
+			}
+		}
+	}()
+	errStr := e.Error()
+	// GitHub can return '401 Bad credentials' when token(s) was/were revoken
+	// abuse = strings.Contains(errStr, "403 You have triggered an abuse detection mechanism") || strings.Contains(errStr, "401 Bad credentials")
+	abuse = strings.Contains(errStr, "403 You have triggered an abuse detection mechanism")
+	rateLimit = strings.Contains(errStr, "403 API rate limit")
+	return
+}
+
+func (j *DSGitHub) githubRepo(ctx *shared.Ctx, org, repo string) (repoData map[string]interface{}, err error) {
+	var found bool
+	origin := org + "/" + repo
+	// Try memory cache 1st
+	if CacheGitHubRepo {
+		if j.GitHubRepoMtx != nil {
+			j.GitHubRepoMtx.RLock()
+		}
+		repoData, found = j.GitHubRepo[origin]
+		if j.GitHubRepoMtx != nil {
+			j.GitHubRepoMtx.RUnlock()
+		}
+		if found {
+			if ctx.Debug > 2 {
+				shared.Printf("repos found in cache: %+v\n", repoData)
+			}
+			return
+		}
+	}
+	var c *github.Client
+	if j.GitHubMtx != nil {
+		j.GitHubMtx.RLock()
+	}
+	c = j.Clients[j.Hint]
+	if j.GitHubMtx != nil {
+		j.GitHubMtx.RUnlock()
+	}
+	retry := false
+	for {
+		var (
+			response *github.Response
+			rep      *github.Repository
+			e        error
+		)
+		rep, response, e = c.Repositories.Get(j.Context, org, repo)
+		if ctx.Debug > 2 {
+			shared.Printf("GET %s/%s -> {%+v, %+v, %+v}\n", org, repo, rep, response, e)
+		}
+		if e != nil && strings.Contains(e.Error(), "404 Not Found") {
+			if CacheGitHubRepo {
+				if j.GitHubRepoMtx != nil {
+					j.GitHubRepoMtx.Lock()
+				}
+				j.GitHubRepo[origin] = nil
+				if j.GitHubRepoMtx != nil {
+					j.GitHubRepoMtx.Unlock()
+				}
+			}
+			if ctx.Debug > 1 {
+				shared.Printf("githubRepos: repo not found %s: %v\n", origin, e)
+			}
+			return
+		}
+		if e != nil && !retry {
+			shared.Printf("Unable to get %s repo: response: %+v, because: %+v, retrying rate\n", origin, response, e)
+			shared.Printf("githubRepos: handle rate\n")
+			abuse, rateLimit := j.isAbuse(e)
+			if abuse {
+				sleepFor := AbuseWaitSeconds + rand.Intn(AbuseWaitSeconds)
+				shared.Printf("GitHub detected abuse (get repo %s), waiting for %ds\n", origin, sleepFor)
+				time.Sleep(time.Duration(sleepFor) * time.Second)
+			}
+			if rateLimit {
+				shared.Printf("Rate limit reached on a token (get repo %s) waiting 1s before token switch\n", origin)
+				time.Sleep(time.Duration(1) * time.Second)
+			}
+			if j.GitHubMtx != nil {
+				j.GitHubMtx.Lock()
+			}
+			j.Hint, _ = j.handleRate(ctx)
+			c = j.Clients[j.Hint]
+			if j.GitHubMtx != nil {
+				j.GitHubMtx.Unlock()
+			}
+			if !abuse && !rateLimit {
+				retry = true
+			}
+			continue
+		}
+		if e != nil {
+			err = e
+			return
+		}
+		jm, _ := jsoniter.Marshal(rep)
+		_ = jsoniter.Unmarshal(jm, &repoData)
+		if ctx.Debug > 2 {
+			shared.Printf("repos got from API: %+v\n", repoData)
+		}
+		break
+	}
+	if CacheGitHubRepo {
+		if j.GitHubRepoMtx != nil {
+			j.GitHubRepoMtx.Lock()
+		}
+		j.GitHubRepo[origin] = repoData
+		if j.GitHubRepoMtx != nil {
+			j.GitHubRepoMtx.Unlock()
+		}
+	}
+	return
+}
+
+// ItemID - return unique identifier for an item
+func (j *DSGitHub) ItemID(item interface{}) string {
+	if j.CurrentCategory == "repository" {
+		id, ok := item.(map[string]interface{})["fetched_on"]
+		if !ok {
+			shared.Fatalf("github: ItemID() - cannot extract fetched_on from %+v", shared.DumpKeys(item))
+		}
+		return fmt.Sprintf("%v", id)
+	}
+	number, ok := item.(map[string]interface{})["number"]
+	if !ok {
+		shared.Fatalf("github: ItemID() - cannot extract number from %+v", shared.DumpKeys(item))
+	}
+	return fmt.Sprintf("%s/%s/%s/%d", j.Org, j.Repo, j.CurrentCategory, int(number.(float64)))
+}
+
+// ItemUpdatedOn - return updated on date for an item
+func (j *DSGitHub) ItemUpdatedOn(item interface{}) time.Time {
+	if j.CurrentCategory == "repository" {
+		epochNS, ok := item.(map[string]interface{})["fetched_on"].(float64)
+		if ok {
+			epochNS *= 1.0e9
+			return time.Unix(0, int64(epochNS))
+		}
+		epochS, ok := item.(map[string]interface{})["fetched_on"].(string)
+		if !ok {
+			shared.Fatalf("github: ItemUpdatedOn() - cannot extract fetched_on from %+v", shared.DumpKeys(item))
+		}
+		epochNS, err := strconv.ParseFloat(epochS, 64)
+		shared.FatalOnError(err)
+		epochNS *= 1.0e9
+		return time.Unix(0, int64(epochNS))
+	}
+	iWhen, _ := shared.Dig(item, []string{"updated_at"}, true, false)
+	when, err := shared.TimeParseInterfaceString(iWhen)
+	shared.FatalOnError(err)
+	return when
+}
+
+// AddMetadata - add metadata to the item
+func (j *DSGitHub) AddMetadata(ctx *shared.Ctx, item interface{}) (mItem map[string]interface{}) {
+	mItem = make(map[string]interface{})
+	origin := j.URL
+	tags := ctx.Tags
+	if len(tags) == 0 {
+		tags = []string{origin}
+	}
+	itemID := j.ItemID(item)
+	updatedOn := j.ItemUpdatedOn(item)
+	uuid := shared.UUIDNonEmpty(ctx, origin, itemID)
+	timestamp := time.Now()
+	mItem["backend_name"] = "github"
+	mItem["backend_version"] = GitHubBackendVersion
+	mItem["timestamp"] = fmt.Sprintf("%.06f", float64(timestamp.UnixNano())/1.0e9)
+	mItem["uuid"] = uuid
+	mItem["origin"] = origin
+	mItem["tags"] = tags
+	mItem["offset"] = float64(updatedOn.Unix())
+	mItem["category"] = j.CurrentCategory
+	mItem["is_github_"+j.CurrentCategory] = 1
+	mItem["search_fields"] = make(map[string]interface{})
+	shared.FatalOnError(shared.DeepSet(mItem, []string{"search_fields", "owner"}, j.Org, false))
+	shared.FatalOnError(shared.DeepSet(mItem, []string{"search_fields", "repo"}, j.Repo, false))
+	mItem["metadata__updated_on"] = shared.ToESDate(updatedOn)
+	mItem["metadata__timestamp"] = shared.ToESDate(timestamp)
+	// mItem[ProjectSlug] = ctx.ProjectSlug
+	return
+}
+
+// FetchItemsRepository - implement raw repository data for GitHub datasource
+func (j *DSGitHub) FetchItemsRepository(ctx *shared.Ctx) (err error) {
+	items := []interface{}{}
+	docs := []interface{}{}
+	item, err := j.githubRepo(ctx, j.Org, j.Repo)
+	shared.FatalOnError(err)
+	if item == nil {
+		shared.Fatalf("there is no such repo %s/%s", j.Org, j.Repo)
+		return
+	}
+	item["fetched_on"] = fmt.Sprintf("%.6f", float64(time.Now().UnixNano())/1.0e9)
+	esItem := j.AddMetadata(ctx, item)
+	if ctx.Project != "" {
+		item["project"] = ctx.Project
+	}
+	esItem["data"] = item
+	items = append(items, esItem)
+	// err = SendToQueue(ctx, j, true, UUID, items)
+	err = j.GitHubEnrichItems(ctx, items, &docs, true)
+	if err != nil {
+		shared.Printf("%s/%s: Error %v sending %d repo stats to queue\n", j.URL, j.CurrentCategory, err, len(items))
+	}
+	return
+}
+
+// GitHubRepositoryEnrichItemsFunc - iterate items and enrich them
+// items is a current pack of input items
+// docs is a pointer to where extracted identities will be stored
+func (j *DSGitHub) GitHubRepositoryEnrichItemsFunc(ctx *shared.Ctx, items []interface{}, docs *[]interface{}, final bool) (err error) {
+	if ctx.Debug > 0 {
+		shared.Printf("%s/%s: github enrich repository items %d/%d func\n", j.URL, j.CurrentCategory, len(items), len(*docs))
+	}
+	var (
+		mtx *sync.RWMutex
+		ch  chan error
+	)
+	thrN := j.ThrN
+	if thrN > 1 {
+		mtx = &sync.RWMutex{}
+		ch = make(chan error)
+	}
+	nThreads := 0
+	procItem := func(c chan error, idx int) (e error) {
+		if thrN > 1 {
+			mtx.RLock()
+		}
+		item := items[idx]
+		if thrN > 1 {
+			mtx.RUnlock()
+		}
+		defer func() {
+			if c != nil {
+				c <- e
+			}
+		}()
+		// NOTE: never refer to _source - we no longer use ES
+		doc, ok := item.(map[string]interface{})
+		if !ok {
+			e = fmt.Errorf("Failed to parse document %+v", doc)
+			return
+		}
+		var rich map[string]interface{}
+		rich, e = j.EnrichItem(ctx, doc)
+		if e != nil {
+			return
+		}
+		if thrN > 1 {
+			mtx.Lock()
+		}
+		*docs = append(*docs, rich)
+		// NOTE: flush here
+		if len(*docs) >= ctx.PackSize {
+			j.OutputDocs(ctx, items, docs, final)
+		}
+		if thrN > 1 {
+			mtx.Unlock()
+		}
+		return
+	}
+	if thrN > 1 {
+		for i := range items {
+			go func(i int) {
+				_ = procItem(ch, i)
+			}(i)
+			nThreads++
+			if nThreads == thrN {
+				err = <-ch
+				if err != nil {
+					return
+				}
+				nThreads--
+			}
+		}
+		for nThreads > 0 {
+			err = <-ch
+			nThreads--
+			if err != nil {
+				return
+			}
+		}
+		return
+	}
+	for i := range items {
+		err = procItem(nil, i)
+		if err != nil {
+			return
+		}
+	}
+	return
+}
+
+// EnrichRepositoryItem - return rich item from raw item for a given author type
+func (j *DSGitHub) EnrichRepositoryItem(ctx *shared.Ctx, item map[string]interface{}) (rich map[string]interface{}, err error) {
+	rich = make(map[string]interface{})
+	repo, ok := item["data"].(map[string]interface{})
+	if !ok {
+		err = fmt.Errorf("missing data field in item %+v", shared.DumpKeys(item))
+		return
+	}
+	for _, field := range shared.RawFields {
+		v, _ := item[field]
+		rich[field] = v
+	}
+	if ctx.Project != "" {
+		rich["project"] = ctx.Project
+	}
+	repoFields := []string{"forks_count", "subscribers_count", "stargazers_count", "fetched_on"}
+	for _, field := range repoFields {
+		v, _ := repo[field]
+		rich[field] = v
+	}
+	v, _ := repo["html_url"]
+	rich["url"] = v
+	rich["repo_name"] = j.URL
+	updatedOn, _ := shared.Dig(item, []string{"metadata__updated_on"}, true, false)
+	rich["metadata__updated_on"] = updatedOn
+	rich["type"] = j.CurrentCategory
+	rich["category"] = j.CurrentCategory
+	// NOTE: From shared
+	rich["metadata__enriched_on"] = time.Now()
+	// rich[ProjectSlug] = ctx.ProjectSlug
+	// rich["groups"] = ctx.Groups
+	return
+}
+
+// EnrichItem - return rich item from raw item for a given author type
+func (j *DSGitHub) EnrichItem(ctx *shared.Ctx, item map[string]interface{}) (rich map[string]interface{}, err error) {
+	switch j.CurrentCategory {
+	case "repository":
+		return j.EnrichRepositoryItem(ctx, item)
+		// FIXME
+		//case "issue":
+		//	return j.EnrichIssueItem(ctx, item, author, affs, extra)
+		//case "pull_request":
+		//	return j.EnrichPullRequestItem(ctx, item, author, affs, extra)
+		//default:
+		//	err = fmt.Errorf("EnrichItem: unknown category %s", j.Category)
+	}
+	return
+}
+
+// OutputDocs - send output documents to the consumer
+func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]interface{}, final bool) {
+	if len(*docs) > 0 {
+		// actual output
+		shared.Printf("output processing(%d/%d/%v)\n", len(items), len(*docs), final)
+		data := j.GetModelData(ctx, *docs)
+		// FIXME: actual output to some consumer...
+		jsonBytes, err := jsoniter.Marshal(data)
+		if err != nil {
+			shared.Printf("Error: %+v\n", err)
+			return
+		}
+		shared.Printf("%s\n", string(jsonBytes))
+		*docs = []interface{}{}
+		gMaxUpstreamDtMtx.Lock()
+		defer gMaxUpstreamDtMtx.Unlock()
+		shared.SetLastUpdate(ctx, j.URL, gMaxUpstreamDt)
+	}
+}
+
+// GitHubEnrichItems - iterate items and enrich them
+// items is a current pack of input items
+// docs is a pointer to where extracted identities will be stored
+func (j *DSGitHub) GitHubEnrichItems(ctx *shared.Ctx, items []interface{}, docs *[]interface{}, final bool) (err error) {
+	shared.Printf("input processing(%d/%d/%v)\n", len(items), len(*docs), final)
+	if final {
+		defer func() {
+			j.OutputDocs(ctx, items, docs, final)
+		}()
+	}
+	// NOTE: non-generic code starts
+	switch j.CurrentCategory {
+	case "repository":
+		return j.GitHubRepositoryEnrichItemsFunc(ctx, items, docs, final)
+		// FIXME
+		//case "issue":
+		//	return j.GitHubIssueEnrichItemsFunc(ctx, items, docs)
+		//case "pull_request":
+		//	return j.GitHubPullRequestEnrichItemsFunc(ctx, items, docs)
+	}
+	return
+}
+
+// SyncCurrentCategory - sync GitHub data source for current category
+func (j *DSGitHub) SyncCurrentCategory(ctx *shared.Ctx) (err error) {
+	switch j.CurrentCategory {
+	case "repository":
+		return j.FetchItemsRepository(ctx)
+		// FIXME
+		//case "issue":
+		//	return j.FetchItemsIssue(ctx)
+		//case "pull_request":
+		//	return j.FetchItemsPullRequest(ctx)
+	}
 	return
 }
 
 // Sync - sync GitHub data source
-func (j *DSGitHub) Sync(ctx *shared.Ctx) (err error) {
-	thrN := shared.GetThreadsNum(ctx)
+func (j *DSGitHub) Sync(ctx *shared.Ctx, category string) (err error) {
+	_, ok := GitHubCategories[category]
+	if !ok {
+		err = fmt.Errorf("Unknown category '%s', known categories: %v", category, GitHubCategories)
+		return
+	}
+	j.CurrentCategory = category
+	var zeroDt time.Time
+	gMaxUpstreamDtMtx.Lock()
+	gMaxUpstreamDt = zeroDt
+	gMaxUpstreamDtMtx.Unlock()
 	if ctx.DateFrom != nil {
-		shared.Printf("%s fetching from %v (%d threads)\n", j.URL, ctx.DateFrom, thrN)
+		shared.Printf("%s fetching from %v (%d threads)\n", j.Endpoint(), ctx.DateFrom, j.ThrN)
 	}
 	if ctx.DateFrom == nil {
-		ctx.DateFrom = shared.GetLastUpdate(ctx, j.URL)
+		ctx.DateFrom = shared.GetLastUpdate(ctx, j.Endpoint())
 		if ctx.DateFrom != nil {
-			shared.Printf("%s resuming from %v (%d threads)\n", j.URL, ctx.DateFrom, thrN)
+			shared.Printf("%s resuming from %v (%d threads)\n", j.Endpoint(), ctx.DateFrom, j.ThrN)
 		}
 	}
 	if ctx.DateTo != nil {
-		shared.Printf("%s fetching till %v (%d threads)\n", j.URL, ctx.DateTo, thrN)
+		shared.Printf("%s fetching till %v (%d threads)\n", j.Endpoint(), ctx.DateTo, j.ThrN)
 	}
 	// NOTE: Non-generic starts here
+	err = j.SyncCurrentCategory(ctx)
 	// NOTE: Non-generic ends here
 	gMaxUpstreamDtMtx.Lock()
 	defer gMaxUpstreamDtMtx.Unlock()
-	shared.SetLastUpdate(ctx, j.URL, gMaxUpstreamDt)
+	shared.SetLastUpdate(ctx, j.Endpoint(), gMaxUpstreamDt)
 	return
 }
 
@@ -545,9 +986,11 @@ func main() {
 		shared.Printf("Error: %+v\n", err)
 		return
 	}
-	err = github.Sync(&ctx)
-	if err != nil {
-		shared.Printf("Error: %+v\n", err)
-		return
+	for cat := range ctx.Categories {
+		err = github.Sync(&ctx, cat)
+		if err != nil {
+			shared.Printf("Error: %+v\n", err)
+			return
+		}
 	}
 }
