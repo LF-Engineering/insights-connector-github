@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"math/rand"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -537,6 +538,328 @@ func (j *DSGitHub) isAbuse(e error) (abuse, rateLimit bool) {
 	return
 }
 
+func (j *DSGitHub) githubUserOrgs(ctx *shared.Ctx, login string) (orgsData []map[string]interface{}, err error) {
+	var found bool
+	// Try memory cache 1st
+	if CacheGitHubUserOrgs {
+		if j.GitHubUserOrgsMtx != nil {
+			j.GitHubUserOrgsMtx.RLock()
+		}
+		orgsData, found = j.GitHubUserOrgs[login]
+		if j.GitHubUserOrgsMtx != nil {
+			j.GitHubUserOrgsMtx.RUnlock()
+		}
+		if found {
+			if ctx.Debug > 2 {
+				shared.Printf("user orgs found in cache: %+v\n", orgsData)
+			}
+			return
+		}
+	}
+	var c *github.Client
+	if j.GitHubMtx != nil {
+		j.GitHubMtx.RLock()
+	}
+	c = j.Clients[j.Hint]
+	if j.GitHubMtx != nil {
+		j.GitHubMtx.RUnlock()
+	}
+	opt := &github.ListOptions{}
+	opt.PerPage = ItemsPerPage
+	retry := false
+	for {
+		var (
+			response      *github.Response
+			organizations []*github.Organization
+			e             error
+		)
+		organizations, response, e = c.Organizations.List(j.Context, login, opt)
+		if ctx.Debug > 2 {
+			shared.Printf("GET %s -> {%+v, %+v, %+v}\n", login, organizations, response, e)
+		}
+		if e != nil && strings.Contains(e.Error(), "404 Not Found") {
+			if CacheGitHubUserOrgs {
+				if j.GitHubUserOrgsMtx != nil {
+					j.GitHubUserOrgsMtx.Lock()
+				}
+				j.GitHubUserOrgs[login] = []map[string]interface{}{}
+				if j.GitHubUserOrgsMtx != nil {
+					j.GitHubUserOrgsMtx.Unlock()
+				}
+			}
+			if ctx.Debug > 1 {
+				shared.Printf("githubUserOrgs: orgs not found %s: %v\n", login, e)
+			}
+			return
+		}
+		if e != nil && !retry {
+			shared.Printf("Unable to get %s user orgs: response: %+v, because: %+v, retrying rate\n", login, response, e)
+			shared.Printf("githubUserOrgs: handle rate\n")
+			abuse, rateLimit := j.isAbuse(e)
+			if abuse {
+				sleepFor := AbuseWaitSeconds + rand.Intn(AbuseWaitSeconds)
+				shared.Printf("GitHub detected abuse (get user orgs %s), waiting for %ds\n", login, sleepFor)
+				time.Sleep(time.Duration(sleepFor) * time.Second)
+			}
+			if rateLimit {
+				shared.Printf("Rate limit reached on a token (get user orgs %s) waiting 1s before token switch\n", login)
+				time.Sleep(time.Duration(1) * time.Second)
+			}
+			if j.GitHubMtx != nil {
+				j.GitHubMtx.Lock()
+			}
+			j.Hint, _ = j.handleRate(ctx)
+			c = j.Clients[j.Hint]
+			if j.GitHubMtx != nil {
+				j.GitHubMtx.Unlock()
+			}
+			if !abuse && !rateLimit {
+				retry = true
+			}
+			continue
+		}
+		if e != nil {
+			err = e
+			return
+		}
+		for _, organization := range organizations {
+			org := map[string]interface{}{}
+			jm, _ := jsoniter.Marshal(organization)
+			_ = jsoniter.Unmarshal(jm, &org)
+			orgsData = append(orgsData, org)
+		}
+		if response.NextPage == 0 {
+			break
+		}
+		opt.Page = response.NextPage
+		if ctx.Debug > 0 {
+			shared.Printf("processing next user orgs page: %d\n", opt.Page)
+		}
+		retry = false
+	}
+	if ctx.Debug > 2 {
+		shared.Printf("user orgs got from API: %+v\n", orgsData)
+	}
+	if CacheGitHubUserOrgs {
+		if j.GitHubUserOrgsMtx != nil {
+			j.GitHubUserOrgsMtx.Lock()
+		}
+		j.GitHubUserOrgs[login] = orgsData
+		if j.GitHubUserOrgsMtx != nil {
+			j.GitHubUserOrgsMtx.Unlock()
+		}
+	}
+	return
+}
+
+func (j *DSGitHub) githubUser(ctx *shared.Ctx, login string) (user map[string]interface{}, found bool, err error) {
+	var ok bool
+	// Try memory cache 1st
+	if CacheGitHubUser {
+		if j.GitHubUserMtx != nil {
+			j.GitHubUserMtx.RLock()
+		}
+		user, ok = j.GitHubUser[login]
+		if j.GitHubUserMtx != nil {
+			j.GitHubUserMtx.RUnlock()
+		}
+		if ok {
+			found = len(user) > 0
+			if ctx.Debug > 1 {
+				shared.Printf("user found in memory cache: %+v\n", user)
+			}
+			return
+		}
+		// Try file cache 2nd
+		if CacheGitHubUserFiles {
+			path := j.CacheDir + login + ".json"
+			lockPath := path + ".lock"
+			file, e := os.Stat(path)
+			if e == nil {
+				for {
+					waited := 0
+					_, e := os.Stat(lockPath)
+					if e == nil {
+						if ctx.Debug > 0 {
+							shared.Printf("user %s lock file %s present, waiting 1s\n", user, lockPath)
+						}
+						time.Sleep(time.Duration(1) * time.Second)
+						waited++
+						continue
+					}
+					if waited > 0 {
+						if ctx.Debug > 0 {
+							shared.Printf("user %s lock file %s was present, waited %ds\n", user, lockPath, waited)
+						}
+					}
+					file, _ = os.Stat(path)
+					break
+				}
+				modified := file.ModTime()
+				age := int(time.Now().Sub(modified).Seconds())
+				allowedAge := MaxGitHubUsersFileCacheAge + rand.Intn(MaxGitHubUsersFileCacheAge)
+				if age <= allowedAge {
+					bts, e := ioutil.ReadFile(path)
+					if e == nil {
+						e = jsoniter.Unmarshal(bts, &user)
+						bts = nil
+						if e == nil {
+							found = len(user) > 0
+							if found {
+								if j.GitHubUserMtx != nil {
+									j.GitHubUserMtx.Lock()
+								}
+								j.GitHubUser[login] = user
+								if j.GitHubUserMtx != nil {
+									j.GitHubUserMtx.Unlock()
+								}
+								if ctx.Debug > 1 {
+									shared.Printf("user found in files cache: %+v\n", user)
+								}
+								return
+							}
+							shared.Printf("githubUser: unmarshaled %s cache file is empty\n", path)
+						}
+						shared.Printf("githubUser: cannot unmarshal %s cache file: %v\n", path, e)
+					} else {
+						shared.Printf("githubUser: cannot read %s user cache file: %v\n", path, e)
+					}
+				} else {
+					shared.Printf("githubUser: %s user cache file is too old: %v (allowed %v)\n", path, time.Duration(age)*time.Second, time.Duration(allowedAge)*time.Second)
+				}
+			} else {
+				if ctx.Debug > 1 {
+					shared.Printf("githubUser: no %s user cache file: %v\n", path, e)
+				}
+			}
+			locked := false
+			lockFile, e := os.Create(lockPath)
+			if e != nil {
+				shared.Printf("githubUser: create %s lock file failed: %v\n", lockPath, e)
+			} else {
+				locked = true
+				_ = lockFile.Close()
+			}
+			defer func() {
+				if locked {
+					defer func() {
+						if ctx.Debug > 1 {
+							shared.Printf("remove lock file %s\n", lockPath)
+						}
+						_ = os.Remove(lockPath)
+					}()
+				}
+				if err != nil {
+					return
+				}
+				// path := j.CacheDir + login + ".json"
+				bts, err := jsoniter.Marshal(user)
+				if err != nil {
+					shared.Printf("githubUser: cannot marshal user %s to file %s\n", login, path)
+					return
+				}
+				err = ioutil.WriteFile(path, bts, 0644)
+				if err != nil {
+					shared.Printf("githubUser: cannot write file %s, %d bytes: %v\n", path, len(bts), err)
+					return
+				}
+				if ctx.Debug > 0 {
+					shared.Printf("githubUser: saved %s user file\n", path)
+				}
+			}()
+		}
+	}
+	// Try GitHub API 3rd
+	var c *github.Client
+	if j.GitHubMtx != nil {
+		j.GitHubMtx.RLock()
+	}
+	c = j.Clients[j.Hint]
+	if j.GitHubMtx != nil {
+		j.GitHubMtx.RUnlock()
+	}
+	retry := false
+	for {
+		var (
+			response *github.Response
+			usr      *github.User
+			e        error
+		)
+		usr, response, e = c.Users.Get(j.Context, login)
+		if ctx.Debug > 2 {
+			shared.Printf("GET %s -> {%+v, %+v, %+v}\n", login, usr, response, e)
+		}
+		if e != nil && strings.Contains(e.Error(), "404 Not Found") {
+			if CacheGitHubUser {
+				if j.GitHubUserMtx != nil {
+					j.GitHubUserMtx.Lock()
+				}
+				if ctx.Debug > 0 {
+					shared.Printf("user not found using API: %s\n", login)
+				}
+				j.GitHubUser[login] = map[string]interface{}{}
+				if j.GitHubUserMtx != nil {
+					j.GitHubUserMtx.Unlock()
+				}
+			}
+			return
+		}
+		if e != nil && !retry {
+			shared.Printf("Unable to get %s user: response: %+v, because: %+v, retrying rate\n", login, response, e)
+			shared.Printf("githubUser: handle rate\n")
+			abuse, rateLimit := j.isAbuse(e)
+			if abuse {
+				sleepFor := AbuseWaitSeconds + rand.Intn(AbuseWaitSeconds)
+				shared.Printf("GitHub detected abuse (get user %s), waiting for %ds\n", login, sleepFor)
+				time.Sleep(time.Duration(sleepFor) * time.Second)
+			}
+			if rateLimit {
+				shared.Printf("Rate limit reached on a token (get user %s) waiting 1s before token switch\n", login)
+				time.Sleep(time.Duration(1) * time.Second)
+			}
+			if j.GitHubMtx != nil {
+				j.GitHubMtx.Lock()
+			}
+			j.Hint, _ = j.handleRate(ctx)
+			c = j.Clients[j.Hint]
+			if j.GitHubMtx != nil {
+				j.GitHubMtx.Unlock()
+			}
+			if !abuse && !rateLimit {
+				retry = true
+			}
+			continue
+		}
+		if e != nil {
+			err = e
+			return
+		}
+		if usr != nil {
+			jm, _ := jsoniter.Marshal(usr)
+			_ = jsoniter.Unmarshal(jm, &user)
+			user["organizations"], err = j.githubUserOrgs(ctx, login)
+			if err != nil {
+				return
+			}
+			if ctx.Debug > 1 {
+				shared.Printf("user found using API: %+v\n", user)
+			}
+			found = true
+		}
+		break
+	}
+	if CacheGitHubUser {
+		if j.GitHubUserMtx != nil {
+			j.GitHubUserMtx.Lock()
+		}
+		j.GitHubUser[login] = user
+		if j.GitHubUserMtx != nil {
+			j.GitHubUserMtx.Unlock()
+		}
+	}
+	return
+}
+
 func (j *DSGitHub) githubRepo(ctx *shared.Ctx, org, repo string) (repoData map[string]interface{}, err error) {
 	var found bool
 	origin := org + "/" + repo
@@ -639,6 +962,532 @@ func (j *DSGitHub) githubRepo(ctx *shared.Ctx, org, repo string) (repoData map[s
 	return
 }
 
+func (j *DSGitHub) githubIssues(ctx *shared.Ctx, org, repo string, since *time.Time) (issuesData []map[string]interface{}, err error) {
+	var found bool
+	origin := org + "/" + repo
+	// Try memory cache 1st
+	if CacheGitHubIssues {
+		if j.GitHubIssuesMtx != nil {
+			j.GitHubIssuesMtx.RLock()
+		}
+		issuesData, found = j.GitHubIssues[origin]
+		if j.GitHubIssuesMtx != nil {
+			j.GitHubIssuesMtx.RUnlock()
+		}
+		if found {
+			if ctx.Debug > 2 {
+				shared.Printf("issues found in cache: %+v\n", issuesData)
+			}
+			return
+		}
+	}
+	var c *github.Client
+	if j.GitHubMtx != nil {
+		j.GitHubMtx.RLock()
+	}
+	c = j.Clients[j.Hint]
+	if j.GitHubMtx != nil {
+		j.GitHubMtx.RUnlock()
+	}
+	opt := &github.IssueListByRepoOptions{
+		State:     "all",
+		Sort:      "updated",
+		Direction: "asc",
+	}
+	opt.PerPage = ItemsPerPage
+	if since != nil {
+		opt.Since = *since
+	}
+	retry := false
+	for {
+		var (
+			response *github.Response
+			issues   []*github.Issue
+			e        error
+		)
+		issues, response, e = c.Issues.ListByRepo(j.Context, org, repo, opt)
+		if ctx.Debug > 2 {
+			shared.Printf("GET %s/%s -> {%+v, %+v, %+v}\n", org, repo, issues, response, e)
+		}
+		if e != nil && strings.Contains(e.Error(), "404 Not Found") {
+			if CacheGitHubIssues {
+				if j.GitHubIssuesMtx != nil {
+					j.GitHubIssuesMtx.Lock()
+				}
+				j.GitHubIssues[origin] = []map[string]interface{}{}
+				if j.GitHubIssuesMtx != nil {
+					j.GitHubIssuesMtx.Unlock()
+				}
+			}
+			if ctx.Debug > 1 {
+				shared.Printf("githubIssues: issues not found %s: %v\n", origin, e)
+			}
+			return
+		}
+		if e != nil && !retry {
+			shared.Printf("Unable to get %s issues: response: %+v, because: %+v, retrying rate\n", origin, response, e)
+			shared.Printf("githubIssues: handle rate\n")
+			abuse, rateLimit := j.isAbuse(e)
+			if abuse {
+				sleepFor := AbuseWaitSeconds + rand.Intn(AbuseWaitSeconds)
+				shared.Printf("GitHub detected abuse (get issues %s), waiting for %ds\n", origin, sleepFor)
+				time.Sleep(time.Duration(sleepFor) * time.Second)
+			}
+			if rateLimit {
+				shared.Printf("Rate limit reached on a token (get issues %s) waiting 1s before token switch\n", origin)
+				time.Sleep(time.Duration(1) * time.Second)
+			}
+			if j.GitHubMtx != nil {
+				j.GitHubMtx.Lock()
+			}
+			j.Hint, _ = j.handleRate(ctx)
+			c = j.Clients[j.Hint]
+			if j.GitHubMtx != nil {
+				j.GitHubMtx.Unlock()
+			}
+			if !abuse && !rateLimit {
+				retry = true
+			}
+			continue
+		}
+		if e != nil {
+			err = e
+			return
+		}
+		for _, issue := range issues {
+			iss := map[string]interface{}{}
+			jm, _ := jsoniter.Marshal(issue)
+			_ = jsoniter.Unmarshal(jm, &iss)
+			body, ok := shared.Dig(iss, []string{"body"}, false, true)
+			if ok {
+				nBody := len(body.(string))
+				if nBody > MaxIssueBodyLength {
+					iss["body"] = body.(string)[:MaxIssueBodyLength]
+				}
+			}
+			iss["body_analyzed"], _ = iss["body"]
+			iss["is_pull"] = issue.IsPullRequest()
+			issuesData = append(issuesData, iss)
+		}
+		if response.NextPage == 0 {
+			break
+		}
+		opt.Page = response.NextPage
+		if ctx.Debug > 0 {
+			runtime.GC()
+			shared.Printf("%s/%s: processing next issues page: %d\n", j.URL, j.CurrentCategory, opt.Page)
+		}
+		retry = false
+	}
+	if ctx.Debug > 2 {
+		shared.Printf("issues got from API: %+v\n", issuesData)
+	}
+	if CacheGitHubIssues {
+		if j.GitHubIssuesMtx != nil {
+			j.GitHubIssuesMtx.Lock()
+		}
+		j.GitHubIssues[origin] = issuesData
+		if j.GitHubIssuesMtx != nil {
+			j.GitHubIssuesMtx.Unlock()
+		}
+	}
+	return
+}
+
+func (j *DSGitHub) githubIssueComments(ctx *shared.Ctx, org, repo string, number int) (comments []map[string]interface{}, err error) {
+	var found bool
+	key := fmt.Sprintf("%s/%s/%d", org, repo, number)
+	// Try memory cache 1st
+	if CacheGitHubIssueComments {
+		if j.GitHubIssueCommentsMtx != nil {
+			j.GitHubIssueCommentsMtx.RLock()
+		}
+		comments, found = j.GitHubIssueComments[key]
+		if j.GitHubIssueCommentsMtx != nil {
+			j.GitHubIssueCommentsMtx.RUnlock()
+		}
+		if found {
+			if ctx.Debug > 2 {
+				shared.Printf("issue comments found in cache: %+v\n", comments)
+			}
+			return
+		}
+	}
+	var c *github.Client
+	if j.GitHubMtx != nil {
+		j.GitHubMtx.RLock()
+	}
+	c = j.Clients[j.Hint]
+	if j.GitHubMtx != nil {
+		j.GitHubMtx.RUnlock()
+	}
+	opt := &github.IssueListCommentsOptions{}
+	opt.PerPage = ItemsPerPage
+	retry := false
+	for {
+		var (
+			response *github.Response
+			comms    []*github.IssueComment
+			e        error
+		)
+		comms, response, e = c.Issues.ListComments(j.Context, org, repo, number, opt)
+		if ctx.Debug > 2 {
+			shared.Printf("GET %s/%s -> {%+v, %+v, %+v}\n", org, repo, comms, response, e)
+		}
+		if e != nil && strings.Contains(e.Error(), "404 Not Found") {
+			if CacheGitHubIssueComments {
+				if j.GitHubIssueCommentsMtx != nil {
+					j.GitHubIssueCommentsMtx.Lock()
+				}
+				j.GitHubIssueComments[key] = []map[string]interface{}{}
+				if j.GitHubIssueCommentsMtx != nil {
+					j.GitHubIssueCommentsMtx.Unlock()
+				}
+			}
+			if ctx.Debug > 1 {
+				shared.Printf("githubIssueComments: comments not found %s: %v\n", key, e)
+			}
+			return
+		}
+		if e != nil && !retry {
+			shared.Printf("Unable to get %s issue comments: response: %+v, because: %+v, retrying rate\n", key, response, e)
+			shared.Printf("githubIssueComments: handle rate\n")
+			abuse, rateLimit := j.isAbuse(e)
+			if abuse {
+				sleepFor := AbuseWaitSeconds + rand.Intn(AbuseWaitSeconds)
+				shared.Printf("GitHub detected abuse (get issue comments %s), waiting for %ds\n", key, sleepFor)
+				time.Sleep(time.Duration(sleepFor) * time.Second)
+			}
+			if rateLimit {
+				shared.Printf("Rate limit reached on a token (get issue comments %s) waiting 1s before token switch\n", key)
+				time.Sleep(time.Duration(1) * time.Second)
+			}
+			if j.GitHubMtx != nil {
+				j.GitHubMtx.Lock()
+			}
+			j.Hint, _ = j.handleRate(ctx)
+			c = j.Clients[j.Hint]
+			if j.GitHubMtx != nil {
+				j.GitHubMtx.Unlock()
+			}
+			if !abuse && !rateLimit {
+				retry = true
+			}
+			continue
+		}
+		if e != nil {
+			err = e
+			return
+		}
+		for _, comment := range comms {
+			com := map[string]interface{}{}
+			jm, _ := jsoniter.Marshal(comment)
+			_ = jsoniter.Unmarshal(jm, &com)
+			body, ok := shared.Dig(com, []string{"body"}, false, true)
+			if ok {
+				nBody := len(body.(string))
+				if nBody > MaxCommentBodyLength {
+					com["body"] = body.(string)[:MaxCommentBodyLength]
+				}
+			}
+			com["body_analyzed"], _ = com["body"]
+			userLogin, ok := shared.Dig(com, []string{"user", "login"}, false, true)
+			if ok {
+				com["user_data"], _, err = j.githubUser(ctx, userLogin.(string))
+				if err != nil {
+					return
+				}
+			}
+			iCnt, ok := shared.Dig(com, []string{"reactions", "total_count"}, false, true)
+			if ok {
+				com["reactions_data"] = []interface{}{}
+				cnt := int(iCnt.(float64))
+				if cnt > 0 {
+					cid, ok := shared.Dig(com, []string{"id"}, false, true)
+					if ok {
+						com["reactions_data"], err = j.githubCommentReactions(ctx, org, repo, int64(cid.(float64)))
+						if err != nil {
+							return
+						}
+					}
+				}
+			}
+			comments = append(comments, com)
+		}
+		if response.NextPage == 0 {
+			break
+		}
+		opt.Page = response.NextPage
+		if ctx.Debug > 0 {
+			shared.Printf("processing next issue comments page: %d\n", opt.Page)
+		}
+		retry = false
+	}
+	if ctx.Debug > 2 {
+		shared.Printf("issue comments got from API: %+v\n", comments)
+	}
+	if CacheGitHubIssueComments {
+		if j.GitHubIssueCommentsMtx != nil {
+			j.GitHubIssueCommentsMtx.Lock()
+		}
+		j.GitHubIssueComments[key] = comments
+		if j.GitHubIssueCommentsMtx != nil {
+			j.GitHubIssueCommentsMtx.Unlock()
+		}
+	}
+	return
+}
+
+func (j *DSGitHub) githubCommentReactions(ctx *shared.Ctx, org, repo string, cid int64) (reactions []map[string]interface{}, err error) {
+	var found bool
+	key := fmt.Sprintf("%s/%s/%d", org, repo, cid)
+	if ctx.Debug > 1 {
+		shared.Printf("githubCommentReactions %s\n", key)
+	}
+	// Try memory cache 1st
+	if CacheGitHubCommentReactions {
+		if j.GitHubCommentReactionsMtx != nil {
+			j.GitHubCommentReactionsMtx.RLock()
+		}
+		reactions, found = j.GitHubCommentReactions[key]
+		if j.GitHubCommentReactionsMtx != nil {
+			j.GitHubCommentReactionsMtx.RUnlock()
+		}
+		if found {
+			if ctx.Debug > 2 {
+				shared.Printf("comment reactions found in cache: %+v\n", reactions)
+			}
+			return
+		}
+	}
+	var c *github.Client
+	if j.GitHubMtx != nil {
+		j.GitHubMtx.RLock()
+	}
+	c = j.Clients[j.Hint]
+	if j.GitHubMtx != nil {
+		j.GitHubMtx.RUnlock()
+	}
+	opt := &github.ListOptions{}
+	opt.PerPage = ItemsPerPage
+	retry := false
+	for {
+		var (
+			response *github.Response
+			reacts   []*github.Reaction
+			e        error
+		)
+		reacts, response, e = c.Reactions.ListIssueCommentReactions(j.Context, org, repo, cid, opt)
+		if ctx.Debug > 2 {
+			shared.Printf("GET %s/%s/%d -> {%+v, %+v, %+v}\n", org, repo, cid, reacts, response, e)
+		}
+		if e != nil && strings.Contains(e.Error(), "404 Not Found") {
+			if CacheGitHubCommentReactions {
+				if j.GitHubCommentReactionsMtx != nil {
+					j.GitHubCommentReactionsMtx.Lock()
+				}
+				j.GitHubCommentReactions[key] = []map[string]interface{}{}
+				if j.GitHubCommentReactionsMtx != nil {
+					j.GitHubCommentReactionsMtx.Unlock()
+				}
+			}
+			if ctx.Debug > 1 {
+				shared.Printf("githubCommentReactions: reactions not found %s: %v\n", key, e)
+			}
+			return
+		}
+		if e != nil && !retry {
+			shared.Printf("Unable to get %s comment reactions: response: %+v, because: %+v, retrying rate\n", key, response, e)
+			shared.Printf("githubCommentReactions: handle rate\n")
+			abuse, rateLimit := j.isAbuse(e)
+			if abuse {
+				sleepFor := AbuseWaitSeconds + rand.Intn(AbuseWaitSeconds)
+				shared.Printf("GitHub detected abuse (get comment reactions %s), waiting for %ds\n", key, sleepFor)
+				time.Sleep(time.Duration(sleepFor) * time.Second)
+			}
+			if rateLimit {
+				shared.Printf("Rate limit reached on a token (get comment reactions %s) waiting 1s before token switch\n", key)
+				time.Sleep(time.Duration(1) * time.Second)
+			}
+			if j.GitHubMtx != nil {
+				j.GitHubMtx.Lock()
+			}
+			j.Hint, _ = j.handleRate(ctx)
+			c = j.Clients[j.Hint]
+			if j.GitHubMtx != nil {
+				j.GitHubMtx.Unlock()
+			}
+			if !abuse && !rateLimit {
+				retry = true
+			}
+			continue
+		}
+		if e != nil {
+			err = e
+			return
+		}
+		for _, reaction := range reacts {
+			react := map[string]interface{}{}
+			jm, _ := jsoniter.Marshal(reaction)
+			_ = jsoniter.Unmarshal(jm, &react)
+			userLogin, ok := shared.Dig(react, []string{"user", "login"}, false, true)
+			if ok {
+				react["user_data"], _, err = j.githubUser(ctx, userLogin.(string))
+				if err != nil {
+					return
+				}
+			}
+			reactions = append(reactions, react)
+		}
+		if response.NextPage == 0 {
+			break
+		}
+		opt.Page = response.NextPage
+		if ctx.Debug > 0 {
+			shared.Printf("processing next comment reactions page: %d\n", opt.Page)
+		}
+		retry = false
+	}
+	if ctx.Debug > 2 {
+		shared.Printf("comment reactions got from API: %+v\n", reactions)
+	}
+	if CacheGitHubCommentReactions {
+		if j.GitHubCommentReactionsMtx != nil {
+			j.GitHubCommentReactionsMtx.Lock()
+		}
+		j.GitHubCommentReactions[key] = reactions
+		if j.GitHubCommentReactionsMtx != nil {
+			j.GitHubCommentReactionsMtx.Unlock()
+		}
+	}
+	return
+}
+
+func (j *DSGitHub) githubIssueReactions(ctx *shared.Ctx, org, repo string, number int) (reactions []map[string]interface{}, err error) {
+	var found bool
+	key := fmt.Sprintf("%s/%s/%d", org, repo, number)
+	if ctx.Debug > 1 {
+		shared.Printf("githubIssueReactions %s\n", key)
+	}
+	// Try memory cache 1st
+	if CacheGitHubIssueReactions {
+		if j.GitHubIssueReactionsMtx != nil {
+			j.GitHubIssueReactionsMtx.RLock()
+		}
+		reactions, found = j.GitHubIssueReactions[key]
+		if j.GitHubIssueReactionsMtx != nil {
+			j.GitHubIssueReactionsMtx.RUnlock()
+		}
+		if found {
+			if ctx.Debug > 2 {
+				shared.Printf("issue reactions found in cache: %+v\n", reactions)
+			}
+			return
+		}
+	}
+	var c *github.Client
+	if j.GitHubMtx != nil {
+		j.GitHubMtx.RLock()
+	}
+	c = j.Clients[j.Hint]
+	if j.GitHubMtx != nil {
+		j.GitHubMtx.RUnlock()
+	}
+	opt := &github.ListOptions{}
+	opt.PerPage = ItemsPerPage
+	retry := false
+	for {
+		var (
+			response *github.Response
+			reacts   []*github.Reaction
+			e        error
+		)
+		reacts, response, e = c.Reactions.ListIssueReactions(j.Context, org, repo, number, opt)
+		if ctx.Debug > 2 {
+			shared.Printf("GET %s/%s/%d -> {%+v, %+v, %+v}\n", org, repo, number, reacts, response, e)
+		}
+		if e != nil && strings.Contains(e.Error(), "404 Not Found") {
+			if CacheGitHubIssueReactions {
+				if j.GitHubIssueReactionsMtx != nil {
+					j.GitHubIssueReactionsMtx.Lock()
+				}
+				j.GitHubIssueReactions[key] = []map[string]interface{}{}
+				if j.GitHubIssueReactionsMtx != nil {
+					j.GitHubIssueReactionsMtx.Unlock()
+				}
+			}
+			if ctx.Debug > 1 {
+				shared.Printf("githubIssueReactions: reactions not found %s: %v\n", key, e)
+			}
+			return
+		}
+		if e != nil && !retry {
+			shared.Printf("Unable to get %s issue reactions: response: %+v, because: %+v, retrying rate\n", key, response, e)
+			shared.Printf("githubIssueReactions: handle rate\n")
+			abuse, rateLimit := j.isAbuse(e)
+			if abuse {
+				sleepFor := AbuseWaitSeconds + rand.Intn(AbuseWaitSeconds)
+				shared.Printf("GitHub detected abuse (get issue reactions %s), waiting for %ds\n", key, sleepFor)
+				time.Sleep(time.Duration(sleepFor) * time.Second)
+			}
+			if rateLimit {
+				shared.Printf("Rate limit reached on a token (get issue reactions %s) waiting 1s before token switch\n", key)
+				time.Sleep(time.Duration(1) * time.Second)
+			}
+			if j.GitHubMtx != nil {
+				j.GitHubMtx.Lock()
+			}
+			j.Hint, _ = j.handleRate(ctx)
+			c = j.Clients[j.Hint]
+			if j.GitHubMtx != nil {
+				j.GitHubMtx.Unlock()
+			}
+			if !abuse && !rateLimit {
+				retry = true
+			}
+			continue
+		}
+		if e != nil {
+			err = e
+			return
+		}
+		for _, reaction := range reacts {
+			react := map[string]interface{}{}
+			jm, _ := jsoniter.Marshal(reaction)
+			_ = jsoniter.Unmarshal(jm, &react)
+			userLogin, ok := shared.Dig(react, []string{"user", "login"}, false, true)
+			if ok {
+				react["user_data"], _, err = j.githubUser(ctx, userLogin.(string))
+				if err != nil {
+					return
+				}
+			}
+			reactions = append(reactions, react)
+		}
+		if response.NextPage == 0 {
+			break
+		}
+		opt.Page = response.NextPage
+		if ctx.Debug > 0 {
+			shared.Printf("processing next issue reactions page: %d\n", opt.Page)
+		}
+		retry = false
+	}
+	if ctx.Debug > 2 {
+		shared.Printf("issue reactions got from API: %+v\n", reactions)
+	}
+	if CacheGitHubIssueReactions {
+		if j.GitHubIssueReactionsMtx != nil {
+			j.GitHubIssueReactionsMtx.Lock()
+		}
+		j.GitHubIssueReactions[key] = reactions
+		if j.GitHubIssueReactionsMtx != nil {
+			j.GitHubIssueReactionsMtx.Unlock()
+		}
+	}
+	return
+}
+
 // ItemID - return unique identifier for an item
 func (j *DSGitHub) ItemID(item interface{}) string {
 	if j.CurrentCategory == "repository" {
@@ -708,6 +1557,67 @@ func (j *DSGitHub) AddMetadata(ctx *shared.Ctx, item interface{}) (mItem map[str
 	return
 }
 
+// ProcessIssue - add issues sub items
+func (j *DSGitHub) ProcessIssue(ctx *shared.Ctx, inIssue map[string]interface{}) (issue map[string]interface{}, err error) {
+	issue = inIssue
+	issue["user_data"] = map[string]interface{}{}
+	issue["assignee_data"] = map[string]interface{}{}
+	issue["assignees_data"] = []interface{}{}
+	issue["comments_data"] = []interface{}{}
+	issue["reactions_data"] = []interface{}{}
+	// ["user", "assignee", "assignees", "comments", "reactions"]
+	userLogin, ok := shared.Dig(issue, []string{"user", "login"}, false, true)
+	if ok {
+		issue["user_data"], _, err = j.githubUser(ctx, userLogin.(string))
+		if err != nil {
+			return
+		}
+	}
+	assigneeLogin, ok := shared.Dig(issue, []string{"assignee", "login"}, false, true)
+	if ok {
+		issue["assignee_data"], _, err = j.githubUser(ctx, assigneeLogin.(string))
+		if err != nil {
+			return
+		}
+	}
+	iAssignees, ok := shared.Dig(issue, []string{"assignees"}, false, true)
+	if ok {
+		assignees, _ := iAssignees.([]interface{})
+		assigneesAry := []map[string]interface{}{}
+		for _, assignee := range assignees {
+			aLogin, ok := shared.Dig(assignee, []string{"login"}, false, true)
+			if ok {
+				assigneeData, _, e := j.githubUser(ctx, aLogin.(string))
+				if e != nil {
+					err = e
+					return
+				}
+				assigneesAry = append(assigneesAry, assigneeData)
+			}
+		}
+		issue["assignees_data"] = assigneesAry
+	}
+	number, ok := shared.Dig(issue, []string{"number"}, false, true)
+	if ok {
+		issue["comments_data"], err = j.githubIssueComments(ctx, j.Org, j.Repo, int(number.(float64)))
+		if err != nil {
+			return
+		}
+		iCnt, ok := shared.Dig(issue, []string{"reactions", "total_count"}, false, true)
+		if ok {
+			issue["reactions_data"] = []interface{}{}
+			cnt := int(iCnt.(float64))
+			if cnt > 0 {
+				issue["reactions_data"], err = j.githubIssueReactions(ctx, j.Org, j.Repo, int(number.(float64)))
+				if err != nil {
+					return
+				}
+			}
+		}
+	}
+	return
+}
+
 // FetchItemsRepository - implement raw repository data for GitHub datasource
 func (j *DSGitHub) FetchItemsRepository(ctx *shared.Ctx) (err error) {
 	items := []interface{}{}
@@ -725,10 +1635,166 @@ func (j *DSGitHub) FetchItemsRepository(ctx *shared.Ctx) (err error) {
 	}
 	esItem["data"] = item
 	items = append(items, esItem)
+	// NOTE: non-generic
 	// err = SendToQueue(ctx, j, true, UUID, items)
 	err = j.GitHubEnrichItems(ctx, items, &docs, true)
 	if err != nil {
 		shared.Printf("%s/%s: Error %v sending %d repo stats to queue\n", j.URL, j.CurrentCategory, err, len(items))
+	}
+	return
+}
+
+// FetchItemsIssue - implement raw issue data for GitHub datasource
+func (j *DSGitHub) FetchItemsIssue(ctx *shared.Ctx) (err error) {
+	// Process issues (possibly in threads)
+	var (
+		ch           chan error
+		allDocs      []interface{}
+		allIssues    []interface{}
+		allIssuesMtx *sync.Mutex
+		escha        []chan error
+		eschaMtx     *sync.Mutex
+	)
+	if j.ThrN > 1 {
+		ch = make(chan error)
+		allIssuesMtx = &sync.Mutex{}
+		eschaMtx = &sync.Mutex{}
+	}
+	nThreads, nIss, issProcessed := 0, 0, 0
+	processIssue := func(c chan error, issue map[string]interface{}) (wch chan error, e error) {
+		defer func() {
+			if c != nil {
+				c <- e
+			}
+		}()
+		item, err := j.ProcessIssue(ctx, issue)
+		shared.FatalOnError(err)
+		esItem := j.AddMetadata(ctx, item)
+		if ctx.Project != "" {
+			item["project"] = ctx.Project
+		}
+		esItem["data"] = item
+		if issProcessed%ItemsPerPage == 0 {
+			shared.Printf("%s/%s: processed %d/%d issues\n", j.URL, j.CurrentCategory, issProcessed, nIss)
+		}
+		if allIssuesMtx != nil {
+			allIssuesMtx.Lock()
+		}
+		allIssues = append(allIssues, esItem)
+		nIssues := len(allIssues)
+		if nIssues >= ctx.PackSize {
+			sendToQueue := func(c chan error) (ee error) {
+				defer func() {
+					if c != nil {
+						c <- ee
+					}
+				}()
+				ee = j.GitHubEnrichItems(ctx, allIssues, &allDocs, false)
+				//ee = SendToQueue(ctx, j, true, UUID, allIssues)
+				if ee != nil {
+					shared.Printf("%s/%s: error %v sending %d issues to queue\n", j.URL, j.CurrentCategory, ee, len(allIssues))
+				}
+				allIssues = []interface{}{}
+				if allIssuesMtx != nil {
+					allIssuesMtx.Unlock()
+				}
+				return
+			}
+			if j.ThrN > 1 {
+				wch = make(chan error)
+				go func() {
+					_ = sendToQueue(wch)
+				}()
+			} else {
+				e = sendToQueue(nil)
+				if e != nil {
+					return
+				}
+			}
+		} else {
+			if allIssuesMtx != nil {
+				allIssuesMtx.Unlock()
+			}
+		}
+		return
+	}
+	issues, err := j.githubIssues(ctx, j.Org, j.Repo, ctx.DateFrom)
+	shared.FatalOnError(err)
+	runtime.GC()
+	nIss = len(issues)
+	shared.Printf("%s/%s: got %d issues\n", j.URL, j.CurrentCategory, nIss)
+	if j.ThrN > 1 {
+		for _, issue := range issues {
+			go func(iss map[string]interface{}) {
+				var (
+					e    error
+					esch chan error
+				)
+				esch, e = processIssue(ch, iss)
+				if e != nil {
+					shared.Printf("%s/%s: issues process error: %v\n", j.URL, j.CurrentCategory, e)
+					return
+				}
+				if esch != nil {
+					if eschaMtx != nil {
+						eschaMtx.Lock()
+					}
+					escha = append(escha, esch)
+					if eschaMtx != nil {
+						eschaMtx.Unlock()
+					}
+				}
+			}(issue)
+			nThreads++
+			if nThreads == j.ThrN {
+				err = <-ch
+				if err != nil {
+					return
+				}
+				issProcessed++
+				nThreads--
+			}
+		}
+		for nThreads > 0 {
+			err = <-ch
+			nThreads--
+			if err != nil {
+				return
+			}
+			issProcessed++
+		}
+	} else {
+		for _, issue := range issues {
+			_, err = processIssue(nil, issue)
+			if err != nil {
+				return
+			}
+			issProcessed++
+		}
+	}
+	if eschaMtx != nil {
+		eschaMtx.Lock()
+	}
+	for _, esch := range escha {
+		err = <-esch
+		if err != nil {
+			if eschaMtx != nil {
+				eschaMtx.Unlock()
+			}
+			return
+		}
+	}
+	if eschaMtx != nil {
+		eschaMtx.Unlock()
+	}
+	nIssues := len(allIssues)
+	if ctx.Debug > 0 {
+		shared.Printf("%d remaining issues to send to queue\n", nIssues)
+	}
+	// err = SendToQueue(ctx, j, true, UUID, allIssues)
+	err = j.GitHubEnrichItems(ctx, allIssues, &allDocs, true)
+	if err != nil {
+		shared.Printf("%s/%s: error %v sending %d issues to queue\n", j.URL, j.CurrentCategory, err, len(allIssues))
 	}
 	return
 }
@@ -915,9 +1981,9 @@ func (j *DSGitHub) SyncCurrentCategory(ctx *shared.Ctx) (err error) {
 	switch j.CurrentCategory {
 	case "repository":
 		return j.FetchItemsRepository(ctx)
+	case "issue":
+		return j.FetchItemsIssue(ctx)
 		// FIXME
-		//case "issue":
-		//	return j.FetchItemsIssue(ctx)
 		//case "pull_request":
 		//	return j.FetchItemsPullRequest(ctx)
 	}
