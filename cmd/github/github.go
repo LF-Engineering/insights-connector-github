@@ -115,6 +115,8 @@ var (
 	GitHubPullRequestRequestedReviewerRoles = []string{"requested_reviewer"}
 	// GitHubPullRequestReviewRoles - roles to fetch affiliation data for github pull request comment
 	GitHubPullRequestReviewRoles = []string{"user_data"}
+	// GitHubPullRequestCommitRoles - roles to fetch affiliation data for github pull request commit
+	GitHubPullRequestCommitRoles = []string{"author_data", "committer_data"}
 	gGitHubDataSource            = &models.DataSource{Name: "GitHub", Slug: "github", Categories: []string{}}
 	gGitHubMetaData              = &models.MetaData{BackendName: "github", BackendVersion: GitHubBackendVersion}
 	gMaxUpstreamDt               time.Time
@@ -2621,24 +2623,10 @@ func (j *DSGitHub) ProcessPull(ctx *shared.Ctx, inPull map[string]interface{}) (
 		if err != nil {
 			return
 		}
-		// FIXME: process this in ModelData
 		pull["commits_data"], err = j.githubPullCommits(ctx, j.Org, j.Repo, iNumber, true)
-		// NOTE: non-deep commits
-		/*
-			var commitsData []map[string]interface{}
-			commitsData, err = j.githubPullCommits(ctx, j.Org, j.Repo, iNumber, false)
-			if err != nil {
-				return
-			}
-			ary := []interface{}{}
-			for _, com := range commitsData {
-				sha, ok := shared.Dig(com, []string{"sha"}, false, true)
-				if ok {
-					ary = append(ary, sha)
-				}
-			}
-			pull["commits_data"] = ary
-		*/
+		if err != nil {
+			return
+		}
 	}
 	userLogin, ok := shared.Dig(pull, []string{"user", "login"}, false, true)
 	if ok {
@@ -3318,7 +3306,6 @@ func (j *DSGitHub) EnrichPullRequestComments(ctx *shared.Ctx, pull map[string]in
 		iCreatedAt, _ := comment["created_at"]
 		createdAt, _ := shared.TimeParseInterfaceString(iCreatedAt)
 		rich["metadata__updated_on"] = createdAt
-		// FIXME
 		rich["roles"] = j.GetRoles(ctx, comment, GitHubPullRequestCommentRoles, createdAt)
 		// NOTE: From shared
 		rich["metadata__enriched_on"] = time.Now()
@@ -3704,6 +3691,60 @@ func (j *DSGitHub) EnrichPullRequestRequestedReviewers(ctx *shared.Ctx, pull map
 	return
 }
 
+// EnrichPullRequestCommits - return rich commits from raw pull request
+func (j *DSGitHub) EnrichPullRequestCommits(ctx *shared.Ctx, pull map[string]interface{}, commits []map[string]interface{}) (richItems []interface{}, err error) {
+	// type: category, type(_), item_type( ), pull_request_commit=true
+	// copy pull request: github_repo, repo_name, repository
+	// identify: id, id_in_repo, pull_request_commit_author, pull_request_commit_committer, sha
+	// standard: metadata..., origin, project, project_slug, uuid
+	// parent: pull_request_id, pull_request_number
+	// common: is_github_pull_request=1, is_github_pull_request_commit=1
+	iID, _ := pull["id"]
+	id, _ := iID.(string)
+	iPullID, _ := pull["pull_request_id"]
+	pullID := int(iPullID.(float64))
+	pullNumber, _ := pull["id_in_repo"]
+	iNumber, _ := pullNumber.(int)
+	iGithubRepo, _ := pull["github_repo"]
+	githubRepo, _ := iGithubRepo.(string)
+	copyPullFields := []string{"category", "github_repo", "repo_name", "repository", "repo_short_name"}
+	for _, commit := range commits {
+		rich := make(map[string]interface{})
+		for _, field := range shared.RawFields {
+			v, _ := pull[field]
+			rich[field] = v
+		}
+		for _, field := range copyPullFields {
+			rich[field], _ = pull[field]
+		}
+		if ctx.Project != "" {
+			rich["project"] = ctx.Project
+		}
+		rich["type"] = "pull_request_commit"
+		rich["item_type"] = "pull request commit"
+		rich["pull_request_commit"] = true
+		rich["pull_request_id"] = pullID
+		rich["pull_request_number"] = pullNumber
+		sha, _ := commit["sha"].(string)
+		rich["id_in_repo"] = sha
+		rich["sha"] = sha
+		rich["id"] = id + "/commit/" + sha
+		rich["url_id"] = fmt.Sprintf("%s/pulls/%d/commits/%s", githubRepo, iNumber, sha)
+		rich["url"], _ = commit["url"]
+		// We consider commit enrollment at pull request creation date
+		iCreatedAt, _ := pull["created_at"]
+		createdAt, _ := iCreatedAt.(time.Time)
+		rich["metadata__updated_on"] = createdAt
+		rich["roles"] = j.GetRoles(ctx, commit, GitHubPullRequestCommitRoles, createdAt)
+		// NOTE: From shared
+		rich["metadata__enriched_on"] = time.Now()
+		// rich[ProjectSlug] = ctx.ProjectSlug
+		// rich["groups"] = ctx.Groups
+		richItems = append(richItems, rich)
+	}
+	return
+}
+
 // EnrichPullRequestItem - return rich item from raw item for a given author type
 func (j *DSGitHub) EnrichPullRequestItem(ctx *shared.Ctx, item map[string]interface{}) (rich map[string]interface{}, err error) {
 	rich = make(map[string]interface{})
@@ -3895,18 +3936,24 @@ func (j *DSGitHub) EnrichPullRequestItem(ctx *shared.Ctx, item map[string]interf
 		rich["requested_reviewers_data"] = requestedReviewers
 	}
 	rich["n_requested_reviewers"] = nRequestedReviewers
-	// FIXME
 	nCommits := 0
 	iCommits, ok := pull["commits_data"]
 	if ok && iCommits != nil {
-		ary, _ := iCommits.([]interface{})
-		nCommits = len(ary)
 		rich["commits_data"] = iCommits
-		// FIXME
-		fmt.Printf("commits_data.1: %+v\n", iCommits)
+		commits, _ := iCommits.([]map[string]interface{})
+		nCommits = len(commits)
+		shas := []string{}
+		for _, commit := range commits {
+			iSHA, _ := commit["sha"]
+			sha, _ := iSHA.(string)
+			if sha != "" {
+				shas = append(shas, sha)
+			}
+			// we also have author & committer here, but we don't need it
+		}
+		rich["shas"] = shas
 	}
 	rich["n_commits"] = nCommits
-	//
 	nCommenters := 0
 	nComments := 0
 	reactions := 0
@@ -4013,7 +4060,6 @@ func (j *DSGitHub) EnrichPullRequestItem(ctx *shared.Ctx, item map[string]interf
 		rich["time_to_first_attention"] = float64(firstAttentionDate.Sub(createdAt).Seconds()) / 86400.0
 	}
 	rich["metadata__updated_on"] = createdAt
-	// FIXME
 	rich["roles"] = j.GetRoles(ctx, pull, GitHubPullRequestRoles, createdAt)
 	// NOTE: From shared
 	rich["metadata__enriched_on"] = time.Now()
@@ -4252,7 +4298,6 @@ func (j *DSGitHub) EnrichIssueItem(ctx *shared.Ctx, item map[string]interface{})
 		rich["time_to_first_attention"] = float64(firstAttention.Sub(createdAt).Seconds()) / 86400.0
 	}
 	rich["metadata__updated_on"] = createdAt
-	// FIXME
 	rich["roles"] = j.GetRoles(ctx, issue, GitHubIssueRoles, createdAt)
 	// NOTE: From shared
 	rich["metadata__enriched_on"] = time.Now()
@@ -4351,7 +4396,6 @@ func (j *DSGitHub) EnrichIssueComments(ctx *shared.Ctx, issue map[string]interfa
 		iCreatedAt, _ := comment["created_at"]
 		createdAt, _ := shared.TimeParseInterfaceString(iCreatedAt)
 		rich["metadata__updated_on"] = createdAt
-		// FIXME
 		rich["roles"] = j.GetRoles(ctx, comment, GitHubIssueCommentRoles, createdAt)
 		// NOTE: From shared
 		rich["metadata__enriched_on"] = time.Now()
@@ -4425,7 +4469,6 @@ func (j *DSGitHub) EnrichIssueAssignees(ctx *shared.Ctx, issue map[string]interf
 		iCreatedAt, _ := issue["created_at"]
 		createdAt, _ := iCreatedAt.(time.Time)
 		rich["metadata__updated_on"] = createdAt
-		// FIXME
 		rich["roles"] = j.GetRoles(ctx, map[string]interface{}{"assignee": assignee}, GitHubIssueAssigneeRoles, createdAt)
 		// NOTE: From shared
 		rich["metadata__enriched_on"] = time.Now()
@@ -4548,7 +4591,6 @@ func (j *DSGitHub) EnrichIssueReactions(ctx *shared.Ctx, issue map[string]interf
 			rich["actor_geolocation"] = nil
 		}
 		rich["metadata__updated_on"] = createdAt
-		// FIXME
 		rich["roles"] = j.GetRoles(ctx, reaction, GitHubIssueReactionRoles, createdAt)
 		// NOTE: From shared
 		rich["metadata__enriched_on"] = time.Now()
@@ -4781,8 +4823,8 @@ func (j *DSGitHub) GitHubPullRequestEnrichItemsFunc(ctx *shared.Ctx, items []int
 		// pr:    review_comments_data[].user_data
 		// pr:    review_comments_data[].reactions_data[].user_data
 		// pr:    requested_reviewers_data[].user_data
-		// FIXME
-		// pr:    commits_data[].user_data
+		// pr:    commits_data[].author_data
+		// pr:    commits_data[].committer_data
 		if WantEnrichPullRequestAssignees {
 			iAssignees, ok := shared.Dig(data, []string{"assignees_data"}, false, true)
 			if ok && iAssignees != nil {
@@ -4902,14 +4944,17 @@ func (j *DSGitHub) GitHubPullRequestEnrichItemsFunc(ctx *shared.Ctx, items []int
 				}
 			}
 		}
-		// FIXME
 		if WantEnrichPullRequestCommits {
 			iCommits, ok := shared.Dig(data, []string{"commits_data"}, false, true)
 			if ok && iCommits != nil {
-				commits, ok := iCommits.([]interface{})
-				if ok {
-					// FIXME
-					fmt.Printf("commits_data.2: %+v\n", commits)
+				commits, ok := iCommits.([]map[string]interface{})
+				if ok && len(commits) > 0 {
+					var riches []interface{}
+					riches, e = j.EnrichPullRequestCommits(ctx, rich, commits)
+					if e != nil {
+						return
+					}
+					rich["commits_array"] = riches
 				}
 			}
 		}
