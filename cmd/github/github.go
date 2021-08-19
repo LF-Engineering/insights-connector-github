@@ -382,6 +382,7 @@ func (j *DSGitHub) Validate(ctx *shared.Ctx) (err error) {
 		j.CacheDir = j.CacheDir[:len(j.CacheDir)-1]
 	}
 	_ = os.MkdirAll(j.CacheDir, 0777)
+	j.CacheDir += "/"
 	return
 }
 
