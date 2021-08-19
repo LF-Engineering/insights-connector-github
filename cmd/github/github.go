@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"os"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -1655,11 +1656,13 @@ func (j *DSGitHub) FetchItemsIssue(ctx *shared.Ctx) (err error) {
 		allIssuesMtx *sync.Mutex
 		escha        []chan error
 		eschaMtx     *sync.Mutex
+		issProcMtx   *sync.Mutex
 	)
 	if j.ThrN > 1 {
 		ch = make(chan error)
 		allIssuesMtx = &sync.Mutex{}
 		eschaMtx = &sync.Mutex{}
+		issProcMtx = &sync.Mutex{}
 	}
 	nThreads, nIss, issProcessed := 0, 0, 0
 	processIssue := func(c chan error, issue map[string]interface{}) (wch chan error, e error) {
@@ -1674,9 +1677,16 @@ func (j *DSGitHub) FetchItemsIssue(ctx *shared.Ctx) (err error) {
 		if ctx.Project != "" {
 			item["project"] = ctx.Project
 		}
+		if issProcMtx != nil {
+			issProcMtx.Lock()
+		}
+		issProc := issProcessed
+		if issProcMtx != nil {
+			issProcMtx.Unlock()
+		}
 		esItem["data"] = item
-		if issProcessed%ItemsPerPage == 0 {
-			shared.Printf("%s/%s: processed %d/%d issues\n", j.URL, j.CurrentCategory, issProcessed, nIss)
+		if issProc%ItemsPerPage == 0 {
+			shared.Printf("%s/%s: processed %d/%d issues\n", j.URL, j.CurrentCategory, issProc, nIss)
 		}
 		if allIssuesMtx != nil {
 			allIssuesMtx.Lock()
@@ -1752,7 +1762,13 @@ func (j *DSGitHub) FetchItemsIssue(ctx *shared.Ctx) (err error) {
 				if err != nil {
 					return
 				}
+				if issProcMtx != nil {
+					issProcMtx.Lock()
+				}
 				issProcessed++
+				if issProcMtx != nil {
+					issProcMtx.Unlock()
+				}
 				nThreads--
 			}
 		}
@@ -1762,7 +1778,13 @@ func (j *DSGitHub) FetchItemsIssue(ctx *shared.Ctx) (err error) {
 			if err != nil {
 				return
 			}
+			if issProcMtx != nil {
+				issProcMtx.Lock()
+			}
 			issProcessed++
+			if issProcMtx != nil {
+				issProcMtx.Unlock()
+			}
 		}
 	} else {
 		for _, issue := range issues {
@@ -1796,6 +1818,880 @@ func (j *DSGitHub) FetchItemsIssue(ctx *shared.Ctx) (err error) {
 	err = j.GitHubEnrichItems(ctx, allIssues, &allDocs, true)
 	if err != nil {
 		shared.Printf("%s/%s: error %v sending %d issues to queue\n", j.URL, j.CurrentCategory, err, len(allIssues))
+	}
+	return
+}
+
+// GetFirstIssueAttention - get first non-author action date on the issue
+func (j *DSGitHub) GetFirstIssueAttention(issue map[string]interface{}) (dt time.Time) {
+	iUserLogin, _ := shared.Dig(issue, []string{"user", "login"}, false, true)
+	userLogin, _ := iUserLogin.(string)
+	dts := []time.Time{}
+	udts := []time.Time{}
+	iComments, ok := issue["comments_data"]
+	if ok && iComments != nil {
+		ary, _ := iComments.([]interface{})
+		for _, iComment := range ary {
+			comment, _ := iComment.(map[string]interface{})
+			iCommentLogin, _ := shared.Dig(comment, []string{"user", "login"}, false, true)
+			commentLogin, _ := iCommentLogin.(string)
+			iCreatedAt, _ := comment["created_at"]
+			createdAt, _ := shared.TimeParseInterfaceString(iCreatedAt)
+			if userLogin == commentLogin {
+				udts = append(udts, createdAt)
+				continue
+			}
+			dts = append(dts, createdAt)
+		}
+	}
+	// NOTE: p2o does it but reactions API doesn't have any datetimefield specifying when reaction was made
+	/*
+		iReactions, ok := issue["reactions_data"]
+		if ok && iReactions != nil {
+			ary, _ := iReactions.([]interface{})
+			for _, iReaction := range ary {
+				reaction, _ := iReaction.(map[string]interface{})
+				iReactionLogin, _ := shared.Dig(reaction, []string{"user", "login"}, false, true)
+				reactionLogin, _ := iReactionLogin.(string)
+				if userLogin == reactionLogin {
+					continue
+				}
+				iCreatedAt, _ := reaction["created_at"]
+				createdAt, _ := TimeParseInterfaceString(iCreatedAt)
+				dts = append(dts, createdAt)
+			}
+		}
+	*/
+	nDts := len(dts)
+	if nDts == 0 {
+		// If there was no action of anybody else that author's, then fallback to author's actions
+		dts = udts
+		nDts = len(dts)
+	}
+	switch nDts {
+	case 0:
+		dt = time.Now()
+	case 1:
+		dt = dts[0]
+	default:
+		sort.Slice(dts, func(i, j int) bool {
+			return dts[i].Before(dts[j])
+		})
+		dt = dts[0]
+	}
+	return
+}
+
+// EnrichIssueItem - return rich item from raw item for a given author type
+func (j *DSGitHub) EnrichIssueItem(ctx *shared.Ctx, item map[string]interface{}) (rich map[string]interface{}, err error) {
+	rich = make(map[string]interface{})
+	issue, ok := item["data"].(map[string]interface{})
+	if !ok {
+		err = fmt.Errorf("missing data field in item %+v", shared.DumpKeys(item))
+		return
+	}
+	for _, field := range shared.RawFields {
+		v, _ := item[field]
+		rich[field] = v
+	}
+	if ctx.Project != "" {
+		rich["project"] = ctx.Project
+	}
+	rich["repo_name"] = j.URL
+	rich["repository"] = j.URL
+	// I think we don't need original UUID in id
+	/*
+		uuid, ok := rich[UUID].(string)
+		if !ok {
+			err = fmt.Errorf("cannot read string uuid from %+v", DumpPreview(rich, 100))
+			return
+		}
+		iid := uuid + "/" + j.ItemID(issue)
+		rich["id"] = iid
+	*/
+	rich["id"] = j.ItemID(issue)
+	rich["issue_id"], _ = issue["id"]
+	iCreatedAt, _ := issue["created_at"]
+	createdAt, _ := shared.TimeParseInterfaceString(iCreatedAt)
+	updatedOn, _ := shared.Dig(item, []string{"metadata__updated_on"}, true, false)
+	rich["type"] = j.CurrentCategory
+	rich["category"] = j.CurrentCategory
+	now := time.Now()
+	rich["created_at"] = createdAt
+	rich["updated_at"] = updatedOn
+	iClosedAt, ok := issue["closed_at"]
+	rich["closed_at"] = iClosedAt
+	if ok && iClosedAt != nil {
+		closedAt, e := shared.TimeParseInterfaceString(iClosedAt)
+		if e == nil {
+			rich["time_to_close_days"] = float64(closedAt.Sub(createdAt).Seconds()) / 86400.0
+		} else {
+			rich["time_to_close_days"] = nil
+		}
+	} else {
+		rich["time_to_close_days"] = nil
+	}
+	state, ok := issue["state"]
+	rich["state"] = state
+	if ok && state != nil && state.(string) == "closed" {
+		rich["time_open_days"] = rich["time_to_close_days"]
+	} else {
+		rich["time_open_days"] = float64(now.Sub(createdAt).Seconds()) / 86400.0
+	}
+	iNumber, _ := issue["number"]
+	number := int(iNumber.(float64))
+	rich["id_in_repo"] = number
+	rich["title"], _ = issue["title"]
+	rich["title_analyzed"], _ = issue["title"]
+	rich["body"], _ = issue["body"]
+	rich["body_analyzed"], _ = issue["body"]
+	rich["url"], _ = issue["html_url"]
+	rich["user_login"], _ = shared.Dig(issue, []string{"user", "login"}, false, true)
+	iUserData, ok := issue["user_data"]
+	if ok && iUserData != nil {
+		user, _ := iUserData.(map[string]interface{})
+		rich["author_login"], _ = user["login"]
+		rich["author_name"], _ = user["name"]
+		rich["author_avatar_url"], _ = user["avatar_url"]
+		rich["user_avatar_url"] = rich["author_avatar_url"]
+		rich["user_name"], _ = user["name"]
+		rich["user_domain"] = nil
+		iEmail, ok := user["email"]
+		if ok {
+			email, _ := iEmail.(string)
+			ary := strings.Split(email, "@")
+			if len(ary) > 1 {
+				rich["user_domain"] = strings.TrimSpace(ary[1])
+			}
+		}
+		rich["user_org"], _ = user["company"]
+		rich["user_location"], _ = user["location"]
+		rich["user_geolocation"] = nil
+	} else {
+		rich["author_login"] = nil
+		rich["author_name"] = nil
+		rich["author_avatar_url"] = nil
+		rich["user_avatar_url"] = nil
+		rich["user_name"] = nil
+		rich["user_domain"] = nil
+		rich["user_org"] = nil
+		rich["user_location"] = nil
+		rich["user_geolocation"] = nil
+	}
+	iAssigneeData, ok := issue["assignee_data"]
+	if ok && iAssigneeData != nil {
+		assignee, _ := iAssigneeData.(map[string]interface{})
+		rich["assignee_login"], _ = assignee["login"]
+		rich["assignee_name"], _ = assignee["name"]
+		rich["assignee_avatar_url"], _ = assignee["avatar_url"]
+		rich["assignee_domain"] = nil
+		iEmail, ok := assignee["email"]
+		if ok {
+			email, _ := iEmail.(string)
+			ary := strings.Split(email, "@")
+			if len(ary) > 1 {
+				rich["assignee_domain"] = strings.TrimSpace(ary[1])
+			}
+		}
+		rich["assignee_org"], _ = assignee["company"]
+		rich["assignee_location"], _ = assignee["location"]
+		rich["assignee_geolocation"] = nil
+	} else {
+		rich["assignee_login"] = nil
+		rich["assignee_name"] = nil
+		rich["assignee_avatar_url"] = nil
+		rich["assignee_domain"] = nil
+		rich["assignee_org"] = nil
+		rich["assignee_location"] = nil
+		rich["assignee_geolocation"] = nil
+	}
+	iLabels, ok := issue["labels"]
+	if ok && iLabels != nil {
+		ary, _ := iLabels.([]interface{})
+		labels := []interface{}{}
+		for _, iLabel := range ary {
+			label, _ := iLabel.(map[string]interface{})
+			iLabelName, _ := label["name"]
+			labelName, _ := iLabelName.(string)
+			if labelName != "" {
+				labels = append(labels, labelName)
+			}
+		}
+		rich["labels"] = labels
+	}
+	nAssignees := 0
+	iAssignees, ok := issue["assignees_data"]
+	if ok && iAssignees != nil {
+		ary, _ := iAssignees.([]interface{})
+		nAssignees = len(ary)
+		assignees := []interface{}{}
+		for _, iAssignee := range ary {
+			assignee, _ := iAssignee.(map[string]interface{})
+			iAssigneeLogin, _ := assignee["login"]
+			assigneeLogin, _ := iAssigneeLogin.(string)
+			if assigneeLogin != "" {
+				assignees = append(assignees, assigneeLogin)
+			}
+		}
+		rich["assignees_data"] = assignees
+	}
+	rich["n_assignees"] = nAssignees
+	nCommenters := 0
+	nComments := 0
+	reactions := 0
+	iComments, ok := issue["comments_data"]
+	if ok && iComments != nil {
+		ary, _ := iComments.([]interface{})
+		nComments = len(ary)
+		commenters := map[string]interface{}{}
+		for _, iComment := range ary {
+			comment, _ := iComment.(map[string]interface{})
+			iCommenter, _ := shared.Dig(comment, []string{"user", "login"}, false, true)
+			commenter, _ := iCommenter.(string)
+			if commenter != "" {
+				commenters[commenter] = struct{}{}
+			}
+			iReactions, ok := shared.Dig(comment, []string{"reactions", "total_count"}, false, true)
+			if ok {
+				reacts := int(iReactions.(float64))
+				reactions += reacts
+			}
+		}
+		nCommenters = len(commenters)
+		comms := []string{}
+		for commenter := range commenters {
+			comms = append(comms, commenter)
+		}
+		rich["commenters"] = comms
+	}
+	rich["n_commenters"] = nCommenters
+	rich["n_comments"] = nComments
+	_, hasHead := issue["head"]
+	_, hasPR := issue["pull_request"]
+	if !hasHead && !hasPR {
+		rich["pull_request"] = false
+		rich["item_type"] = "issue"
+	} else {
+		rich["pull_request"] = true
+		// "pull request" and "issue pull request" are different object
+		// one is an issue object that is also a pull request, while the another is a pull request object
+		// rich["item_type"] = "pull request"
+		rich["item_type"] = "issue pull request"
+	}
+	githubRepo := j.URL
+	if strings.HasSuffix(githubRepo, ".git") {
+		githubRepo = githubRepo[:len(githubRepo)-4]
+	}
+	if strings.Contains(githubRepo, GitHubURLRoot) {
+		githubRepo = strings.Replace(githubRepo, GitHubURLRoot, "", -1)
+	}
+	var repoShortName string
+	arr := strings.Split(githubRepo, "/")
+	if len(arr) > 1 {
+		repoShortName = arr[1]
+	}
+	rich["repo_short_name"] = repoShortName
+	rich["github_repo"] = githubRepo
+	rich["url_id"] = fmt.Sprintf("%s/issues/%d", githubRepo, number)
+	rich["time_to_first_attention"] = nil
+	commentsVal := 0
+	iCommentsVal, ok := issue["comments"]
+	if ok {
+		commentsVal = int(iCommentsVal.(float64))
+	}
+	rich["n_total_comments"] = commentsVal
+	iReactions, ok := shared.Dig(issue, []string{"reactions", "total_count"}, false, true)
+	if ok {
+		reacts := int(iReactions.(float64))
+		reactions += reacts
+	}
+	rich["n_reactions"] = reactions
+	// if comments+reactions > 0 {
+	if commentsVal > 0 || nComments > 0 {
+		firstAttention := j.GetFirstIssueAttention(issue)
+		rich["time_to_first_attention"] = float64(firstAttention.Sub(createdAt).Seconds()) / 86400.0
+	}
+	rich["metadata__updated_on"] = createdAt
+	// FIXME
+	/*
+		if affs {
+			authorKey := "user_data"
+			var affsItems map[string]interface{}
+			affsItems, err = j.AffsItems(ctx, issue, GitHubIssueRoles, createdAt)
+			if err != nil {
+				return
+			}
+			for prop, value := range affsItems {
+				rich[prop] = value
+			}
+			for _, suff := range AffsFields {
+				rich[Author+suff] = rich[authorKey+suff]
+			}
+			orgsKey := authorKey + MultiOrgNames
+			_, ok := shared.Dig(rich, []string{orgsKey}, false, true)
+			if !ok {
+				rich[orgsKey] = []interface{}{}
+			}
+		}
+	*/
+	// NOTE: From shared
+	rich["metadata__enriched_on"] = time.Now()
+	// rich[ProjectSlug] = ctx.ProjectSlug
+	// rich["groups"] = ctx.Groups
+	return
+}
+
+// EnrichIssueComments - return rich comments from raw issue
+func (j *DSGitHub) EnrichIssueComments(ctx *shared.Ctx, issue map[string]interface{}, comments []map[string]interface{}) (richItems []interface{}, err error) {
+	// type: category, type(_), item_type( ), issue_comment=true
+	// copy issue: github_repo, repo_name, repository
+	// copy comment: created_at, updated_at, body, body_analyzed, author_association, url, html_url
+	// identify: id, id_in_repo, issue_comment_id, url_id
+	// standard: metadata..., origin, project, project_slug, uuid
+	// parent: issue_id, issue_number
+	// calc: n_reactions
+	// identity: author_... -> commenter_...,
+	// common: is_github_issue=1, is_github_issue_comment=1
+	iID, _ := issue["id"]
+	id, _ := iID.(string)
+	iIssueID, _ := issue["issue_id"]
+	issueID := int(iIssueID.(float64))
+	issueNumber, _ := issue["id_in_repo"]
+	iNumber, _ := issueNumber.(int)
+	iGithubRepo, _ := issue["github_repo"]
+	githubRepo, _ := iGithubRepo.(string)
+	copyIssueFields := []string{"category", "github_repo", "repo_name", "repository", "repo_short_name", "pull_request"}
+	copyCommentFields := []string{"created_at", "updated_at", "body", "body_analyzed", "author_association", "url", "html_url"}
+	for _, comment := range comments {
+		rich := make(map[string]interface{})
+		for _, field := range shared.RawFields {
+			v, _ := issue[field]
+			rich[field] = v
+		}
+		for _, field := range copyIssueFields {
+			rich[field], _ = issue[field]
+		}
+		for _, field := range copyCommentFields {
+			rich[field], _ = comment[field]
+		}
+		if ctx.Project != "" {
+			rich["project"] = ctx.Project
+		}
+		rich["type"] = "issue_comment"
+		rich["item_type"] = "issue comment"
+		rich["issue_comment"] = true
+		rich["issue_created_at"], _ = issue["created_at"]
+		rich["issue_id"] = issueID
+		rich["issue_number"] = issueNumber
+		iCID, _ := comment["id"]
+		cid := int64(iCID.(float64))
+		rich["id_in_repo"] = cid
+		rich["issue_comment_id"] = cid
+		rich["id"] = id + "/comment/" + fmt.Sprintf("%d", cid)
+		rich["url_id"] = fmt.Sprintf("%s/issues/%d/comments/%d", githubRepo, iNumber, cid)
+		reactions := 0
+		iReactions, ok := shared.Dig(comment, []string{"reactions", "total_count"}, false, true)
+		if ok {
+			reactions = int(iReactions.(float64))
+		}
+		rich["n_reactions"] = reactions
+		rich["commenter_association"], _ = comment["author_association"]
+		rich["commenter_login"], _ = shared.Dig(comment, []string{"user", "login"}, false, true)
+		iCommenterData, ok := comment["user_data"]
+		if ok && iCommenterData != nil {
+			user, _ := iCommenterData.(map[string]interface{})
+			rich["author_login"], _ = user["login"]
+			rich["author_name"], _ = user["name"]
+			rich["author_avatar_url"], _ = user["avatar_url"]
+			rich["commenter_avatar_url"] = rich["author_avatar_url"]
+			rich["commenter_name"], _ = user["name"]
+			rich["commenter_domain"] = nil
+			iEmail, ok := user["email"]
+			if ok {
+				email, _ := iEmail.(string)
+				ary := strings.Split(email, "@")
+				if len(ary) > 1 {
+					rich["commenter_domain"] = strings.TrimSpace(ary[1])
+				}
+			}
+			rich["commenter_org"], _ = user["company"]
+			rich["commenter_location"], _ = user["location"]
+			rich["commenter_geolocation"] = nil
+		} else {
+			rich["author_login"] = nil
+			rich["author_name"] = nil
+			rich["author_avatar_url"] = nil
+			rich["commenter_avatar_url"] = nil
+			rich["commenter_name"] = nil
+			rich["commenter_domain"] = nil
+			rich["commenter_org"] = nil
+			rich["commenter_location"] = nil
+			rich["commenter_geolocation"] = nil
+		}
+		iCreatedAt, _ := comment["created_at"]
+		createdAt, _ := shared.TimeParseInterfaceString(iCreatedAt)
+		rich["metadata__updated_on"] = createdAt
+		// FIXME
+		/*
+			if affs {
+				authorKey := "user_data"
+				var affsItems map[string]interface{}
+				affsItems, err = j.AffsItems(ctx, comment, GitHubIssueCommentRoles, createdAt)
+				if err != nil {
+					return
+				}
+				for prop, value := range affsItems {
+					rich[prop] = value
+				}
+				for _, suff := range AffsFields {
+					rich[Author+suff] = rich[authorKey+suff]
+					rich["commenter"+suff] = rich[authorKey+suff]
+				}
+				orgsKey := authorKey + MultiOrgNames
+				_, ok := shared.Dig(rich, []string{orgsKey}, false, true)
+				if !ok {
+					rich[orgsKey] = []interface{}{}
+				}
+			}
+		*/
+		// NOTE: From shared
+		rich["metadata__enriched_on"] = time.Now()
+		// rich[ProjectSlug] = ctx.ProjectSlug
+		// rich["groups"] = ctx.Groups
+		richItems = append(richItems, rich)
+	}
+	return
+}
+
+// EnrichIssueAssignees - return rich assignees from raw issue
+func (j *DSGitHub) EnrichIssueAssignees(ctx *shared.Ctx, issue map[string]interface{}, assignees []map[string]interface{}) (richItems []interface{}, err error) {
+	// type: category, type(_), item_type( ), issue_assignee=true
+	// copy issue: github_repo, repo_name, repository
+	// identify: id, id_in_repo, issue_assignee_login, url_id
+	// standard: metadata..., origin, project, project_slug, uuid
+	// parent: issue_id, issue_number
+	// identity: author_... -> assignee_...,
+	// common: is_github_issue=1, is_github_issue_assignee=1
+	iID, _ := issue["id"]
+	id, _ := iID.(string)
+	iIssueID, _ := issue["issue_id"]
+	issueID := int(iIssueID.(float64))
+	issueNumber, _ := issue["id_in_repo"]
+	iNumber, _ := issueNumber.(int)
+	iGithubRepo, _ := issue["github_repo"]
+	githubRepo, _ := iGithubRepo.(string)
+	copyIssueFields := []string{"category", "github_repo", "repo_name", "repository", "repo_short_name", "pull_request"}
+	for _, assignee := range assignees {
+		rich := make(map[string]interface{})
+		for _, field := range shared.RawFields {
+			v, _ := issue[field]
+			rich[field] = v
+		}
+		for _, field := range copyIssueFields {
+			rich[field], _ = issue[field]
+		}
+		if ctx.Project != "" {
+			rich["project"] = ctx.Project
+		}
+		rich["type"] = "issue_assignee"
+		rich["item_type"] = "issue assignee"
+		rich["issue_assignee"] = true
+		rich["issue_id"] = issueID
+		rich["issue_number"] = issueNumber
+		iLogin, _ := assignee["login"]
+		login, _ := iLogin.(string)
+		rich["id_in_repo"], _ = assignee["id"]
+		rich["issue_assignee_login"] = login
+		rich["id"] = id + "/assignee/" + login
+		rich["url_id"] = fmt.Sprintf("%s/issues/%d/assignees/%s", githubRepo, iNumber, login)
+		rich["author_login"] = login
+		rich["author_name"], _ = assignee["name"]
+		rich["author_avatar_url"], _ = assignee["avatar_url"]
+		rich["assignee_avatar_url"] = rich["author_avatar_url"]
+		rich["assignee_login"] = login
+		rich["assignee_name"], _ = assignee["name"]
+		rich["assignee_domain"] = nil
+		iEmail, ok := assignee["email"]
+		if ok {
+			email, _ := iEmail.(string)
+			ary := strings.Split(email, "@")
+			if len(ary) > 1 {
+				rich["assignee_domain"] = strings.TrimSpace(ary[1])
+			}
+		}
+		rich["assignee_org"], _ = assignee["company"]
+		rich["assignee_location"], _ = assignee["location"]
+		rich["assignee_geolocation"] = nil
+		// We consider assignee assignment at issue creation date
+		iCreatedAt, _ := issue["created_at"]
+		createdAt, _ := iCreatedAt.(time.Time)
+		rich["metadata__updated_on"] = createdAt
+		// FIXME
+		/*
+			if affs {
+				authorKey := "assignee"
+				var affsItems map[string]interface{}
+				affsItems, err = j.AffsItems(ctx, map[string]interface{}{"assignee": assignee}, GitHubIssueAssigneeRoles, createdAt)
+				if err != nil {
+					return
+				}
+				for prop, value := range affsItems {
+					rich[prop] = value
+				}
+				for _, suff := range AffsFields {
+					rich[Author+suff] = rich[authorKey+suff]
+				}
+				orgsKey := authorKey + MultiOrgNames
+				_, ok := shared.Dig(rich, []string{orgsKey}, false, true)
+				if !ok {
+					rich[orgsKey] = []interface{}{}
+				}
+			}
+		*/
+		// NOTE: From shared
+		rich["metadata__enriched_on"] = time.Now()
+		// rich[ProjectSlug] = ctx.ProjectSlug
+		// rich["groups"] = ctx.Groups
+		richItems = append(richItems, rich)
+	}
+	return
+}
+
+// EnrichIssueReactions - return rich reactions from raw issue and/or issue comment
+func (j *DSGitHub) EnrichIssueReactions(ctx *shared.Ctx, issue map[string]interface{}, reactions []map[string]interface{}) (richItems []interface{}, err error) {
+	// type: category, type(_), item_type( ), issue_reaction=true | issue_comment_reaction=true
+	// copy issue: github_repo, repo_name, repository
+	// copy reaction: content
+	// identify: id, id_in_repo, issue_reaction_id | issue_comment_reaction_id, url_id
+	// standard: metadata..., origin, project, project_slug, uuid
+	// parent: issue_id, issue_number
+	// identity: author_... -> actor_...,
+	// common: is_github_issue=1, is_github_issue_reaction=1 | is_github_issue_comment_reaction=1
+	iID, _ := issue["id"]
+	id, _ := iID.(string)
+	iIssueID, _ := issue["issue_id"]
+	issueID := int(iIssueID.(float64))
+	issueNumber, _ := issue["id_in_repo"]
+	iNumber, _ := issueNumber.(int)
+	iGithubRepo, _ := issue["github_repo"]
+	githubRepo, _ := iGithubRepo.(string)
+	copyIssueFields := []string{"category", "github_repo", "repo_name", "repository", "repo_short_name", "pull_request"}
+	copyReactionFields := []string{"content"}
+	for _, reaction := range reactions {
+		rich := make(map[string]interface{})
+		for _, field := range shared.RawFields {
+			v, _ := issue[field]
+			rich[field] = v
+		}
+		for _, field := range copyIssueFields {
+			rich[field], _ = issue[field]
+		}
+		for _, field := range copyReactionFields {
+			rich[field], _ = reaction[field]
+		}
+		if ctx.Project != "" {
+			rich["project"] = ctx.Project
+		}
+		rich["issue_id"] = issueID
+		rich["issue_number"] = issueNumber
+		iRID, _ := reaction["id"]
+		rid := int64(iRID.(float64))
+		var (
+			comment        map[string]interface{}
+			createdAt      time.Time
+			reactionSuffix string
+		)
+		iComment, ok := reaction["parent"]
+		if ok {
+			comment, _ = iComment.(map[string]interface{})
+		}
+		if comment != nil {
+			reactionSuffix = "_comment_reaction"
+			iCID, _ := comment["id"]
+			cid := int64(iCID.(float64))
+			rich["type"] = "issue" + reactionSuffix
+			rich["item_type"] = "issue comment reaction"
+			rich["issue"+reactionSuffix] = true
+			rich["issue_comment_id"] = cid
+			rich["issue_comment_reaction_id"] = rid
+			rich["id_in_repo"] = rid
+			rich["id"] = id + "/comment/" + fmt.Sprintf("%d", cid) + "/reaction/" + fmt.Sprintf("%d", rid)
+			rich["url_id"] = fmt.Sprintf("%s/issues/%d/comments/%d/reactions/%d", githubRepo, iNumber, cid, rid)
+			iCreatedAt, _ := comment["created_at"]
+			// createdAt is comment creation date for comment reactions
+			// reaction itself doesn't have any date in GH API
+			createdAt, _ = shared.TimeParseInterfaceString(iCreatedAt)
+		} else {
+			reactionSuffix = "_reaction"
+			rich["type"] = "issue" + reactionSuffix
+			rich["item_type"] = "issue reaction"
+			rich["issue"+reactionSuffix] = true
+			rich["issue_reaction_id"] = rid
+			rich["id_in_repo"] = rid
+			rich["id"] = id + "/reaction/" + fmt.Sprintf("%d", rid)
+			rich["url_id"] = fmt.Sprintf("%s/issues/%d/reactions/%d", githubRepo, iNumber, rid)
+			iCreatedAt, _ := issue["created_at"]
+			// createdAt is issue creation date for issue reactions
+			// reaction itself doesn't have any date in GH API
+			createdAt, _ = iCreatedAt.(time.Time)
+		}
+		iUserData, ok := reaction["user_data"]
+		if ok && iUserData != nil {
+			user, _ := iUserData.(map[string]interface{})
+			rich["author_login"], _ = user["login"]
+			rich["actor_login"], _ = user["login"]
+			rich["author_name"], _ = user["name"]
+			rich["author_avatar_url"], _ = user["avatar_url"]
+			rich["actor_avatar_url"] = rich["author_avatar_url"]
+			rich["actor_name"], _ = user["name"]
+			rich["actor_domain"] = nil
+			iEmail, ok := user["email"]
+			if ok {
+				email, _ := iEmail.(string)
+				ary := strings.Split(email, "@")
+				if len(ary) > 1 {
+					rich["actor_domain"] = strings.TrimSpace(ary[1])
+				}
+			}
+			rich["actor_org"], _ = user["company"]
+			rich["actor_location"], _ = user["location"]
+			rich["actor_geolocation"] = nil
+		} else {
+			rich["author_login"] = nil
+			rich["author_name"] = nil
+			rich["author_avatar_url"] = nil
+			rich["actor_avatar_url"] = nil
+			rich["actor_login"] = nil
+			rich["actor_name"] = nil
+			rich["actor_domain"] = nil
+			rich["actor_org"] = nil
+			rich["actor_location"] = nil
+			rich["actor_geolocation"] = nil
+		}
+		rich["metadata__updated_on"] = createdAt
+		// FIXME
+		/*
+			if affs {
+				authorKey := "user_data"
+				var affsItems map[string]interface{}
+				affsItems, err = j.AffsItems(ctx, reaction, GitHubIssueReactionRoles, createdAt)
+				if err != nil {
+					return
+				}
+				for prop, value := range affsItems {
+					rich[prop] = value
+				}
+				for _, suff := range AffsFields {
+					rich[Author+suff] = rich[authorKey+suff]
+					rich["actor"+suff] = rich[authorKey+suff]
+				}
+				orgsKey := authorKey + MultiOrgNames
+				_, ok := shared.Dig(rich, []string{orgsKey}, false, true)
+				if !ok {
+					rich[orgsKey] = []interface{}{}
+				}
+			}
+		*/
+		// NOTE: From shared
+		rich["metadata__enriched_on"] = time.Now()
+		// rich[ProjectSlug] = ctx.ProjectSlug
+		// rich["groups"] = ctx.Groups
+		richItems = append(richItems, rich)
+	}
+	return
+}
+
+// GitHubIssueEnrichItemsFunc - iterate items and enrich them
+// items is a current pack of input items
+// docs is a pointer to where extracted identities will be stored
+func (j *DSGitHub) GitHubIssueEnrichItemsFunc(ctx *shared.Ctx, items []interface{}, docs *[]interface{}, final bool) (err error) {
+	if ctx.Debug > 0 {
+		shared.Printf("%s/%s: github enrich issue items %d/%d func\n", j.URL, j.CurrentCategory, len(items), len(*docs))
+	}
+	var (
+		mtx *sync.RWMutex
+		ch  chan error
+	)
+	thrN := j.ThrN
+	if thrN > 1 {
+		mtx = &sync.RWMutex{}
+		ch = make(chan error)
+	}
+	getRichItem := func(doc map[string]interface{}) (rich map[string]interface{}, e error) {
+		rich, e = j.EnrichItem(ctx, doc)
+		if e != nil {
+			return
+		}
+		data, _ := shared.Dig(doc, []string{"data"}, true, false)
+		// issue: assignees_data[]
+		// issue: comments_data[].user_data
+		// issue: comments_data[].reactions_data[].user_data
+		// issue: reactions_data[].user_data
+		iComments, ok := shared.Dig(data, []string{"comments_data"}, false, true)
+		if ok && iComments != nil {
+			comments, ok := iComments.([]interface{})
+			if ok {
+				var comms []map[string]interface{}
+				for _, iComment := range comments {
+					comment, ok := iComment.(map[string]interface{})
+					if !ok {
+						continue
+					}
+					comms = append(comms, comment)
+				}
+				if len(comms) > 0 {
+					var riches []interface{}
+					riches, e = j.EnrichIssueComments(ctx, rich, comms)
+					if e != nil {
+						return
+					}
+					rich["comments_array"] = riches
+					if WantEnrichIssueCommentReactions {
+						var reacts []map[string]interface{}
+						for _, comment := range comms {
+							iReactions, ok := shared.Dig(comment, []string{"reactions_data"}, false, true)
+							if ok && iReactions != nil {
+								reactions, ok := iReactions.([]interface{})
+								if ok {
+									for _, iReaction := range reactions {
+										reaction, ok := iReaction.(map[string]interface{})
+										if !ok {
+											continue
+										}
+										// Store parent comment (not present in issue)
+										reaction["parent"] = comment
+										reacts = append(reacts, reaction)
+									}
+								}
+							}
+						}
+						if len(reacts) > 0 {
+							var riches []interface{}
+							riches, e = j.EnrichIssueReactions(ctx, rich, reacts)
+							if e != nil {
+								return
+							}
+							rich["comments_reactions_array"] = riches
+						}
+					}
+				}
+			}
+		}
+		if WantEnrichIssueAssignees {
+			iAssignees, ok := shared.Dig(data, []string{"assignees_data"}, false, true)
+			if ok && iAssignees != nil {
+				assignees, ok := iAssignees.([]interface{})
+				if ok {
+					var asgs []map[string]interface{}
+					for _, iAssignee := range assignees {
+						assignee, ok := iAssignee.(map[string]interface{})
+						if !ok {
+							continue
+						}
+						asgs = append(asgs, assignee)
+					}
+					if len(asgs) > 0 {
+						var riches []interface{}
+						riches, e = j.EnrichIssueAssignees(ctx, rich, asgs)
+						if e != nil {
+							return
+						}
+						rich["assignees_array"] = riches
+					}
+				}
+			}
+		}
+		if WantEnrichIssueReactions {
+			iReactions, ok := shared.Dig(data, []string{"reactions_data"}, false, true)
+			if ok && iReactions != nil {
+				reactions, ok := iReactions.([]interface{})
+				if ok {
+					var reacts []map[string]interface{}
+					for _, iReaction := range reactions {
+						reaction, ok := iReaction.(map[string]interface{})
+						if !ok {
+							continue
+						}
+						reacts = append(reacts, reaction)
+					}
+					if len(reacts) > 0 {
+						var riches []interface{}
+						riches, e = j.EnrichIssueReactions(ctx, rich, reacts)
+						if e != nil {
+							return
+						}
+						rich["reactions_array"] = riches
+					}
+				}
+			}
+		}
+		return
+	}
+	nThreads := 0
+	procItem := func(c chan error, idx int) (e error) {
+		if thrN > 1 {
+			mtx.RLock()
+		}
+		item := items[idx]
+		if thrN > 1 {
+			mtx.RUnlock()
+		}
+		defer func() {
+			if c != nil {
+				c <- e
+			}
+		}()
+		// NOTE: never refer to _source - we no longer use ES
+		doc, ok := item.(map[string]interface{})
+		if !ok {
+			e = fmt.Errorf("Failed to parse document %+v", doc)
+			return
+		}
+		rich, e := getRichItem(doc)
+		if e != nil {
+			return
+		}
+		if thrN > 1 {
+			mtx.Lock()
+		}
+		*docs = append(*docs, rich)
+		// NOTE: flush here
+		if len(*docs) >= ctx.PackSize {
+			j.OutputDocs(ctx, items, docs, final)
+		}
+		if thrN > 1 {
+			mtx.Unlock()
+		}
+		return
+	}
+	if thrN > 1 {
+		for i := range items {
+			go func(i int) {
+				_ = procItem(ch, i)
+			}(i)
+			nThreads++
+			if nThreads == thrN {
+				err = <-ch
+				if err != nil {
+					return
+				}
+				nThreads--
+			}
+		}
+		for nThreads > 0 {
+			err = <-ch
+			nThreads--
+			if err != nil {
+				return
+			}
+		}
+		return
+	}
+	for i := range items {
+		err = procItem(nil, i)
+		if err != nil {
+			return
+		}
 	}
 	return
 }
@@ -1925,11 +2821,11 @@ func (j *DSGitHub) EnrichItem(ctx *shared.Ctx, item map[string]interface{}) (ric
 	switch j.CurrentCategory {
 	case "repository":
 		return j.EnrichRepositoryItem(ctx, item)
+	case "issue":
+		return j.EnrichIssueItem(ctx, item)
 		// FIXME
-		//case "issue":
-		//	return j.EnrichIssueItem(ctx, item, author, affs, extra)
 		//case "pull_request":
-		//	return j.EnrichPullRequestItem(ctx, item, author, affs, extra)
+		//	return j.EnrichPullRequestItem(ctx, item)
 	}
 	return
 }
@@ -1968,11 +2864,11 @@ func (j *DSGitHub) GitHubEnrichItems(ctx *shared.Ctx, items []interface{}, docs 
 	switch j.CurrentCategory {
 	case "repository":
 		return j.GitHubRepositoryEnrichItemsFunc(ctx, items, docs, final)
+	case "issue":
+		return j.GitHubIssueEnrichItemsFunc(ctx, items, docs, final)
 		// FIXME
-		//case "issue":
-		//	return j.GitHubIssueEnrichItemsFunc(ctx, items, docs)
 		//case "pull_request":
-		//	return j.GitHubPullRequestEnrichItemsFunc(ctx, items, docs)
+		//	return j.GitHubPullRequestEnrichItemsFunc(ctx, items, docs, final)
 	}
 	return
 }
