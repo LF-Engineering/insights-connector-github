@@ -27,24 +27,9 @@
         "IsMerged": true,
         "Labels": null,
         "MergedAt": "2021-07-13T08:31:44.000Z",
+        "State": "closed",
+        "Title": "Revert \"Add knative & knative-sandbox repo_groups\"",
         "UpdatedAt": "2021-07-13T19:29:45.000Z"
-      }
-    },
-    {
-      "CodeChangeRequest": {
-        "Activities": null,
-        "ClosedAt": "2021-03-04T04:58:21.000Z",
-        "CodeChangeRequestId": "584134117",
-        "CodeChangeRequestNumber": 287,
-        "Commits": null,
-        "CreatedAt": "2021-03-03T17:25:43.000Z",
-        "DataSourceId": "github",
-        "Id": "bc1850aa2b5998d0fb8cee02058d1982ccf1f542",
-        "IsClosed": true,
-        "IsMerged": true,
-        "Labels": null,
-        "MergedAt": "2021-03-04T04:58:21.000Z",
-        "UpdatedAt": "2021-03-04T04:58:21.000Z"
       }
     },
     {
@@ -61,6 +46,8 @@
         "IsMerged": true,
         "Labels": null,
         "MergedAt": "2021-01-22T12:14:47.000Z",
+        "State": "closed",
+        "Title": "add 2 new jenkins-x orgs to track",
         "UpdatedAt": "2021-01-22T13:00:16.000Z"
       }
     },
@@ -78,7 +65,28 @@
         "IsMerged": true,
         "Labels": null,
         "MergedAt": "2021-01-15T12:44:16.000Z",
+        "State": "closed",
+        "Title": "Run python3 /go/src/github.com/kubevirt/community/hack/generate-devstats-repo-sql.py --repo-groups-sql /go/src/github.com/cncf/devstats/scripts/kubevirt//repo_groups.sql",
         "UpdatedAt": "2021-01-15T14:02:29.000Z"
+      }
+    },
+    {
+      "CodeChangeRequest": {
+        "Activities": null,
+        "ClosedAt": "2021-03-04T04:58:21.000Z",
+        "CodeChangeRequestId": "584134117",
+        "CodeChangeRequestNumber": 287,
+        "Commits": null,
+        "CreatedAt": "2021-03-03T17:25:43.000Z",
+        "DataSourceId": "github",
+        "Id": "bc1850aa2b5998d0fb8cee02058d1982ccf1f542",
+        "IsClosed": true,
+        "IsMerged": true,
+        "Labels": null,
+        "MergedAt": "2021-03-04T04:58:21.000Z",
+        "State": "closed",
+        "Title": "Some notes on SIG Node repository group",
+        "UpdatedAt": "2021-03-04T04:58:21.000Z"
       }
     },
     {
@@ -95,6 +103,8 @@
         "IsMerged": true,
         "Labels": null,
         "MergedAt": "2021-05-08T06:09:34.000Z",
+        "State": "closed",
+        "Title": "Add knative & knative-sandbox repo_groups",
         "UpdatedAt": "2021-05-10T04:49:35.000Z"
       }
     }

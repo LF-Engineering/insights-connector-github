@@ -180,6 +180,9 @@ definitions:
       Title:
         type: string
         example: My issue title
+      State:
+        type: string
+        example: open, closed, merged
       DataSourceId:
         type: string
         example: github
