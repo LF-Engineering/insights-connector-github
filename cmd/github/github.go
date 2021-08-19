@@ -5346,6 +5346,7 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 					Title:         title,
 					State:         state,
 					Labels:        labels,
+					// FIXME
 					// Activities []*IssueActivity `json:"Activities"`
 				},
 			}
@@ -5391,6 +5392,7 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 					Title:                   title,
 					State:                   state,
 					Labels:                  labels,
+					// FIXME
 					// Activities []*CodeChangeRequestActivity `json:"Activities"`
 					// Commits []*CodeChangeRequestCommit `json:"Commits"`
 				},
