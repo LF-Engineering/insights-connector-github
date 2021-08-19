@@ -5253,20 +5253,19 @@ func (j *DSGitHub) Sync(ctx *shared.Ctx, category string) (err error) {
 // GetModelData - return data in swagger format
 func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *models.Data) {
 	endpoint := &models.DataEndpoint{
-		Org:  j.Org,
-		Repo: j.Repo,
-		URL:  j.URL,
+		Org:      j.Org,
+		Repo:     j.Repo,
+		URL:      j.URL,
+		Category: j.CurrentCategory,
 	}
 	data = &models.Data{
 		DataSource: gGitHubDataSource,
 		MetaData:   gGitHubMetaData,
 		Endpoint:   endpoint,
 	}
-	// FIXME
-	// source := data.DataSource.Slug
+	source := data.DataSource.Slug
 	switch j.CurrentCategory {
 	case "repository":
-		endpoint.Category = j.CurrentCategory
 		for _, iDoc := range docs {
 			doc, _ := iDoc.(map[string]interface{})
 			//shared.Printf("%s: %+v\n", source, doc)
@@ -5295,9 +5294,78 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 			}
 			gMaxUpstreamDtMtx.Unlock()
 		}
-		// FIXME
-		//case "issue":
-		//case "pull_request":
+	case "issue":
+		for _, iDoc := range docs {
+			doc, _ := iDoc.(map[string]interface{})
+			//shared.Printf("%s: %+v\n", source, doc)
+			updatedOn := j.ItemUpdatedOn(doc)
+			// FIXME
+			// Event
+			event := &models.Event{
+				CodeChangeRequest: nil,
+				Repository:        nil,
+				Issue: &models.Issue{
+					DataSourceID: source,
+					/*
+						Activities []*IssueActivity `json:"Activities"`
+						ClosedAt *strfmt.DateTime `json:"ClosedAt,omitempty"`
+						CreatedAt strfmt.DateTime `json:"CreatedAt,omitempty"`
+						ID string `json:"Id,omitempty"`
+						IsClosed bool `json:"IsClosed,omitempty"`
+						IsPullRequest bool `json:"IsPullRequest,omitempty"`
+						IssueID string `json:"IssueId,omitempty"`
+						IssueNumber int64 `json:"IssueNumber,omitempty"`
+						Labels []*Label `json:"Labels"`
+						Title string `json:"Title,omitempty"`
+						UpdatedAt strfmt.DateTime `json:"UpdatedAt,omitempty"`
+					*/
+				},
+			}
+			data.Events = append(data.Events, event)
+			gMaxUpstreamDtMtx.Lock()
+			if updatedOn.After(gMaxUpstreamDt) {
+				gMaxUpstreamDt = updatedOn
+			}
+			gMaxUpstreamDtMtx.Unlock()
+		}
+	case "pull_request":
+		for _, iDoc := range docs {
+			doc, _ := iDoc.(map[string]interface{})
+			//shared.Printf("%s: %+v\n", source, doc)
+			updatedOn := j.ItemUpdatedOn(doc)
+			// FIXME
+			// Event
+			event := &models.Event{
+				Issue:      nil,
+				Repository: nil,
+				CodeChangeRequest: &models.CodeChangeRequest{
+					DataSourceID: source,
+					/*
+						Activities []*CodeChangeRequestActivity `json:"Activities"`
+						ClosedAt *strfmt.DateTime `json:"ClosedAt,omitempty"`
+						CodeChangeRequestID string `json:"CodeChangeRequestId,omitempty"`
+						CodeChangeRequestNumber int64 `json:"CodeChangeRequestNumber,omitempty"`
+						Commits []*CodeChangeRequestCommit `json:"Commits"`
+						CreatedAt strfmt.DateTime `json:"CreatedAt,omitempty"`
+						ID string `json:"Id,omitempty"`
+						IsClosed bool `json:"IsClosed,omitempty"`
+						IsMerged bool `json:"IsMerged,omitempty"`
+						Labels []*Label `json:"Labels"`
+						MergedAt *strfmt.DateTime `json:"MergedAt,omitempty"`
+						State string `json:"State,omitempty"`
+						Title string `json:"Title,omitempty"`
+						// Format: date-time
+						UpdatedAt strfmt.DateTime `json:"UpdatedAt,omitempty"`
+					*/
+				},
+			}
+			data.Events = append(data.Events, event)
+			gMaxUpstreamDtMtx.Lock()
+			if updatedOn.After(gMaxUpstreamDt) {
+				gMaxUpstreamDt = updatedOn
+			}
+			gMaxUpstreamDtMtx.Unlock()
+		}
 	}
 	return
 }

@@ -263,7 +263,11 @@ definitions:
       SHA:
         type: string
         example: 2b20505d9d60202c6779342033d344dba0685d1b
-      Identity:
+      Author:
+        type: object
+        description: committer
+        $ref: "#/definitions/Identity"
+      Committer:
         type: object
         description: committer
         $ref: "#/definitions/Identity"
