@@ -88,6 +88,8 @@ const (
 	WantEnrichPullRequestCommentReactions = true
 	// WantEnrichPullRequestRequestedReviewers - do we want to create rich documents for pull request requested reviewers (it contains identity data too).
 	WantEnrichPullRequestRequestedReviewers = true
+	// WantEnrichPullRequestCommits - do we want to create rich documents for pull request commits (it contains identity data too).
+	WantEnrichPullRequestCommits = true
 )
 
 var (
@@ -1490,6 +1492,978 @@ func (j *DSGitHub) githubIssueReactions(ctx *shared.Ctx, org, repo string, numbe
 	return
 }
 
+func (j *DSGitHub) githubPull(ctx *shared.Ctx, org, repo string, number int) (pullData map[string]interface{}, err error) {
+	var found bool
+	key := fmt.Sprintf("%s/%s/%d", org, repo, number)
+	// Try memory cache 1st
+	if CacheGitHubPull {
+		if j.GitHubPullMtx != nil {
+			j.GitHubPullMtx.RLock()
+		}
+		pullData, found = j.GitHubPull[key]
+		if j.GitHubPullMtx != nil {
+			j.GitHubPullMtx.RUnlock()
+		}
+		if found {
+			if ctx.Debug > 2 {
+				shared.Printf("pull found in cache: %+v\n", pullData)
+			}
+			return
+		}
+	}
+	var c *github.Client
+	if j.GitHubMtx != nil {
+		j.GitHubMtx.RLock()
+	}
+	c = j.Clients[j.Hint]
+	if j.GitHubMtx != nil {
+		j.GitHubMtx.RUnlock()
+	}
+	retry := false
+	for {
+		var (
+			response *github.Response
+			pull     *github.PullRequest
+			e        error
+		)
+		pull, response, e = c.PullRequests.Get(j.Context, org, repo, number)
+		if ctx.Debug > 2 {
+			shared.Printf("GET %s/%s/%d -> {%+v, %+v, %+v}\n", org, repo, number, pull, response, e)
+		}
+		if e != nil && strings.Contains(e.Error(), "404 Not Found") {
+			if CacheGitHubPull {
+				if j.GitHubPullMtx != nil {
+					j.GitHubPullMtx.Lock()
+				}
+				j.GitHubPull[key] = nil
+				if j.GitHubPullMtx != nil {
+					j.GitHubPullMtx.Unlock()
+				}
+			}
+			if ctx.Debug > 1 {
+				shared.Printf("githubPull: pull not found %s: %v\n", key, e)
+			}
+			return
+		}
+		if e != nil && !retry {
+			shared.Printf("Unable to get %s pull: response: %+v, because: %+v, retrying rate\n", key, response, e)
+			shared.Printf("githubPull: handle rate\n")
+			abuse, rateLimit := j.isAbuse(e)
+			if abuse {
+				sleepFor := AbuseWaitSeconds + rand.Intn(AbuseWaitSeconds)
+				shared.Printf("GitHub detected abuse (get pull %s), waiting for %ds\n", key, sleepFor)
+				time.Sleep(time.Duration(sleepFor) * time.Second)
+			}
+			if rateLimit {
+				shared.Printf("Rate limit reached on a token (get pull %s) waiting 1s before token switch\n", key)
+				time.Sleep(time.Duration(1) * time.Second)
+			}
+			if j.GitHubMtx != nil {
+				j.GitHubMtx.Lock()
+			}
+			j.Hint, _ = j.handleRate(ctx)
+			c = j.Clients[j.Hint]
+			if j.GitHubMtx != nil {
+				j.GitHubMtx.Unlock()
+			}
+			if !abuse && !rateLimit {
+				retry = true
+			}
+			continue
+		}
+		if e != nil {
+			err = e
+			return
+		}
+		jm, _ := jsoniter.Marshal(pull)
+		_ = jsoniter.Unmarshal(jm, &pullData)
+		body, ok := shared.Dig(pullData, []string{"body"}, false, true)
+		if ok {
+			nBody := len(body.(string))
+			if nBody > MaxPullBodyLength {
+				pullData["body"] = body.(string)[:MaxPullBodyLength]
+			}
+		}
+		pullData["body_analyzed"], _ = pullData["body"]
+		if ctx.Debug > 2 {
+			shared.Printf("pull got from API: %+v\n", pullData)
+		}
+		break
+	}
+	if CacheGitHubPull {
+		if j.GitHubPullMtx != nil {
+			j.GitHubPullMtx.Lock()
+		}
+		j.GitHubPull[key] = pullData
+		if j.GitHubPullMtx != nil {
+			j.GitHubPullMtx.Unlock()
+		}
+	}
+	return
+}
+
+// githubPullsFromIssues - consider fetching this data in a stream-like mode to avoid a need of pulling all data and then of everything at once
+func (j *DSGitHub) githubPullsFromIssues(ctx *shared.Ctx, org, repo string, since *time.Time) (pullsData []map[string]interface{}, err error) {
+	var (
+		issues []map[string]interface{}
+		pull   map[string]interface{}
+		ok     bool
+	)
+	issues, err = j.githubIssues(ctx, org, repo, ctx.DateFrom)
+	if err != nil {
+		return
+	}
+	i, pulls := 0, 0
+	nIssues := len(issues)
+	shared.Printf("%s/%s: processing %d issues (to filter for PRs)\n", j.URL, j.CurrentCategory, nIssues)
+	if j.ThrN > 1 {
+		nThreads := 0
+		ch := make(chan interface{})
+		for _, issue := range issues {
+			i++
+			if i%ItemsPerPage == 0 {
+				runtime.GC()
+				shared.Printf("%s/%s: processing %d/%d issues, %d pulls so far\n", j.URL, j.CurrentCategory, i, nIssues, pulls)
+			}
+			isPR, _ := issue["is_pull"]
+			if !isPR.(bool) {
+				continue
+			}
+			pulls++
+			number, _ := issue["number"]
+			go func(ch chan interface{}, num int) {
+				pr, e := j.githubPull(ctx, org, repo, num)
+				if e != nil {
+					ch <- e
+					return
+				}
+				ch <- pr
+			}(ch, int(number.(float64)))
+			nThreads++
+			if nThreads == j.ThrN {
+				obj := <-ch
+				nThreads--
+				err, ok = obj.(error)
+				if ok {
+					return
+				}
+				pullsData = append(pullsData, obj.(map[string]interface{}))
+			}
+		}
+		for nThreads > 0 {
+			obj := <-ch
+			nThreads--
+			err, ok = obj.(error)
+			if ok {
+				return
+			}
+			pullsData = append(pullsData, obj.(map[string]interface{}))
+		}
+	} else {
+		for _, issue := range issues {
+			i++
+			if i%ItemsPerPage == 0 {
+				runtime.GC()
+				shared.Printf("%s/%s: processed %d/%d issues, %d pulls so far\n", j.URL, j.CurrentCategory, i, nIssues, pulls)
+			}
+			isPR, _ := issue["is_pull"]
+			if !isPR.(bool) {
+				continue
+			}
+			pulls++
+			number, _ := issue["number"]
+			pull, err = j.githubPull(ctx, org, repo, int(number.(float64)))
+			if err != nil {
+				return
+			}
+			pullsData = append(pullsData, pull)
+		}
+	}
+	return
+}
+
+func (j *DSGitHub) githubPulls(ctx *shared.Ctx, org, repo string) (pullsData []map[string]interface{}, err error) {
+	// WARNING: this is not returning all possible Pull sub fields, recommend to use githubPullsFromIssues instead.
+	var found bool
+	origin := org + "/" + repo
+	// Try memory cache 1st
+	if CacheGitHubPulls {
+		if j.GitHubPullsMtx != nil {
+			j.GitHubPullsMtx.RLock()
+		}
+		pullsData, found = j.GitHubPulls[origin]
+		if j.GitHubPullsMtx != nil {
+			j.GitHubPullsMtx.RUnlock()
+		}
+		if found {
+			if ctx.Debug > 2 {
+				shared.Printf("pulls found in cache: %+v\n", pullsData)
+			}
+			return
+		}
+	}
+	var c *github.Client
+	if j.GitHubMtx != nil {
+		j.GitHubMtx.RLock()
+	}
+	c = j.Clients[j.Hint]
+	if j.GitHubMtx != nil {
+		j.GitHubMtx.RUnlock()
+	}
+	opt := &github.PullRequestListOptions{
+		State:     "all",
+		Sort:      "updated",
+		Direction: "asc",
+	}
+	opt.PerPage = ItemsPerPage
+	retry := false
+	for {
+		var (
+			response *github.Response
+			pulls    []*github.PullRequest
+			e        error
+		)
+		pulls, response, e = c.PullRequests.List(j.Context, org, repo, opt)
+		if ctx.Debug > 2 {
+			shared.Printf("GET %s/%s -> {%+v, %+v, %+v}\n", org, repo, pulls, response, e)
+		}
+		if e != nil && strings.Contains(e.Error(), "404 Not Found") {
+			if CacheGitHubPulls {
+				if j.GitHubPullsMtx != nil {
+					j.GitHubPullsMtx.Lock()
+				}
+				j.GitHubPulls[origin] = []map[string]interface{}{}
+				if j.GitHubPullsMtx != nil {
+					j.GitHubPullsMtx.Unlock()
+				}
+			}
+			if ctx.Debug > 1 {
+				shared.Printf("githubPulls: pulls not found %s: %v\n", origin, e)
+			}
+			return
+		}
+		if e != nil && !retry {
+			shared.Printf("Unable to get %s pulls: response: %+v, because: %+v, retrying rate\n", origin, response, e)
+			shared.Printf("githubPulls: handle rate\n")
+			abuse, rateLimit := j.isAbuse(e)
+			if abuse {
+				sleepFor := AbuseWaitSeconds + rand.Intn(AbuseWaitSeconds)
+				shared.Printf("GitHub detected abuse (get pulls %s), waiting for %ds\n", origin, sleepFor)
+				time.Sleep(time.Duration(sleepFor) * time.Second)
+			}
+			if rateLimit {
+				shared.Printf("Rate limit reached on a token (get pulls %s) waiting 1s before token switch\n", origin)
+				time.Sleep(time.Duration(1) * time.Second)
+			}
+			if j.GitHubMtx != nil {
+				j.GitHubMtx.Lock()
+			}
+			j.Hint, _ = j.handleRate(ctx)
+			c = j.Clients[j.Hint]
+			if j.GitHubMtx != nil {
+				j.GitHubMtx.Unlock()
+			}
+			if !abuse && !rateLimit {
+				retry = true
+			}
+			continue
+		}
+		if e != nil {
+			err = e
+			return
+		}
+		for _, pull := range pulls {
+			pr := map[string]interface{}{}
+			jm, _ := jsoniter.Marshal(pull)
+			_ = jsoniter.Unmarshal(jm, &pr)
+			body, ok := shared.Dig(pr, []string{"body"}, false, true)
+			if ok {
+				nBody := len(body.(string))
+				if nBody > MaxPullBodyLength {
+					pr["body"] = body.(string)[:MaxPullBodyLength]
+				}
+			}
+			pr["body_analyzed"], _ = pr["body"]
+			pullsData = append(pullsData, pr)
+		}
+		if response.NextPage == 0 {
+			break
+		}
+		opt.Page = response.NextPage
+		if ctx.Debug > 0 {
+			shared.Printf("%s/%s: processing next pulls page: %d\n", j.URL, j.CurrentCategory, opt.Page)
+		}
+		retry = false
+	}
+	if ctx.Debug > 2 {
+		shared.Printf("pulls got from API: %+v\n", pullsData)
+	}
+	if CacheGitHubPulls {
+		if j.GitHubPullsMtx != nil {
+			j.GitHubPullsMtx.Lock()
+		}
+		j.GitHubPulls[origin] = pullsData
+		if j.GitHubPullsMtx != nil {
+			j.GitHubPullsMtx.Unlock()
+		}
+	}
+	return
+}
+
+func (j *DSGitHub) githubPullReviews(ctx *shared.Ctx, org, repo string, number int) (reviews []map[string]interface{}, err error) {
+	var found bool
+	key := fmt.Sprintf("%s/%s/%d", org, repo, number)
+	// Try memory cache 1st
+	if CacheGitHubPullReviews {
+		if j.GitHubPullReviewsMtx != nil {
+			j.GitHubPullReviewsMtx.RLock()
+		}
+		reviews, found = j.GitHubPullReviews[key]
+		if j.GitHubPullReviewsMtx != nil {
+			j.GitHubPullReviewsMtx.RUnlock()
+		}
+		if found {
+			if ctx.Debug > 2 {
+				shared.Printf("pull reviews found in cache: %+v\n", reviews)
+			}
+			return
+		}
+	}
+	var c *github.Client
+	if j.GitHubMtx != nil {
+		j.GitHubMtx.RLock()
+	}
+	c = j.Clients[j.Hint]
+	if j.GitHubMtx != nil {
+		j.GitHubMtx.RUnlock()
+	}
+	opt := &github.ListOptions{}
+	opt.PerPage = ItemsPerPage
+	retry := false
+	for {
+		var (
+			response *github.Response
+			revs     []*github.PullRequestReview
+			e        error
+		)
+		revs, response, e = c.PullRequests.ListReviews(j.Context, org, repo, number, opt)
+		if ctx.Debug > 2 {
+			shared.Printf("GET %s/%s/%d -> {%+v, %+v, %+v}\n", org, repo, number, revs, response, e)
+		}
+		if e != nil && strings.Contains(e.Error(), "404 Not Found") {
+			if CacheGitHubPullReviews {
+				if j.GitHubPullReviewsMtx != nil {
+					j.GitHubPullReviewsMtx.Lock()
+				}
+				j.GitHubPullReviews[key] = []map[string]interface{}{}
+				if j.GitHubPullReviewsMtx != nil {
+					j.GitHubPullReviewsMtx.Unlock()
+				}
+			}
+			if ctx.Debug > 1 {
+				shared.Printf("githubPullReviews: reviews not found %s: %v\n", key, e)
+			}
+			return
+		}
+		if e != nil && !retry {
+			shared.Printf("Unable to get %s pull reviews: response: %+v, because: %+v, retrying rate\n", key, response, e)
+			shared.Printf("githubPullReviews: handle rate\n")
+			abuse, rateLimit := j.isAbuse(e)
+			if abuse {
+				sleepFor := AbuseWaitSeconds + rand.Intn(AbuseWaitSeconds)
+				shared.Printf("GitHub detected abuse (get pull reviews %s), waiting for %ds\n", key, sleepFor)
+				time.Sleep(time.Duration(sleepFor) * time.Second)
+			}
+			if rateLimit {
+				shared.Printf("Rate limit reached on a token (get pull reviews %s) waiting 1s before token switch\n", key)
+				time.Sleep(time.Duration(1) * time.Second)
+			}
+			if j.GitHubMtx != nil {
+				j.GitHubMtx.Lock()
+			}
+			j.Hint, _ = j.handleRate(ctx)
+			c = j.Clients[j.Hint]
+			if j.GitHubMtx != nil {
+				j.GitHubMtx.Unlock()
+			}
+			if !abuse && !rateLimit {
+				retry = true
+			}
+			continue
+		}
+		if e != nil {
+			err = e
+			return
+		}
+		for _, review := range revs {
+			rev := map[string]interface{}{}
+			jm, _ := jsoniter.Marshal(review)
+			_ = jsoniter.Unmarshal(jm, &rev)
+			body, ok := shared.Dig(rev, []string{"body"}, false, true)
+			if ok {
+				nBody := len(body.(string))
+				if nBody > MaxReviewBodyLength {
+					rev["body"] = body.(string)[:MaxReviewBodyLength]
+				}
+			}
+			rev["body_analyzed"], _ = rev["body"]
+			userLogin, ok := shared.Dig(rev, []string{"user", "login"}, false, true)
+			if ok {
+				rev["user_data"], _, err = j.githubUser(ctx, userLogin.(string))
+				if err != nil {
+					return
+				}
+			}
+			reviews = append(reviews, rev)
+		}
+		if response.NextPage == 0 {
+			break
+		}
+		opt.Page = response.NextPage
+		if ctx.Debug > 0 {
+			shared.Printf("processing next pull reviews page: %d\n", opt.Page)
+		}
+		retry = false
+	}
+	if ctx.Debug > 2 {
+		shared.Printf("pull reviews got from API: %+v\n", reviews)
+	}
+	if CacheGitHubPullReviews {
+		if j.GitHubPullReviewsMtx != nil {
+			j.GitHubPullReviewsMtx.Lock()
+		}
+		j.GitHubPullReviews[key] = reviews
+		if j.GitHubPullReviewsMtx != nil {
+			j.GitHubPullReviewsMtx.Unlock()
+		}
+	}
+	return
+}
+
+func (j *DSGitHub) githubPullReviewComments(ctx *shared.Ctx, org, repo string, number int) (reviewComments []map[string]interface{}, err error) {
+	var found bool
+	key := fmt.Sprintf("%s/%s/%d", org, repo, number)
+	// Try memory cache 1st
+	if CacheGitHubPullReviewComments {
+		if j.GitHubPullReviewCommentsMtx != nil {
+			j.GitHubPullReviewCommentsMtx.RLock()
+		}
+		reviewComments, found = j.GitHubPullReviewComments[key]
+		if j.GitHubPullReviewCommentsMtx != nil {
+			j.GitHubPullReviewCommentsMtx.RUnlock()
+		}
+		if found {
+			if ctx.Debug > 2 {
+				shared.Printf("pull review comments found in cache: %+v\n", reviewComments)
+			}
+			return
+		}
+	}
+	var c *github.Client
+	if j.GitHubMtx != nil {
+		j.GitHubMtx.RLock()
+	}
+	c = j.Clients[j.Hint]
+	if j.GitHubMtx != nil {
+		j.GitHubMtx.RUnlock()
+	}
+	opt := &github.PullRequestListCommentsOptions{
+		Sort:      "updated",
+		Direction: "asc",
+	}
+	opt.PerPage = ItemsPerPage
+	retry := false
+	for {
+		var (
+			response *github.Response
+			revComms []*github.PullRequestComment
+			e        error
+		)
+		revComms, response, e = c.PullRequests.ListComments(j.Context, org, repo, number, opt)
+		if ctx.Debug > 2 {
+			shared.Printf("GET %s/%s/%d -> {%+v, %+v, %+v}\n", org, repo, number, revComms, response, e)
+		}
+		if e != nil && strings.Contains(e.Error(), "404 Not Found") {
+			if CacheGitHubPullReviewComments {
+				if j.GitHubPullReviewCommentsMtx != nil {
+					j.GitHubPullReviewCommentsMtx.Lock()
+				}
+				j.GitHubPullReviewComments[key] = []map[string]interface{}{}
+				if j.GitHubPullReviewCommentsMtx != nil {
+					j.GitHubPullReviewCommentsMtx.Unlock()
+				}
+			}
+			if ctx.Debug > 1 {
+				shared.Printf("githubPullReviewComments: review comments not found %s: %v\n", key, e)
+			}
+			return
+		}
+		if e != nil && !retry {
+			shared.Printf("Unable to get %s pull review comments: response: %+v, because: %+v, retrying rate\n", key, response, e)
+			shared.Printf("githubPullReviewComments: handle rate\n")
+			abuse, rateLimit := j.isAbuse(e)
+			if abuse {
+				sleepFor := AbuseWaitSeconds + rand.Intn(AbuseWaitSeconds)
+				shared.Printf("GitHub detected abuse (get pull review comments %s), waiting for %ds\n", key, sleepFor)
+				time.Sleep(time.Duration(sleepFor) * time.Second)
+			}
+			if rateLimit {
+				shared.Printf("Rate limit reached on a token (get pull review comments %s) waiting 1s before token switch\n", key)
+				time.Sleep(time.Duration(1) * time.Second)
+			}
+			if j.GitHubMtx != nil {
+				j.GitHubMtx.Lock()
+			}
+			j.Hint, _ = j.handleRate(ctx)
+			c = j.Clients[j.Hint]
+			if j.GitHubMtx != nil {
+				j.GitHubMtx.Unlock()
+			}
+			if !abuse && !rateLimit {
+				retry = true
+			}
+			continue
+		}
+		if e != nil {
+			err = e
+			return
+		}
+		for _, reviewComment := range revComms {
+			revComm := map[string]interface{}{}
+			jm, _ := jsoniter.Marshal(reviewComment)
+			_ = jsoniter.Unmarshal(jm, &revComm)
+			body, ok := shared.Dig(revComm, []string{"body"}, false, true)
+			if ok {
+				nBody := len(body.(string))
+				if nBody > MaxReviewCommentBodyLength {
+					revComm["body"] = body.(string)[:MaxReviewCommentBodyLength]
+				}
+			}
+			revComm["body_analyzed"], _ = revComm["body"]
+			userLogin, ok := shared.Dig(revComm, []string{"user", "login"}, false, true)
+			if ok {
+				revComm["user_data"], _, err = j.githubUser(ctx, userLogin.(string))
+				if err != nil {
+					return
+				}
+			}
+			iCnt, ok := shared.Dig(revComm, []string{"reactions", "total_count"}, false, true)
+			if ok {
+				revComm["reactions_data"] = []interface{}{}
+				cnt := int(iCnt.(float64))
+				if cnt > 0 {
+					cid, ok := shared.Dig(revComm, []string{"id"}, false, true)
+					if ok {
+						revComm["reactions_data"], err = j.githubReviewCommentReactions(ctx, org, repo, int64(cid.(float64)))
+						if err != nil {
+							return
+						}
+					}
+				}
+			}
+			reviewComments = append(reviewComments, revComm)
+		}
+		if response.NextPage == 0 {
+			break
+		}
+		opt.Page = response.NextPage
+		if ctx.Debug > 0 {
+			shared.Printf("processing next pull review comments page: %d\n", opt.Page)
+		}
+		retry = false
+	}
+	if ctx.Debug > 2 {
+		shared.Printf("pull review comments got from API: %+v\n", reviewComments)
+	}
+	if CacheGitHubPullReviewComments {
+		if j.GitHubPullReviewCommentsMtx != nil {
+			j.GitHubPullReviewCommentsMtx.Lock()
+		}
+		j.GitHubPullReviewComments[key] = reviewComments
+		if j.GitHubPullReviewCommentsMtx != nil {
+			j.GitHubPullReviewCommentsMtx.Unlock()
+		}
+	}
+	return
+}
+
+func (j *DSGitHub) githubReviewCommentReactions(ctx *shared.Ctx, org, repo string, cid int64) (reactions []map[string]interface{}, err error) {
+	var found bool
+	key := fmt.Sprintf("%s/%s/%d", org, repo, cid)
+	if ctx.Debug > 1 {
+		shared.Printf("githubReviewCommentReactions %s\n", key)
+	}
+	// Try memory cache 1st
+	if CacheGitHubReviewCommentReactions {
+		if j.GitHubReviewCommentReactionsMtx != nil {
+			j.GitHubReviewCommentReactionsMtx.RLock()
+		}
+		reactions, found = j.GitHubReviewCommentReactions[key]
+		if j.GitHubReviewCommentReactionsMtx != nil {
+			j.GitHubReviewCommentReactionsMtx.RUnlock()
+		}
+		if found {
+			if ctx.Debug > 2 {
+				shared.Printf("comment reactions found in cache: %+v\n", reactions)
+			}
+			return
+		}
+	}
+	var c *github.Client
+	if j.GitHubMtx != nil {
+		j.GitHubMtx.RLock()
+	}
+	c = j.Clients[j.Hint]
+	if j.GitHubMtx != nil {
+		j.GitHubMtx.RUnlock()
+	}
+	opt := &github.ListOptions{}
+	opt.PerPage = ItemsPerPage
+	retry := false
+	for {
+		var (
+			response *github.Response
+			reacts   []*github.Reaction
+			e        error
+		)
+		reacts, response, e = c.Reactions.ListPullRequestCommentReactions(j.Context, org, repo, cid, opt)
+		if ctx.Debug > 2 {
+			shared.Printf("GET %s/%s/%d -> {%+v, %+v, %+v}\n", org, repo, cid, reacts, response, e)
+		}
+		if e != nil && strings.Contains(e.Error(), "404 Not Found") {
+			if CacheGitHubReviewCommentReactions {
+				if j.GitHubReviewCommentReactionsMtx != nil {
+					j.GitHubReviewCommentReactionsMtx.Lock()
+				}
+				j.GitHubReviewCommentReactions[key] = []map[string]interface{}{}
+				if j.GitHubReviewCommentReactionsMtx != nil {
+					j.GitHubReviewCommentReactionsMtx.Unlock()
+				}
+			}
+			if ctx.Debug > 1 {
+				shared.Printf("githubReviewCommentReactions: reactions not found %s: %v\n", key, e)
+			}
+			return
+		}
+		if e != nil && !retry {
+			shared.Printf("Unable to get %s comment reactions: response: %+v, because: %+v, retrying rate\n", key, response, e)
+			shared.Printf("githubReviewCommentReactions: handle rate\n")
+			abuse, rateLimit := j.isAbuse(e)
+			if abuse {
+				sleepFor := AbuseWaitSeconds + rand.Intn(AbuseWaitSeconds)
+				shared.Printf("GitHub detected abuse (get pull comment reactions %s), waiting for %ds\n", key, sleepFor)
+				time.Sleep(time.Duration(sleepFor) * time.Second)
+			}
+			if rateLimit {
+				shared.Printf("Rate limit reached on a token (get pull comment reactions %s) waiting 1s before token switch\n", key)
+				time.Sleep(time.Duration(1) * time.Second)
+			}
+			if j.GitHubMtx != nil {
+				j.GitHubMtx.Lock()
+			}
+			j.Hint, _ = j.handleRate(ctx)
+			c = j.Clients[j.Hint]
+			if j.GitHubMtx != nil {
+				j.GitHubMtx.Unlock()
+			}
+			if !abuse && !rateLimit {
+				retry = true
+			}
+			continue
+		}
+		if e != nil {
+			err = e
+			return
+		}
+		for _, reaction := range reacts {
+			react := map[string]interface{}{}
+			jm, _ := jsoniter.Marshal(reaction)
+			_ = jsoniter.Unmarshal(jm, &react)
+			userLogin, ok := shared.Dig(react, []string{"user", "login"}, false, true)
+			if ok {
+				react["user_data"], _, err = j.githubUser(ctx, userLogin.(string))
+				if err != nil {
+					return
+				}
+			}
+			reactions = append(reactions, react)
+		}
+		if response.NextPage == 0 {
+			break
+		}
+		opt.Page = response.NextPage
+		if ctx.Debug > 0 {
+			shared.Printf("processing next pull review comment reactions page: %d\n", opt.Page)
+		}
+		retry = false
+	}
+	if ctx.Debug > 2 {
+		shared.Printf("review comment reactions got from API: %+v\n", reactions)
+	}
+	if CacheGitHubReviewCommentReactions {
+		if j.GitHubReviewCommentReactionsMtx != nil {
+			j.GitHubReviewCommentReactionsMtx.Lock()
+		}
+		j.GitHubReviewCommentReactions[key] = reactions
+		if j.GitHubReviewCommentReactionsMtx != nil {
+			j.GitHubReviewCommentReactionsMtx.Unlock()
+		}
+	}
+	return
+}
+
+func (j *DSGitHub) githubPullRequestedReviewers(ctx *shared.Ctx, org, repo string, number int) (reviewers []map[string]interface{}, err error) {
+	var found bool
+	key := fmt.Sprintf("%s/%s/%d", org, repo, number)
+	// Try memory cache 1st
+	if CacheGitHubPullRequestedReviewers {
+		if j.GitHubPullRequestedReviewersMtx != nil {
+			j.GitHubPullRequestedReviewersMtx.RLock()
+		}
+		reviewers, found = j.GitHubPullRequestedReviewers[key]
+		if j.GitHubPullRequestedReviewersMtx != nil {
+			j.GitHubPullRequestedReviewersMtx.RUnlock()
+		}
+		if found {
+			if ctx.Debug > 2 {
+				shared.Printf("pull requested reviewers found in cache: %+v\n", reviewers)
+			}
+			return
+		}
+	}
+	var c *github.Client
+	if j.GitHubMtx != nil {
+		j.GitHubMtx.RLock()
+	}
+	c = j.Clients[j.Hint]
+	if j.GitHubMtx != nil {
+		j.GitHubMtx.RUnlock()
+	}
+	opt := &github.ListOptions{}
+	opt.PerPage = ItemsPerPage
+	retry := false
+	for {
+		var (
+			response *github.Response
+			revsObj  *github.Reviewers
+			e        error
+		)
+		revsObj, response, e = c.PullRequests.ListReviewers(j.Context, org, repo, number, opt)
+		if ctx.Debug > 2 {
+			shared.Printf("GET %s/%s/%d -> {%+v, %+v, %+v}\n", org, repo, number, revsObj, response, e)
+		}
+		if e != nil && strings.Contains(e.Error(), "404 Not Found") {
+			if CacheGitHubPullRequestedReviewers {
+				if j.GitHubPullRequestedReviewersMtx != nil {
+					j.GitHubPullRequestedReviewersMtx.Lock()
+				}
+				j.GitHubPullRequestedReviewers[key] = []map[string]interface{}{}
+				if j.GitHubPullRequestedReviewersMtx != nil {
+					j.GitHubPullRequestedReviewersMtx.Unlock()
+				}
+			}
+			if ctx.Debug > 1 {
+				shared.Printf("githubPullRequestedReviewers: reviewers not found %s: %v\n", key, e)
+			}
+			return
+		}
+		if e != nil && !retry {
+			shared.Printf("Unable to get %s pull requested reviewers: response: %+v, because: %+v, retrying rate\n", key, response, e)
+			shared.Printf("githubPullRequestedReviewers: handle rate\n")
+			abuse, rateLimit := j.isAbuse(e)
+			if abuse {
+				sleepFor := AbuseWaitSeconds + rand.Intn(AbuseWaitSeconds)
+				shared.Printf("GitHub detected abuse (get pull requested reviewers %s), waiting for %ds\n", key, sleepFor)
+				time.Sleep(time.Duration(sleepFor) * time.Second)
+			}
+			if rateLimit {
+				shared.Printf("Rate limit reached on a token (get pull requested reviewers %s) waiting 1s before token switch\n", key)
+				time.Sleep(time.Duration(1) * time.Second)
+			}
+			if j.GitHubMtx != nil {
+				j.GitHubMtx.Lock()
+			}
+			j.Hint, _ = j.handleRate(ctx)
+			c = j.Clients[j.Hint]
+			if j.GitHubMtx != nil {
+				j.GitHubMtx.Unlock()
+			}
+			if !abuse && !rateLimit {
+				retry = true
+			}
+			continue
+		}
+		if e != nil {
+			err = e
+			return
+		}
+		users := revsObj.Users
+		for _, reviewer := range users {
+			if reviewer == nil || reviewer.Login == nil {
+				continue
+			}
+			var userData map[string]interface{}
+			userData, _, err = j.githubUser(ctx, *reviewer.Login)
+			if err != nil {
+				return
+			}
+			reviewers = append(reviewers, userData)
+		}
+		if response.NextPage == 0 {
+			break
+		}
+		opt.Page = response.NextPage
+		if ctx.Debug > 0 {
+			shared.Printf("processing next pull requested reviewers page: %d\n", opt.Page)
+		}
+		retry = false
+	}
+	if ctx.Debug > 2 {
+		shared.Printf("pull requested reviewers got from API: %+v\n", reviewers)
+	}
+	if CacheGitHubPullRequestedReviewers {
+		if j.GitHubPullRequestedReviewersMtx != nil {
+			j.GitHubPullRequestedReviewersMtx.Lock()
+		}
+		j.GitHubPullRequestedReviewers[key] = reviewers
+		if j.GitHubPullRequestedReviewersMtx != nil {
+			j.GitHubPullRequestedReviewersMtx.Unlock()
+		}
+	}
+	return
+}
+
+func (j *DSGitHub) githubPullCommits(ctx *shared.Ctx, org, repo string, number int, deep bool) (commits []map[string]interface{}, err error) {
+	var found bool
+	key := fmt.Sprintf("%s/%s/%d", org, repo, number)
+	// Try memory cache 1st
+	if CacheGitHubPullCommits {
+		if j.GitHubPullCommitsMtx != nil {
+			j.GitHubPullCommitsMtx.RLock()
+		}
+		commits, found = j.GitHubPullCommits[key]
+		if j.GitHubPullCommitsMtx != nil {
+			j.GitHubPullCommitsMtx.RUnlock()
+		}
+		if found {
+			if ctx.Debug > 2 {
+				shared.Printf("pull commits found in cache: %+v\n", commits)
+			}
+			return
+		}
+	}
+	var c *github.Client
+	if j.GitHubMtx != nil {
+		j.GitHubMtx.RLock()
+	}
+	c = j.Clients[j.Hint]
+	if j.GitHubMtx != nil {
+		j.GitHubMtx.RUnlock()
+	}
+	opt := &github.ListOptions{}
+	opt.PerPage = ItemsPerPage
+	retry := false
+	for {
+		var (
+			response *github.Response
+			comms    []*github.RepositoryCommit
+			e        error
+		)
+		comms, response, e = c.PullRequests.ListCommits(j.Context, org, repo, number, opt)
+		if ctx.Debug > 2 {
+			shared.Printf("GET %s/%s/%d -> {%+v, %+v, %+v}\n", org, repo, number, comms, response, e)
+		}
+		if e != nil && strings.Contains(e.Error(), "404 Not Found") {
+			if CacheGitHubPullCommits {
+				if j.GitHubPullCommitsMtx != nil {
+					j.GitHubPullCommitsMtx.Lock()
+				}
+				j.GitHubPullCommits[key] = []map[string]interface{}{}
+				if j.GitHubPullCommitsMtx != nil {
+					j.GitHubPullCommitsMtx.Unlock()
+				}
+			}
+			if ctx.Debug > 1 {
+				shared.Printf("githubPullCommits: commits not found %s: %v\n", key, e)
+			}
+			return
+		}
+		if e != nil && !retry {
+			shared.Printf("Unable to get %s pull commits: response: %+v, because: %+v, retrying rate\n", key, response, e)
+			shared.Printf("githubPullCommits: handle rate\n")
+			abuse, rateLimit := j.isAbuse(e)
+			if abuse {
+				sleepFor := AbuseWaitSeconds + rand.Intn(AbuseWaitSeconds)
+				shared.Printf("GitHub detected abuse (get pull commits %s), waiting for %ds\n", key, sleepFor)
+				time.Sleep(time.Duration(sleepFor) * time.Second)
+			}
+			if rateLimit {
+				shared.Printf("Rate limit reached on a token (get pull commits %s) waiting 1s before token switch\n", key)
+				time.Sleep(time.Duration(1) * time.Second)
+			}
+			if j.GitHubMtx != nil {
+				j.GitHubMtx.Lock()
+			}
+			j.Hint, _ = j.handleRate(ctx)
+			c = j.Clients[j.Hint]
+			if j.GitHubMtx != nil {
+				j.GitHubMtx.Unlock()
+			}
+			if !abuse && !rateLimit {
+				retry = true
+			}
+			continue
+		}
+		if e != nil {
+			err = e
+			return
+		}
+		for _, commit := range comms {
+			com := map[string]interface{}{}
+			jm, _ := jsoniter.Marshal(commit)
+			_ = jsoniter.Unmarshal(jm, &com)
+			if deep {
+				userLogin, ok := shared.Dig(com, []string{"author", "login"}, false, true)
+				if ok {
+					com["author_data"], _, err = j.githubUser(ctx, userLogin.(string))
+					if err != nil {
+						return
+					}
+				}
+				userLogin, ok = shared.Dig(com, []string{"committer", "login"}, false, true)
+				if ok {
+					com["committer_data"], _, err = j.githubUser(ctx, userLogin.(string))
+					if err != nil {
+						return
+					}
+				}
+			}
+			commits = append(commits, com)
+		}
+		if response.NextPage == 0 {
+			break
+		}
+		opt.Page = response.NextPage
+		if ctx.Debug > 0 {
+			shared.Printf("processing next pull commits page: %d\n", opt.Page)
+		}
+		retry = false
+	}
+	if ctx.Debug > 2 {
+		shared.Printf("pull commits got from API: %+v\n", commits)
+	}
+	if CacheGitHubPullCommits {
+		if j.GitHubPullCommitsMtx != nil {
+			j.GitHubPullCommitsMtx.Lock()
+		}
+		j.GitHubPullCommits[key] = commits
+		if j.GitHubPullCommitsMtx != nil {
+			j.GitHubPullCommitsMtx.Unlock()
+		}
+	}
+	return
+}
+
 // ItemID - return unique identifier for an item
 func (j *DSGitHub) ItemID(item interface{}) string {
 	if j.CurrentCategory == "repository" {
@@ -1616,6 +2590,93 @@ func (j *DSGitHub) ProcessIssue(ctx *shared.Ctx, inIssue map[string]interface{})
 				}
 			}
 		}
+	}
+	return
+}
+
+// ProcessPull - add PRs sub items
+func (j *DSGitHub) ProcessPull(ctx *shared.Ctx, inPull map[string]interface{}) (pull map[string]interface{}, err error) {
+	pull = inPull
+	pull["user_data"] = map[string]interface{}{}
+	pull["assignee_data"] = map[string]interface{}{}
+	pull["merged_by_data"] = map[string]interface{}{}
+	pull["review_comments_data"] = []interface{}{}
+	pull["assignees_data"] = []interface{}{}
+	pull["reviews_data"] = []interface{}{}
+	pull["requested_reviewers_data"] = []interface{}{}
+	pull["commits_data"] = []interface{}{}
+	// ["user", "review_comments", "requested_reviewers", "merged_by", "commits", "assignee", "assignees"]
+	number, ok := shared.Dig(pull, []string{"number"}, false, true)
+	if ok {
+		iNumber := int(number.(float64))
+		pull["reviews_data"], err = j.githubPullReviews(ctx, j.Org, j.Repo, iNumber)
+		if err != nil {
+			return
+		}
+		pull["review_comments_data"], err = j.githubPullReviewComments(ctx, j.Org, j.Repo, iNumber)
+		if err != nil {
+			return
+		}
+		pull["requested_reviewers_data"], err = j.githubPullRequestedReviewers(ctx, j.Org, j.Repo, iNumber)
+		if err != nil {
+			return
+		}
+		// FIXME: process this in ModelData
+		pull["commits_data"], err = j.githubPullCommits(ctx, j.Org, j.Repo, iNumber, true)
+		// NOTE: non-deep commits
+		/*
+			var commitsData []map[string]interface{}
+			commitsData, err = j.githubPullCommits(ctx, j.Org, j.Repo, iNumber, false)
+			if err != nil {
+				return
+			}
+			ary := []interface{}{}
+			for _, com := range commitsData {
+				sha, ok := shared.Dig(com, []string{"sha"}, false, true)
+				if ok {
+					ary = append(ary, sha)
+				}
+			}
+			pull["commits_data"] = ary
+		*/
+	}
+	userLogin, ok := shared.Dig(pull, []string{"user", "login"}, false, true)
+	if ok {
+		pull["user_data"], _, err = j.githubUser(ctx, userLogin.(string))
+		if err != nil {
+			return
+		}
+	}
+	mergedByLogin, ok := shared.Dig(pull, []string{"merged_by", "login"}, false, true)
+	if ok {
+		pull["merged_by_data"], _, err = j.githubUser(ctx, mergedByLogin.(string))
+		if err != nil {
+			return
+		}
+	}
+	assigneeLogin, ok := shared.Dig(pull, []string{"assignee", "login"}, false, true)
+	if ok {
+		pull["assignee_data"], _, err = j.githubUser(ctx, assigneeLogin.(string))
+		if err != nil {
+			return
+		}
+	}
+	iAssignees, ok := shared.Dig(pull, []string{"assignees"}, false, true)
+	if ok {
+		assignees, _ := iAssignees.([]interface{})
+		assigneesAry := []map[string]interface{}{}
+		for _, assignee := range assignees {
+			aLogin, ok := shared.Dig(assignee, []string{"login"}, false, true)
+			if ok {
+				assigneeData, _, e := j.githubUser(ctx, aLogin.(string))
+				if e != nil {
+					err = e
+					return
+				}
+				assigneesAry = append(assigneesAry, assigneeData)
+			}
+		}
+		pull["assignees_data"] = assigneesAry
 	}
 	return
 }
@@ -1822,6 +2883,182 @@ func (j *DSGitHub) FetchItemsIssue(ctx *shared.Ctx) (err error) {
 	return
 }
 
+// FetchItemsPullRequest - implement raw issue data for GitHub datasource
+func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
+	// Process pull requests (possibly in threads)
+	var (
+		ch           chan error
+		allDocs      []interface{}
+		allPulls     []interface{}
+		allPullsMtx  *sync.Mutex
+		escha        []chan error
+		eschaMtx     *sync.Mutex
+		pullsProcMtx *sync.Mutex
+	)
+	if j.ThrN > 1 {
+		ch = make(chan error)
+		allPullsMtx = &sync.Mutex{}
+		eschaMtx = &sync.Mutex{}
+		pullsProcMtx = &sync.Mutex{}
+	}
+	nThreads, pullsProcessed, nPRs := 0, 0, 0
+	processPull := func(c chan error, pull map[string]interface{}) (wch chan error, e error) {
+		defer func() {
+			if c != nil {
+				c <- e
+			}
+		}()
+		item, err := j.ProcessPull(ctx, pull)
+		shared.FatalOnError(err)
+		esItem := j.AddMetadata(ctx, item)
+		if ctx.Project != "" {
+			item["project"] = ctx.Project
+		}
+		if pullsProcMtx != nil {
+			pullsProcMtx.Lock()
+		}
+		pullsProc := pullsProcessed
+		if pullsProcMtx != nil {
+			pullsProcMtx.Unlock()
+		}
+		esItem["data"] = item
+		if pullsProc%ItemsPerPage == 0 {
+			shared.Printf("%s/%s: processed %d/%d pulls\n", j.URL, j.CurrentCategory, pullsProc, nPRs)
+		}
+		if allPullsMtx != nil {
+			allPullsMtx.Lock()
+		}
+		allPulls = append(allPulls, esItem)
+		nPulls := len(allPulls)
+		if nPulls >= ctx.PackSize {
+			sendToQueue := func(c chan error) (ee error) {
+				defer func() {
+					if c != nil {
+						c <- ee
+					}
+				}()
+				ee = j.GitHubEnrichItems(ctx, allPulls, &allDocs, false)
+				//ee = SendToQueue(ctx, j, true, UUID, allPulls)
+				if ee != nil {
+					shared.Printf("%s/%s: error %v sending %d pulls to queue\n", j.URL, j.CurrentCategory, ee, len(allPulls))
+				}
+				allPulls = []interface{}{}
+				if allPullsMtx != nil {
+					allPullsMtx.Unlock()
+				}
+				return
+			}
+			if j.ThrN > 1 {
+				wch = make(chan error)
+				go func() {
+					_ = sendToQueue(wch)
+				}()
+			} else {
+				e = sendToQueue(nil)
+				if e != nil {
+					return
+				}
+			}
+		} else {
+			if allPullsMtx != nil {
+				allPullsMtx.Unlock()
+			}
+		}
+		return
+	}
+	var pulls []map[string]interface{}
+	// PullRequests.List doesn't return merged_by data, we need to use PullRequests.Get on each pull
+	// If it would we could use Pulls API to fetch all pulls when no date from is specified
+	// If there is a date from Pulls API doesn't support Since parameter
+	// if ctx.DateFrom != nil {
+	if 1 == 1 {
+		pulls, err = j.githubPullsFromIssues(ctx, j.Org, j.Repo, ctx.DateFrom)
+	} else {
+		pulls, err = j.githubPulls(ctx, j.Org, j.Repo)
+	}
+	shared.FatalOnError(err)
+	runtime.GC()
+	nPRs = len(pulls)
+	shared.Printf("%s/%s: got %d pulls\n", j.URL, j.CurrentCategory, nPRs)
+	if j.ThrN > 1 {
+		for _, pull := range pulls {
+			go func(pr map[string]interface{}) {
+				var (
+					e    error
+					esch chan error
+				)
+				esch, e = processPull(ch, pr)
+				if e != nil {
+					shared.Printf("%s/%s: pulls process error: %v\n", j.URL, j.CurrentCategory, e)
+					return
+				}
+				if esch != nil {
+					if eschaMtx != nil {
+						eschaMtx.Lock()
+					}
+					escha = append(escha, esch)
+					if eschaMtx != nil {
+						eschaMtx.Unlock()
+					}
+				}
+			}(pull)
+			nThreads++
+			if nThreads == j.ThrN {
+				err = <-ch
+				if err != nil {
+					return
+				}
+				if pullsProcMtx != nil {
+					pullsProcMtx.Lock()
+				}
+				pullsProcessed++
+				if pullsProcMtx != nil {
+					pullsProcMtx.Unlock()
+				}
+				nThreads--
+			}
+		}
+		for nThreads > 0 {
+			err = <-ch
+			nThreads--
+			if err != nil {
+				return
+			}
+			if pullsProcMtx != nil {
+				pullsProcMtx.Lock()
+			}
+			pullsProcessed++
+			if pullsProcMtx != nil {
+				pullsProcMtx.Unlock()
+			}
+		}
+	} else {
+		for _, pull := range pulls {
+			_, err = processPull(nil, pull)
+			if err != nil {
+				return
+			}
+			pullsProcessed++
+		}
+	}
+	for _, esch := range escha {
+		err = <-esch
+		if err != nil {
+			return
+		}
+	}
+	nPulls := len(allPulls)
+	if ctx.Debug > 0 {
+		shared.Printf("%d remaining pulls to send to queue\n", nPulls)
+	}
+	err = j.GitHubEnrichItems(ctx, allPulls, &allDocs, true)
+	//err = SendToQueue(ctx, j, true, UUID, allPulls)
+	if err != nil {
+		shared.Printf("%s/%s: error %v sending %d pulls to queue\n", j.URL, j.CurrentCategory, err, len(allPulls))
+	}
+	return
+}
+
 // GetRoles - return identities for given roles
 func (j *DSGitHub) GetRoles(ctx *shared.Ctx, item map[string]interface{}, roles []string, dt time.Time) (identities []map[string]interface{}) {
 	for _, role := range roles {
@@ -1928,6 +3165,860 @@ func (j *DSGitHub) GetFirstIssueAttention(issue map[string]interface{}) (dt time
 		})
 		dt = dts[0]
 	}
+	return
+}
+
+// GetFirstPullRequestReviewDate - get first review date on a pull request
+func (j *DSGitHub) GetFirstPullRequestReviewDate(pull map[string]interface{}, commsAndReviews bool) (dt time.Time) {
+	iUserLogin, _ := shared.Dig(pull, []string{"user", "login"}, false, true)
+	userLogin, _ := iUserLogin.(string)
+	dts := []time.Time{}
+	udts := []time.Time{}
+	iReviews, ok := pull["review_comments_data"]
+	if ok && iReviews != nil {
+		ary, _ := iReviews.([]interface{})
+		for _, iReview := range ary {
+			review, _ := iReview.(map[string]interface{})
+			iReviewLogin, _ := shared.Dig(review, []string{"user", "login"}, false, true)
+			reviewLogin, _ := iReviewLogin.(string)
+			iCreatedAt, _ := review["created_at"]
+			createdAt, _ := shared.TimeParseInterfaceString(iCreatedAt)
+			if userLogin == reviewLogin {
+				udts = append(udts, createdAt)
+				continue
+			}
+			dts = append(dts, createdAt)
+		}
+	}
+	if commsAndReviews {
+		iReviews, ok := pull["reviews_data"]
+		if ok && iReviews != nil {
+			ary, _ := iReviews.([]interface{})
+			for _, iReview := range ary {
+				review, _ := iReview.(map[string]interface{})
+				iReviewLogin, _ := shared.Dig(review, []string{"user", "login"}, false, true)
+				reviewLogin, _ := iReviewLogin.(string)
+				iSubmittedAt, _ := review["submitted_at"]
+				submittedAt, _ := shared.TimeParseInterfaceString(iSubmittedAt)
+				if userLogin == reviewLogin {
+					udts = append(udts, submittedAt)
+					continue
+				}
+				dts = append(dts, submittedAt)
+			}
+		}
+	}
+	nDts := len(dts)
+	if nDts == 0 {
+		// If there was no review of anybody else that author's, then fallback to author's review
+		dts = udts
+		nDts = len(dts)
+	}
+	switch nDts {
+	case 0:
+		dt = time.Now()
+	case 1:
+		dt = dts[0]
+	default:
+		sort.Slice(dts, func(i, j int) bool {
+			return dts[i].Before(dts[j])
+		})
+		dt = dts[0]
+	}
+	return
+}
+
+// EnrichPullRequestComments - return rich comments from raw pull request
+func (j *DSGitHub) EnrichPullRequestComments(ctx *shared.Ctx, pull map[string]interface{}, comments []map[string]interface{}) (richItems []interface{}, err error) {
+	// type: category, type(_), item_type( ), pull_request_comment=true
+	// copy pull request: github_repo, repo_name, repository
+	// copy comment: created_at, updated_at, body, body_analyzed, author_association, url, html_url
+	// identify: id, id_in_repo, pull_request_comment_id, url_id
+	// standard: metadata..., origin, project, project_slug, uuid
+	// parent: pull_request_id, pull_request_number
+	// calc: n_reactions
+	// identity: author_... -> commenter_...,
+	// common: is_github_pull_request=1, is_github_pull_request_comment=1
+	iID, _ := pull["id"]
+	id, _ := iID.(string)
+	iPullID, _ := pull["pull_request_id"]
+	pullID := int(iPullID.(float64))
+	pullNumber, _ := pull["id_in_repo"]
+	iNumber, _ := pullNumber.(int)
+	iGithubRepo, _ := pull["github_repo"]
+	githubRepo, _ := iGithubRepo.(string)
+	copyPullFields := []string{"category", "github_repo", "repo_name", "repository", "repo_short_name"}
+	copyCommentFields := []string{"created_at", "updated_at", "body", "body_analyzed", "author_association", "url", "html_url"}
+	for _, comment := range comments {
+		rich := make(map[string]interface{})
+		for _, field := range shared.RawFields {
+			v, _ := pull[field]
+			rich[field] = v
+		}
+		for _, field := range copyPullFields {
+			rich[field], _ = pull[field]
+		}
+		for _, field := range copyCommentFields {
+			rich[field], _ = comment[field]
+		}
+		if ctx.Project != "" {
+			rich["project"] = ctx.Project
+		}
+		rich["type"] = "pull_request_comment"
+		rich["item_type"] = "pull request comment"
+		rich["pull_request_comment"] = true
+		rich["pull_request_created_at"], _ = pull["created_at"]
+		rich["pull_request_id"] = pullID
+		rich["pull_request_number"] = pullNumber
+		iCID, _ := comment["id"]
+		cid := int64(iCID.(float64))
+		rich["id_in_repo"] = cid
+		rich["pull_request_comment_id"] = cid
+		rich["id"] = id + "/comment/" + fmt.Sprintf("%d", cid)
+		rich["url_id"] = fmt.Sprintf("%s/pulls/%d/comments/%d", githubRepo, iNumber, cid)
+		reactions := 0
+		iReactions, ok := shared.Dig(comment, []string{"reactions", "total_count"}, false, true)
+		if ok {
+			reactions = int(iReactions.(float64))
+		}
+		rich["n_reactions"] = reactions
+		rich["commenter_association"], _ = comment["author_association"]
+		rich["commenter_login"], _ = shared.Dig(comment, []string{"user", "login"}, false, true)
+		iCommenterData, ok := comment["user_data"]
+		if ok && iCommenterData != nil {
+			user, _ := iCommenterData.(map[string]interface{})
+			rich["author_login"], _ = user["login"]
+			rich["author_name"], _ = user["name"]
+			rich["author_avatar_url"], _ = user["avatar_url"]
+			rich["commenter_avatar_url"] = rich["author_avatar_url"]
+			rich["commenter_name"], _ = user["name"]
+			rich["commenter_domain"] = nil
+			iEmail, ok := user["email"]
+			if ok {
+				email, _ := iEmail.(string)
+				ary := strings.Split(email, "@")
+				if len(ary) > 1 {
+					rich["commenter_domain"] = strings.TrimSpace(ary[1])
+				}
+			}
+			rich["commenter_org"], _ = user["company"]
+			rich["commenter_location"], _ = user["location"]
+			rich["commenter_geolocation"] = nil
+		} else {
+			rich["author_login"] = nil
+			rich["author_name"] = nil
+			rich["author_avatar_url"] = nil
+			rich["commenter_avatar_url"] = nil
+			rich["commenter_name"] = nil
+			rich["commenter_domain"] = nil
+			rich["commenter_org"] = nil
+			rich["commenter_location"] = nil
+			rich["commenter_geolocation"] = nil
+		}
+		iCreatedAt, _ := comment["created_at"]
+		createdAt, _ := shared.TimeParseInterfaceString(iCreatedAt)
+		rich["metadata__updated_on"] = createdAt
+		// FIXME
+		rich["roles"] = j.GetRoles(ctx, comment, GitHubPullRequestCommentRoles, createdAt)
+		// NOTE: From shared
+		rich["metadata__enriched_on"] = time.Now()
+		// rich[ProjectSlug] = ctx.ProjectSlug
+		// rich["groups"] = ctx.Groups
+		richItems = append(richItems, rich)
+	}
+	return
+}
+
+// EnrichPullRequestReviews - return rich reviews from raw pull request
+func (j *DSGitHub) EnrichPullRequestReviews(ctx *shared.Ctx, pull map[string]interface{}, reviews []map[string]interface{}) (richItems []interface{}, err error) {
+	// type: category, type(_), item_type( ), pull_request_review=true
+	// copy pull request: github_repo, repo_name, repository
+	// copy review: body, body_analyzed, submitted_at, commit_id, html_url, pull_request_url, state, author_association
+	// identify: id, id_in_repo, pull_request_comment_id, url_id
+	// standard: metadata..., origin, project, project_slug, uuid
+	// parent: pull_request_id, pull_request_number
+	// calc: n_reactions
+	// identity: author_... -> reviewer_...,
+	// common: is_github_pull_request=1, is_github_pull_request_review=1
+	iID, _ := pull["id"]
+	id, _ := iID.(string)
+	iPullID, _ := pull["pull_request_id"]
+	pullID := int(iPullID.(float64))
+	pullNumber, _ := pull["id_in_repo"]
+	iNumber, _ := pullNumber.(int)
+	iGithubRepo, _ := pull["github_repo"]
+	pullCreatedAt, _ := pull["created_at"]
+	githubRepo, _ := iGithubRepo.(string)
+	copyPullFields := []string{"category", "github_repo", "repo_name", "repository", "url", "repo_short_name", "merged"}
+	copyReviewFields := []string{"body", "body_analyzed", "submitted_at", "commit_id", "html_url", "pull_request_url", "state", "author_association", "is_first_review", "is_first_approval"}
+	bApproved := false
+	firstReview := time.Now()
+	firstApproval := time.Now()
+	firstReviewIdx := -1
+	firstApprovalIdx := -1
+	for i, review := range reviews {
+		review["is_first_review"] = false
+		review["is_first_approval"] = false
+		iSubmittedAt, _ := review["submitted_at"]
+		submittedAt, _ := shared.TimeParseInterfaceString(iSubmittedAt)
+		if submittedAt.Before(firstReview) {
+			firstReview = submittedAt
+			firstReviewIdx = i
+		}
+		approved, ok := review["state"]
+		if !ok {
+			continue
+		}
+		if approved.(string) == "APPROVED" {
+			bApproved = true
+			if submittedAt.Before(firstApproval) {
+				firstApproval = submittedAt
+				firstApprovalIdx = i
+			}
+		}
+	}
+	if firstReviewIdx >= 0 {
+		reviews[firstReviewIdx]["is_first_review"] = true
+	}
+	if firstApprovalIdx >= 0 {
+		reviews[firstApprovalIdx]["is_first_approval"] = true
+	}
+	for _, review := range reviews {
+		rich := make(map[string]interface{})
+		for _, field := range shared.RawFields {
+			v, _ := pull[field]
+			rich[field] = v
+		}
+		for _, field := range copyPullFields {
+			rich[field], _ = pull[field]
+		}
+		for _, field := range copyReviewFields {
+			rich[field], _ = review[field]
+		}
+		if ctx.Project != "" {
+			rich["project"] = ctx.Project
+		}
+		rich["type"] = "pull_request_review"
+		rich["item_type"] = "pull request review"
+		rich["pull_request_review"] = true
+		rich["pull_request_id"] = pullID
+		rich["pull_request_number"] = pullNumber
+		rich["is_approved"] = bApproved
+		iRID, _ := review["id"]
+		rid := int64(iRID.(float64))
+		rich["id_in_repo"] = rid
+		rich["pull_request_review_id"] = rid
+		rich["pull_request_created_at"] = pullCreatedAt
+		rich["id"] = id + "/review/" + fmt.Sprintf("%d", rid)
+		rich["url_id"] = fmt.Sprintf("%s/pulls/%d/reviews/%d", githubRepo, iNumber, rid)
+		rich["reviewer_association"], _ = review["author_association"]
+		rich["reviewer_login"], _ = shared.Dig(review, []string{"user", "login"}, false, true)
+		iReviewerData, ok := review["user_data"]
+		if ok && iReviewerData != nil {
+			user, _ := iReviewerData.(map[string]interface{})
+			rich["author_login"], _ = user["login"]
+			rich["author_name"], _ = user["name"]
+			rich["author_avatar_url"], _ = user["avatar_url"]
+			rich["reviewer_avatar_url"] = rich["author_avatar_url"]
+			rich["reviewer_name"], _ = user["name"]
+			rich["reviewer_domain"] = nil
+			iEmail, ok := user["email"]
+			if ok {
+				email, _ := iEmail.(string)
+				ary := strings.Split(email, "@")
+				if len(ary) > 1 {
+					rich["reviewer_domain"] = strings.TrimSpace(ary[1])
+				}
+			}
+			rich["reviewer_org"], _ = user["company"]
+			rich["reviewer_location"], _ = user["location"]
+			rich["reviewer_geolocation"] = nil
+		} else {
+			rich["author_login"] = nil
+			rich["author_name"] = nil
+			rich["author_avatar_url"] = nil
+			rich["reviewer_avatar_url"] = nil
+			rich["reviewer_name"] = nil
+			rich["reviewer_domain"] = nil
+			rich["reviewer_org"] = nil
+			rich["reviewer_location"] = nil
+			rich["reviewer_geolocation"] = nil
+		}
+		iSubmittedAt, _ := review["submitted_at"]
+		submittedAt, _ := shared.TimeParseInterfaceString(iSubmittedAt)
+		rich["metadata__updated_on"] = submittedAt
+		rich["roles"] = j.GetRoles(ctx, review, GitHubPullRequestReviewRoles, submittedAt)
+		// NOTE: From shared
+		rich["metadata__enriched_on"] = time.Now()
+		// rich[ProjectSlug] = ctx.ProjectSlug
+		// rich["groups"] = ctx.Groups
+		richItems = append(richItems, rich)
+	}
+	pull["is_approved"] = bApproved
+	return
+}
+
+// EnrichPullRequestAssignees - return rich assignees from raw pull request
+func (j *DSGitHub) EnrichPullRequestAssignees(ctx *shared.Ctx, pull map[string]interface{}, assignees []map[string]interface{}) (richItems []interface{}, err error) {
+	// type: category, type(_), item_type( ), pull_request_assignee=true
+	// copy pull request: github_repo, repo_name, repository
+	// identify: id, id_in_repo, pull_request_assignee_login, url_id
+	// standard: metadata..., origin, project, project_slug, uuid
+	// parent: pull_request_id, pull_request_number
+	// identity: author_... -> assignee_...,
+	// common: is_github_pull_request=1, is_github_pull_request_assignee=1
+	iID, _ := pull["id"]
+	id, _ := iID.(string)
+	iPullID, _ := pull["pull_request_id"]
+	pullID := int(iPullID.(float64))
+	pullNumber, _ := pull["id_in_repo"]
+	iNumber, _ := pullNumber.(int)
+	iGithubRepo, _ := pull["github_repo"]
+	githubRepo, _ := iGithubRepo.(string)
+	copyPullFields := []string{"category", "github_repo", "repo_name", "repository", "repo_short_name"}
+	for _, assignee := range assignees {
+		rich := make(map[string]interface{})
+		for _, field := range shared.RawFields {
+			v, _ := pull[field]
+			rich[field] = v
+		}
+		for _, field := range copyPullFields {
+			rich[field], _ = pull[field]
+		}
+		if ctx.Project != "" {
+			rich["project"] = ctx.Project
+		}
+		rich["type"] = "pull_request_assignee"
+		rich["item_type"] = "pull request assignee"
+		rich["pull_request_assignee"] = true
+		rich["pull_request_id"] = pullID
+		rich["pull_request_number"] = pullNumber
+		iLogin, _ := assignee["login"]
+		login, _ := iLogin.(string)
+		rich["id_in_repo"], _ = assignee["id"]
+		rich["pull_request_assignee_login"] = login
+		rich["id"] = id + "/assignee/" + login
+		rich["url_id"] = fmt.Sprintf("%s/pulls/%d/assignees/%s", githubRepo, iNumber, login)
+		rich["author_login"] = login
+		rich["author_name"], _ = assignee["name"]
+		rich["author_avatar_url"], _ = assignee["avatar_url"]
+		rich["assignee_avatar_url"] = rich["author_avatar_url"]
+		rich["assignee_login"] = login
+		rich["assignee_name"], _ = assignee["name"]
+		rich["assignee_domain"] = nil
+		iEmail, ok := assignee["email"]
+		if ok {
+			email, _ := iEmail.(string)
+			ary := strings.Split(email, "@")
+			if len(ary) > 1 {
+				rich["assignee_domain"] = strings.TrimSpace(ary[1])
+			}
+		}
+		rich["assignee_org"], _ = assignee["company"]
+		rich["assignee_location"], _ = assignee["location"]
+		rich["assignee_geolocation"] = nil
+		// We consider assignee enrollment at pull request creation date
+		iCreatedAt, _ := pull["created_at"]
+		createdAt, _ := iCreatedAt.(time.Time)
+		rich["metadata__updated_on"] = createdAt
+		rich["roles"] = j.GetRoles(ctx, map[string]interface{}{"assignee": assignee}, GitHubPullRequestAssigneeRoles, createdAt)
+		// NOTE: From shared
+		rich["metadata__enriched_on"] = time.Now()
+		// rich[ProjectSlug] = ctx.ProjectSlug
+		// rich["groups"] = ctx.Groups
+		richItems = append(richItems, rich)
+	}
+	return
+}
+
+// EnrichPullRequestReactions - return rich reactions from raw pull request comment
+func (j *DSGitHub) EnrichPullRequestReactions(ctx *shared.Ctx, pull map[string]interface{}, reactions []map[string]interface{}) (richItems []interface{}, err error) {
+	// type: category, type(_), item_type( ), pull_request_comment_reaction=true
+	// copy pull request: github_repo, repo_name, repository
+	// copy reaction: content
+	// identify: id, id_in_repo, pull_request_comment_reaction_id, url_id
+	// standard: metadata..., origin, project, project_slug, uuid
+	// parent: pull_request_id, pull_request_number
+	// identity: author_... -> actor_...,
+	// common: is_github_pull_request=1, is_github_pull_request_comment_reaction=1
+	iID, _ := pull["id"]
+	id, _ := iID.(string)
+	iPullID, _ := pull["pull_request_id"]
+	pullID := int(iPullID.(float64))
+	pullNumber, _ := pull["id_in_repo"]
+	iNumber, _ := pullNumber.(int)
+	iGithubRepo, _ := pull["github_repo"]
+	githubRepo, _ := iGithubRepo.(string)
+	copyPullFields := []string{"category", "github_repo", "repo_name", "repository", "repo_short_name"}
+	copyReactionFields := []string{"content"}
+	reactionSuffix := "_comment_reaction"
+	for _, reaction := range reactions {
+		rich := make(map[string]interface{})
+		for _, field := range shared.RawFields {
+			v, _ := pull[field]
+			rich[field] = v
+		}
+		for _, field := range copyPullFields {
+			rich[field], _ = pull[field]
+		}
+		for _, field := range copyReactionFields {
+			rich[field], _ = reaction[field]
+		}
+		if ctx.Project != "" {
+			rich["project"] = ctx.Project
+		}
+		rich["pull_request_id"] = pullID
+		rich["pull_request_number"] = pullNumber
+		iRID, _ := reaction["id"]
+		rid := int64(iRID.(float64))
+		iComment, _ := reaction["parent"]
+		comment, _ := iComment.(map[string]interface{})
+		iCID, _ := comment["id"]
+		cid := int64(iCID.(float64))
+		rich["type"] = "pull_request" + reactionSuffix
+		rich["item_type"] = "pull request comment reaction"
+		rich["pull_request"+reactionSuffix] = true
+		rich["pull_request_comment_id"] = cid
+		rich["pull_request_comment_reaction_id"] = rid
+		rich["id_in_repo"] = rid
+		rich["id"] = id + "/comment/" + fmt.Sprintf("%d", cid) + "/reaction/" + fmt.Sprintf("%d", rid)
+		rich["url_id"] = fmt.Sprintf("%s/pulls/%d/comments/%d/reactions/%d", githubRepo, iNumber, cid, rid)
+		iCreatedAt, _ := comment["created_at"]
+		iUserData, ok := reaction["user_data"]
+		if ok && iUserData != nil {
+			user, _ := iUserData.(map[string]interface{})
+			rich["author_login"], _ = user["login"]
+			rich["actor_login"], _ = user["login"]
+			rich["author_name"], _ = user["name"]
+			rich["author_avatar_url"], _ = user["avatar_url"]
+			rich["actor_avatar_url"] = rich["author_avatar_url"]
+			rich["actor_name"], _ = user["name"]
+			rich["actor_domain"] = nil
+			iEmail, ok := user["email"]
+			if ok {
+				email, _ := iEmail.(string)
+				ary := strings.Split(email, "@")
+				if len(ary) > 1 {
+					rich["actor_domain"] = strings.TrimSpace(ary[1])
+				}
+			}
+			rich["actor_org"], _ = user["company"]
+			rich["actor_location"], _ = user["location"]
+			rich["actor_geolocation"] = nil
+		} else {
+			rich["author_login"] = nil
+			rich["author_name"] = nil
+			rich["author_avatar_url"] = nil
+			rich["actor_avatar_url"] = nil
+			rich["actor_login"] = nil
+			rich["actor_name"] = nil
+			rich["actor_domain"] = nil
+			rich["actor_org"] = nil
+			rich["actor_location"] = nil
+			rich["actor_geolocation"] = nil
+		}
+		// createdAt is pull request comment creation date
+		// reaction itself doesn't have any date in GH API
+		createdAt, _ := shared.TimeParseInterfaceString(iCreatedAt)
+		rich["metadata__updated_on"] = createdAt
+		rich["roles"] = j.GetRoles(ctx, reaction, GitHubPullRequestReactionRoles, createdAt)
+		// NOTE: From shared
+		rich["metadata__enriched_on"] = time.Now()
+		// rich[ProjectSlug] = ctx.ProjectSlug
+		// rich["groups"] = ctx.Groups
+		richItems = append(richItems, rich)
+	}
+	return
+}
+
+// EnrichPullRequestRequestedReviewers - return rich requested reviewers from raw pull request
+func (j *DSGitHub) EnrichPullRequestRequestedReviewers(ctx *shared.Ctx, pull map[string]interface{}, requestedReviewers []map[string]interface{}) (richItems []interface{}, err error) {
+	// type: category, type(_), item_type( ), pull_request_requested_reviewer=true
+	// copy pull request: github_repo, repo_name, repository
+	// identify: id, id_in_repo, pull_request_requested_reviewer_login, url_id
+	// standard: metadata..., origin, project, project_slug, uuid
+	// parent: pull_request_id, pull_request_number
+	// identity: author_... -> requested_reviewer_...,
+	// common: is_github_pull_request=1, is_github_pull_request_requested_reviewer=1
+	iID, _ := pull["id"]
+	id, _ := iID.(string)
+	iPullID, _ := pull["pull_request_id"]
+	pullID := int(iPullID.(float64))
+	pullNumber, _ := pull["id_in_repo"]
+	iNumber, _ := pullNumber.(int)
+	iGithubRepo, _ := pull["github_repo"]
+	githubRepo, _ := iGithubRepo.(string)
+	copyPullFields := []string{"category", "github_repo", "repo_name", "repository", "repo_short_name"}
+	for _, reviewer := range requestedReviewers {
+		rich := make(map[string]interface{})
+		for _, field := range shared.RawFields {
+			v, _ := pull[field]
+			rich[field] = v
+		}
+		for _, field := range copyPullFields {
+			rich[field], _ = pull[field]
+		}
+		if ctx.Project != "" {
+			rich["project"] = ctx.Project
+		}
+		rich["type"] = "pull_request_requested_reviewer"
+		rich["item_type"] = "pull request requested reviewer"
+		rich["pull_request_requested_reviewer"] = true
+		rich["pull_request_id"] = pullID
+		rich["pull_request_number"] = pullNumber
+		iLogin, _ := reviewer["login"]
+		login, _ := iLogin.(string)
+		rich["id_in_repo"], _ = reviewer["id"]
+		rich["pull_request_requested_reviewer_login"] = login
+		rich["id"] = id + "/requested_reviewer/" + login
+		rich["url_id"] = fmt.Sprintf("%s/pulls/%d/requested_reviewers/%s", githubRepo, iNumber, login)
+		rich["author_login"] = login
+		rich["author_name"], _ = reviewer["name"]
+		rich["author_avatar_url"], _ = reviewer["avatar_url"]
+		rich["requested_reviewer_avatar_url"] = rich["author_avatar_url"]
+		rich["requested_reviewer_login"] = login
+		rich["requested_reviewer_name"], _ = reviewer["name"]
+		rich["requested_reviewer_domain"] = nil
+		iEmail, ok := reviewer["email"]
+		if ok {
+			email, _ := iEmail.(string)
+			ary := strings.Split(email, "@")
+			if len(ary) > 1 {
+				rich["requested_reviewer_domain"] = strings.TrimSpace(ary[1])
+			}
+		}
+		rich["requested_reviewer_org"], _ = reviewer["company"]
+		rich["requested_reviewer_location"], _ = reviewer["location"]
+		rich["requested_reviewer_geolocation"] = nil
+		// We consider requested reviewer enrollment at pull request creation date
+		iCreatedAt, _ := pull["created_at"]
+		createdAt, _ := iCreatedAt.(time.Time)
+		rich["metadata__updated_on"] = createdAt
+		rich["roles"] = j.GetRoles(ctx, map[string]interface{}{"requested_reviewer": reviewer}, GitHubPullRequestRequestedReviewerRoles, createdAt)
+		// NOTE: From shared
+		rich["metadata__enriched_on"] = time.Now()
+		// rich[ProjectSlug] = ctx.ProjectSlug
+		// rich["groups"] = ctx.Groups
+		richItems = append(richItems, rich)
+	}
+	return
+}
+
+// EnrichPullRequestItem - return rich item from raw item for a given author type
+func (j *DSGitHub) EnrichPullRequestItem(ctx *shared.Ctx, item map[string]interface{}) (rich map[string]interface{}, err error) {
+	rich = make(map[string]interface{})
+	pull, ok := item["data"].(map[string]interface{})
+	if !ok {
+		err = fmt.Errorf("missing data field in item %+v", shared.DumpKeys(item))
+		return
+	}
+	for _, field := range shared.RawFields {
+		v, _ := item[field]
+		rich[field] = v
+	}
+	if ctx.Project != "" {
+		rich["project"] = ctx.Project
+	}
+	rich["repo_name"] = j.URL
+	rich["repository"] = j.URL
+	rich["id"] = j.ItemID(pull)
+	rich["pull_request_id"], _ = pull["id"]
+	iCreatedAt, _ := pull["created_at"]
+	createdAt, _ := shared.TimeParseInterfaceString(iCreatedAt)
+	updatedOn, _ := shared.Dig(item, []string{"metadata__updated_on"}, true, false)
+	rich["type"] = j.CurrentCategory
+	rich["category"] = j.CurrentCategory
+	now := time.Now()
+	rich["created_at"] = createdAt
+	rich["updated_at"] = updatedOn
+	iClosedAt, ok := pull["closed_at"]
+	rich["closed_at"] = iClosedAt
+	if ok && iClosedAt != nil {
+		closedAt, e := shared.TimeParseInterfaceString(iClosedAt)
+		if e == nil {
+			rich["time_to_close_days"] = float64(closedAt.Sub(createdAt).Seconds()) / 86400.0
+		} else {
+			rich["time_to_close_days"] = nil
+		}
+	} else {
+		rich["time_to_close_days"] = nil
+	}
+	state, ok := pull["state"]
+	rich["state"] = state
+	if ok && state != nil && state.(string) == "closed" {
+		rich["time_open_days"] = rich["time_to_close_days"]
+	} else {
+		rich["time_open_days"] = float64(now.Sub(createdAt).Seconds()) / 86400.0
+	}
+	iNumber, _ := pull["number"]
+	number := int(iNumber.(float64))
+	rich["id_in_repo"] = number
+	rich["title"], _ = pull["title"]
+	rich["title_analyzed"], _ = pull["title"]
+	rich["body"], _ = pull["body"]
+	rich["body_analyzed"], _ = pull["body"]
+	rich["url"], _ = pull["html_url"]
+	iMergedAt, _ := pull["merged_at"]
+	rich["merged_at"] = iMergedAt
+	rich["merged"], _ = pull["merged"]
+	rich["user_login"], _ = shared.Dig(pull, []string{"user", "login"}, false, true)
+	iUserData, ok := pull["user_data"]
+	if ok && iUserData != nil {
+		user, _ := iUserData.(map[string]interface{})
+		rich["author_login"], _ = user["login"]
+		rich["author_name"], _ = user["name"]
+		rich["author_avatar_url"], _ = user["avatar_url"]
+		rich["user_avatar_url"] = rich["author_avatar_url"]
+		rich["user_name"], _ = user["name"]
+		rich["user_domain"] = nil
+		iEmail, ok := user["email"]
+		if ok {
+			email, _ := iEmail.(string)
+			ary := strings.Split(email, "@")
+			if len(ary) > 1 {
+				rich["user_domain"] = strings.TrimSpace(ary[1])
+			}
+		}
+		rich["user_org"], _ = user["company"]
+		rich["user_location"], _ = user["location"]
+		rich["user_geolocation"] = nil
+	} else {
+		rich["author_login"] = nil
+		rich["author_name"] = nil
+		rich["author_avatar_url"] = nil
+		rich["user_avatar_url"] = nil
+		rich["user_name"] = nil
+		rich["user_domain"] = nil
+		rich["user_org"] = nil
+		rich["user_location"] = nil
+		rich["user_geolocation"] = nil
+	}
+	iAssigneeData, ok := pull["assignee_data"]
+	if ok && iAssigneeData != nil {
+		assignee, _ := iAssigneeData.(map[string]interface{})
+		rich["assignee_login"], _ = assignee["login"]
+		rich["assignee_name"], _ = assignee["name"]
+		rich["assignee_avatar_url"], _ = assignee["avatar_url"]
+		rich["assignee_domain"] = nil
+		iEmail, ok := assignee["email"]
+		if ok {
+			email, _ := iEmail.(string)
+			ary := strings.Split(email, "@")
+			if len(ary) > 1 {
+				rich["assignee_domain"] = strings.TrimSpace(ary[1])
+			}
+		}
+		rich["assignee_org"], _ = assignee["company"]
+		rich["assignee_location"], _ = assignee["location"]
+		rich["assignee_geolocation"] = nil
+	} else {
+		rich["assignee_login"] = nil
+		rich["assignee_name"] = nil
+		rich["assignee_avatar_url"] = nil
+		rich["assignee_domain"] = nil
+		rich["assignee_org"] = nil
+		rich["assignee_location"] = nil
+		rich["assignee_geolocation"] = nil
+	}
+	iMergedByData, ok := pull["merged_by_data"]
+	if ok && iMergedByData != nil {
+		mergedBy, _ := iMergedByData.(map[string]interface{})
+		rich["merge_author_login"], _ = mergedBy["login"]
+		rich["merge_author_name"], _ = mergedBy["name"]
+		rich["merge_author_avatar_url"], _ = mergedBy["avatar_url"]
+		rich["merge_author_domain"] = nil
+		iEmail, ok := mergedBy["email"]
+		if ok {
+			email, _ := iEmail.(string)
+			ary := strings.Split(email, "@")
+			if len(ary) > 1 {
+				rich["merge_author_domain"] = strings.TrimSpace(ary[1])
+			}
+		}
+		rich["merge_author_org"], _ = mergedBy["company"]
+		rich["merge_author_location"], _ = mergedBy["location"]
+		rich["merge_author_geolocation"] = nil
+	} else {
+		rich["merge_author_login"] = nil
+		rich["merge_author_name"] = nil
+		rich["merge_author_avatar_url"] = nil
+		rich["merge_author_domain"] = nil
+		rich["merge_author_org"] = nil
+		rich["merge_author_location"] = nil
+		rich["merge_author_geolocation"] = nil
+	}
+	iLabels, ok := pull["labels"]
+	if ok && iLabels != nil {
+		ary, _ := iLabels.([]interface{})
+		labels := []interface{}{}
+		for _, iLabel := range ary {
+			label, _ := iLabel.(map[string]interface{})
+			iLabelName, _ := label["name"]
+			labelName, _ := iLabelName.(string)
+			if labelName != "" {
+				labels = append(labels, labelName)
+			}
+		}
+		rich["labels"] = labels
+	}
+	nAssignees := 0
+	iAssignees, ok := pull["assignees_data"]
+	if ok && iAssignees != nil {
+		ary, _ := iAssignees.([]interface{})
+		nAssignees = len(ary)
+		assignees := []interface{}{}
+		for _, iAssignee := range ary {
+			assignee, _ := iAssignee.(map[string]interface{})
+			iAssigneeLogin, _ := assignee["login"]
+			assigneeLogin, _ := iAssigneeLogin.(string)
+			if assigneeLogin != "" {
+				assignees = append(assignees, assigneeLogin)
+			}
+		}
+		rich["assignees_data"] = assignees
+	}
+	rich["n_assignees"] = nAssignees
+	nRequestedReviewers := 0
+	iRequestedReviewers, ok := pull["requested_reviewers_data"]
+	if ok && iRequestedReviewers != nil {
+		ary, _ := iRequestedReviewers.([]interface{})
+		nRequestedReviewers = len(ary)
+		requestedReviewers := []interface{}{}
+		for _, iRequestedReviewer := range ary {
+			requestedReviewer, _ := iRequestedReviewer.(map[string]interface{})
+			iRequestedReviewerLogin, _ := requestedReviewer["login"]
+			requestedReviewerLogin, _ := iRequestedReviewerLogin.(string)
+			if requestedReviewerLogin != "" {
+				requestedReviewers = append(requestedReviewers, requestedReviewerLogin)
+			}
+		}
+		rich["requested_reviewers_data"] = requestedReviewers
+	}
+	rich["n_requested_reviewers"] = nRequestedReviewers
+	// FIXME
+	nCommits := 0
+	iCommits, ok := pull["commits_data"]
+	if ok && iCommits != nil {
+		ary, _ := iCommits.([]interface{})
+		nCommits = len(ary)
+		rich["commits_data"] = iCommits
+		// FIXME
+		fmt.Printf("commits_data.1: %+v\n", iCommits)
+	}
+	rich["n_commits"] = nCommits
+	//
+	nCommenters := 0
+	nComments := 0
+	reactions := 0
+	iComments, ok := pull["review_comments_data"]
+	if ok && iComments != nil {
+		ary, _ := iComments.([]interface{})
+		nComments = len(ary)
+		commenters := map[string]interface{}{}
+		for _, iComment := range ary {
+			comment, _ := iComment.(map[string]interface{})
+			iCommenter, _ := shared.Dig(comment, []string{"user", "login"}, false, true)
+			commenter, _ := iCommenter.(string)
+			if commenter != "" {
+				commenters[commenter] = struct{}{}
+			}
+			iReactions, ok := shared.Dig(comment, []string{"reactions", "total_count"}, false, true)
+			if ok {
+				reacts := int(iReactions.(float64))
+				reactions += reacts
+			}
+		}
+		nCommenters = len(commenters)
+		comms := []string{}
+		for commenter := range commenters {
+			comms = append(comms, commenter)
+		}
+		rich["commenters"] = comms
+	}
+	rich["n_commenters"] = nCommenters
+	rich["n_comments"] = nComments
+	nReviewCommenters := 0
+	nReviewComments := 0
+	iReviewComments, ok := pull["reviews_data"]
+	if ok && iReviewComments != nil {
+		ary, _ := iReviewComments.([]interface{})
+		nReviewComments = len(ary)
+		reviewCommenters := map[string]interface{}{}
+		for _, iReviewComment := range ary {
+			reviewComment, _ := iReviewComment.(map[string]interface{})
+			iReviewCommenter, _ := shared.Dig(reviewComment, []string{"user", "login"}, false, true)
+			reviewCommenter, _ := iReviewCommenter.(string)
+			if reviewCommenter != "" {
+				reviewCommenters[reviewCommenter] = struct{}{}
+			}
+		}
+		nReviewCommenters = len(reviewCommenters)
+		revComms := []string{}
+		for reviewCommenter := range reviewCommenters {
+			revComms = append(revComms, reviewCommenter)
+		}
+		rich["review_commenters"] = revComms
+	}
+	rich["n_review_commenters"] = nReviewCommenters
+	rich["n_review_comments"] = nReviewComments
+	rich["pull_request"] = true
+	rich["item_type"] = "pull request"
+	githubRepo := j.URL
+	if strings.HasSuffix(githubRepo, ".git") {
+		githubRepo = githubRepo[:len(githubRepo)-4]
+	}
+	if strings.Contains(githubRepo, GitHubURLRoot) {
+		githubRepo = strings.Replace(githubRepo, GitHubURLRoot, "", -1)
+	}
+	var repoShortName string
+	arr := strings.Split(githubRepo, "/")
+	if len(arr) > 1 {
+		repoShortName = arr[1]
+	}
+	rich["repo_short_name"] = repoShortName
+	rich["github_repo"] = githubRepo
+	rich["url_id"] = fmt.Sprintf("%s/pull/%d", githubRepo, number)
+	rich["forks"], _ = shared.Dig(pull, []string{"base", "repo", "forks_count"}, false, true)
+	rich["num_review_comments"], _ = pull["review_comments"]
+	if iMergedAt != nil {
+		mergedAt, e := shared.TimeParseInterfaceString(iMergedAt)
+		if e == nil {
+			rich["code_merge_duration"] = float64(mergedAt.Sub(createdAt).Seconds()) / 86400.0
+		} else {
+			rich["code_merge_duration"] = nil
+		}
+	} else {
+		rich["code_merge_duration"] = nil
+	}
+	commentsVal := 0
+	iCommentsVal, ok := pull["comments"]
+	if ok {
+		commentsVal = int(iCommentsVal.(float64))
+	}
+	rich["n_total_comments"] = commentsVal
+	// There is probably no value for "reactions", "total_count" on the top level of "pull" object, but we can attempt to get this
+	iReactions, ok := shared.Dig(pull, []string{"reactions", "total_count"}, false, true)
+	if ok {
+		reacts := int(iReactions.(float64))
+		reactions += reacts
+	}
+	rich["n_reactions"] = reactions
+	rich["time_to_merge_request_response"] = nil
+	if nComments > 0 {
+		firstReviewDate := j.GetFirstPullRequestReviewDate(pull, false)
+		rich["time_to_merge_request_response"] = float64(firstReviewDate.Sub(createdAt).Seconds()) / 86400.0
+	}
+	if nReviewComments > 0 || nComments > 0 {
+		firstAttentionDate := j.GetFirstPullRequestReviewDate(pull, true)
+		rich["time_to_first_attention"] = float64(firstAttentionDate.Sub(createdAt).Seconds()) / 86400.0
+	}
+	rich["metadata__updated_on"] = createdAt
+	// FIXME
+	rich["roles"] = j.GetRoles(ctx, pull, GitHubPullRequestRoles, createdAt)
+	// NOTE: From shared
+	rich["metadata__enriched_on"] = time.Now()
+	// rich[ProjectSlug] = ctx.ProjectSlug
+	// rich["groups"] = ctx.Groups
 	return
 }
 
@@ -2663,6 +4754,236 @@ func (j *DSGitHub) GitHubIssueEnrichItemsFunc(ctx *shared.Ctx, items []interface
 	return
 }
 
+// GitHubPullRequestEnrichItemsFunc - iterate items and enrich them
+// items is a current pack of input items
+// docs is a pointer to where extracted identities will be stored
+func (j *DSGitHub) GitHubPullRequestEnrichItemsFunc(ctx *shared.Ctx, items []interface{}, docs *[]interface{}, final bool) (err error) {
+	if ctx.Debug > 0 {
+		shared.Printf("%s/%s: github enrich pull request items %d/%d func\n", j.URL, j.CurrentCategory, len(items), len(*docs))
+	}
+	var (
+		mtx *sync.RWMutex
+		ch  chan error
+	)
+	thrN := j.ThrN
+	if thrN > 1 {
+		mtx = &sync.RWMutex{}
+		ch = make(chan error)
+	}
+	getRichItem := func(doc map[string]interface{}) (rich map[string]interface{}, e error) {
+		rich, e = j.EnrichItem(ctx, doc)
+		if e != nil {
+			return
+		}
+		data, _ := shared.Dig(doc, []string{"data"}, true, false)
+		// pr:    assignees_data[]
+		// pr:    reviews_data[].user_data
+		// pr:    review_comments_data[].user_data
+		// pr:    review_comments_data[].reactions_data[].user_data
+		// pr:    requested_reviewers_data[].user_data
+		// FIXME
+		// pr:    commits_data[].user_data
+		if WantEnrichPullRequestAssignees {
+			iAssignees, ok := shared.Dig(data, []string{"assignees_data"}, false, true)
+			if ok && iAssignees != nil {
+				assignees, ok := iAssignees.([]interface{})
+				if ok {
+					var asgs []map[string]interface{}
+					for _, iAssignee := range assignees {
+						assignee, ok := iAssignee.(map[string]interface{})
+						if !ok {
+							continue
+						}
+						asgs = append(asgs, assignee)
+					}
+					if len(asgs) > 0 {
+						var riches []interface{}
+						riches, e = j.EnrichPullRequestAssignees(ctx, rich, asgs)
+						if e != nil {
+							return
+						}
+						rich["assignees_array"] = riches
+					}
+				}
+			}
+		}
+		iReviews, ok := shared.Dig(data, []string{"reviews_data"}, false, true)
+		if ok && iReviews != nil {
+			reviews, ok := iReviews.([]interface{})
+			if ok {
+				var revs []map[string]interface{}
+				for _, iReview := range reviews {
+					review, ok := iReview.(map[string]interface{})
+					if !ok {
+						continue
+					}
+					revs = append(revs, review)
+				}
+				if len(revs) > 0 {
+					var riches []interface{}
+					riches, e = j.EnrichPullRequestReviews(ctx, rich, revs)
+					if e != nil {
+						return
+					}
+					rich["reviews_array"] = riches
+				}
+			}
+		}
+		iComments, ok := shared.Dig(data, []string{"review_comments_data"}, false, true)
+		if ok && iComments != nil {
+			comments, ok := iComments.([]interface{})
+			if ok {
+				var comms []map[string]interface{}
+				for _, iComment := range comments {
+					comment, ok := iComment.(map[string]interface{})
+					if !ok {
+						continue
+					}
+					comms = append(comms, comment)
+				}
+				if len(comms) > 0 {
+					var riches []interface{}
+					riches, e = j.EnrichPullRequestComments(ctx, rich, comms)
+					if e != nil {
+						return
+					}
+					rich["comments_array"] = riches
+					if WantEnrichPullRequestCommentReactions {
+						var reacts []map[string]interface{}
+						for _, comment := range comms {
+							iReactions, ok := shared.Dig(comment, []string{"reactions_data"}, false, true)
+							if ok && iReactions != nil {
+								reactions, ok := iReactions.([]interface{})
+								if ok {
+									for _, iReaction := range reactions {
+										reaction, ok := iReaction.(map[string]interface{})
+										if !ok {
+											continue
+										}
+										reaction["parent"] = comment
+										reacts = append(reacts, reaction)
+									}
+								}
+							}
+						}
+						if len(reacts) > 0 {
+							var riches []interface{}
+							riches, e = j.EnrichPullRequestReactions(ctx, rich, reacts)
+							if e != nil {
+								return
+							}
+							rich["comments_reactions_array"] = riches
+						}
+					}
+				}
+			}
+		}
+		if WantEnrichPullRequestRequestedReviewers {
+			iReviewers, ok := shared.Dig(data, []string{"requested_reviewers_data"}, false, true)
+			if ok && iReviewers != nil {
+				reviewers, ok := iReviewers.([]interface{})
+				if ok {
+					var revs []map[string]interface{}
+					for _, iReviewer := range reviewers {
+						reviewer, ok := iReviewer.(map[string]interface{})
+						if !ok {
+							continue
+						}
+						revs = append(revs, reviewer)
+					}
+					if len(revs) > 0 {
+						var riches []interface{}
+						riches, e = j.EnrichPullRequestRequestedReviewers(ctx, rich, revs)
+						if e != nil {
+							return
+						}
+						rich["requested_reviewers_array"] = riches
+					}
+				}
+			}
+		}
+		// FIXME
+		if WantEnrichPullRequestCommits {
+			iCommits, ok := shared.Dig(data, []string{"commits_data"}, false, true)
+			if ok && iCommits != nil {
+				commits, ok := iCommits.([]interface{})
+				if ok {
+					// FIXME
+					fmt.Printf("commits_data.2: %+v\n", commits)
+				}
+			}
+		}
+		return
+	}
+	nThreads := 0
+	procItem := func(c chan error, idx int) (e error) {
+		if thrN > 1 {
+			mtx.RLock()
+		}
+		item := items[idx]
+		if thrN > 1 {
+			mtx.RUnlock()
+		}
+		defer func() {
+			if c != nil {
+				c <- e
+			}
+		}()
+		// NOTE: never refer to _source - we no longer use ES
+		doc, ok := item.(map[string]interface{})
+		if !ok {
+			e = fmt.Errorf("Failed to parse document %+v", doc)
+			return
+		}
+		rich, e := getRichItem(doc)
+		if e != nil {
+			return
+		}
+		if thrN > 1 {
+			mtx.Lock()
+		}
+		*docs = append(*docs, rich)
+		// NOTE: flush here
+		if len(*docs) >= ctx.PackSize {
+			j.OutputDocs(ctx, items, docs, final)
+		}
+		if thrN > 1 {
+			mtx.Unlock()
+		}
+		return
+	}
+	if thrN > 1 {
+		for i := range items {
+			go func(i int) {
+				_ = procItem(ch, i)
+			}(i)
+			nThreads++
+			if nThreads == thrN {
+				err = <-ch
+				if err != nil {
+					return
+				}
+				nThreads--
+			}
+		}
+		for nThreads > 0 {
+			err = <-ch
+			nThreads--
+			if err != nil {
+				return
+			}
+		}
+		return
+	}
+	for i := range items {
+		err = procItem(nil, i)
+		if err != nil {
+			return
+		}
+	}
+	return
+}
+
 // GitHubRepositoryEnrichItemsFunc - iterate items and enrich them
 // items is a current pack of input items
 // docs is a pointer to where extracted identities will be stored
@@ -2790,9 +5111,8 @@ func (j *DSGitHub) EnrichItem(ctx *shared.Ctx, item map[string]interface{}) (ric
 		return j.EnrichRepositoryItem(ctx, item)
 	case "issue":
 		return j.EnrichIssueItem(ctx, item)
-		// FIXME
-		//case "pull_request":
-		//	return j.EnrichPullRequestItem(ctx, item)
+	case "pull_request":
+		return j.EnrichPullRequestItem(ctx, item)
 	}
 	return
 }
@@ -2833,9 +5153,8 @@ func (j *DSGitHub) GitHubEnrichItems(ctx *shared.Ctx, items []interface{}, docs 
 		return j.GitHubRepositoryEnrichItemsFunc(ctx, items, docs, final)
 	case "issue":
 		return j.GitHubIssueEnrichItemsFunc(ctx, items, docs, final)
-		// FIXME
-		//case "pull_request":
-		//	return j.GitHubPullRequestEnrichItemsFunc(ctx, items, docs, final)
+	case "pull_request":
+		return j.GitHubPullRequestEnrichItemsFunc(ctx, items, docs, final)
 	}
 	return
 }
@@ -2847,9 +5166,8 @@ func (j *DSGitHub) SyncCurrentCategory(ctx *shared.Ctx) (err error) {
 		return j.FetchItemsRepository(ctx)
 	case "issue":
 		return j.FetchItemsIssue(ctx)
-		// FIXME
-		//case "pull_request":
-		//	return j.FetchItemsPullRequest(ctx)
+	case "pull_request":
+		return j.FetchItemsPullRequest(ctx)
 	}
 	return
 }
