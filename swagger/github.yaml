@@ -388,6 +388,9 @@ definitions:
             type: string
             description: GitHub path/url
             example: https://github.com/cncf/devstats
+          Category:
+            type: string
+            example: repository, issue, pull_request
       Events:
         type: array
         items:

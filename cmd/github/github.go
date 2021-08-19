@@ -14,6 +14,7 @@ import (
 
 	"github.com/LF-Engineering/insights-datasource-github/gen/models"
 	shared "github.com/LF-Engineering/insights-datasource-shared"
+	"github.com/go-openapi/strfmt"
 	"github.com/google/go-github/v38/github"
 	jsoniter "github.com/json-iterator/go"
 	"golang.org/x/oauth2"
@@ -821,7 +822,7 @@ func (j *DSGitHub) EnrichRepositoryItem(ctx *shared.Ctx, item map[string]interfa
 	if ctx.Project != "" {
 		rich["project"] = ctx.Project
 	}
-	repoFields := []string{"forks_count", "subscribers_count", "stargazers_count", "fetched_on"}
+	repoFields := []string{"id", "forks_count", "subscribers_count", "stargazers_count", "fetched_on"}
 	for _, field := range repoFields {
 		v, _ := repo[field]
 		rich[field] = v
@@ -850,8 +851,6 @@ func (j *DSGitHub) EnrichItem(ctx *shared.Ctx, item map[string]interface{}) (ric
 		//	return j.EnrichIssueItem(ctx, item, author, affs, extra)
 		//case "pull_request":
 		//	return j.EnrichPullRequestItem(ctx, item, author, affs, extra)
-		//default:
-		//	err = fmt.Errorf("EnrichItem: unknown category %s", j.Category)
 	}
 	return
 }
@@ -958,20 +957,42 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 		MetaData:   gGitHubMetaData,
 		Endpoint:   endpoint,
 	}
-	source := data.DataSource.Slug
-	for _, iDoc := range docs {
-		var updatedOn time.Time
-		doc, _ := iDoc.(map[string]interface{})
-		shared.Printf("%s: %+v\n", source, doc)
-		// FIXME
-		// Event
-		event := &models.Event{}
-		data.Events = append(data.Events, event)
-		gMaxUpstreamDtMtx.Lock()
-		if updatedOn.After(gMaxUpstreamDt) {
-			gMaxUpstreamDt = updatedOn
+	// FIXME
+	// source := data.DataSource.Slug
+	switch j.CurrentCategory {
+	case "repository":
+		endpoint.Category = j.CurrentCategory
+		for _, iDoc := range docs {
+			doc, _ := iDoc.(map[string]interface{})
+			//shared.Printf("%s: %+v\n", source, doc)
+			updatedOn := j.ItemUpdatedOn(doc)
+			id, _ := doc["id"].(float64)
+			forks, _ := doc["forks_count"].(float64)
+			subscribers, _ := doc["subscribers_count"].(float64)
+			stargazers, _ := doc["stargazers_count"].(float64)
+			// Event
+			event := &models.Event{
+				CodeChangeRequest: nil,
+				Issue:             nil,
+				Repository: &models.RepositoryStatus{
+					ID:           int64(id),
+					URL:          j.URL,
+					CalculatedAt: strfmt.DateTime(updatedOn),
+					Forks:        int64(forks),
+					Subscribers:  int64(subscribers),
+					Stargazers:   int64(stargazers),
+				},
+			}
+			data.Events = append(data.Events, event)
+			gMaxUpstreamDtMtx.Lock()
+			if updatedOn.After(gMaxUpstreamDt) {
+				gMaxUpstreamDt = updatedOn
+			}
+			gMaxUpstreamDtMtx.Unlock()
 		}
-		gMaxUpstreamDtMtx.Unlock()
+		// FIXME
+		//case "issue":
+		//case "pull_request":
 	}
 	return
 }
