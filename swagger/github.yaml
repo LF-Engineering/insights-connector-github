@@ -1,9 +1,9 @@
 ---
 swagger: '2.0'
 info:
-  title: Groups.io data source
+  title: GitHub data source
   version: '1.0'
-  description: Groups.io data source V2
+  description: GitHub data source V2
 paths:    # swagger forces me to add at least one path
   /noop:
     get:
@@ -17,22 +17,27 @@ definitions:
     properties:
       Slug:
         type: string
-        example: groupsio
+        example: github
       Name:
         type: string
-        example: Groups.io
+        example: GitHub
+      Categories:
+        type: array
+        items:
+          type: string
+          example: repository, issue, pull_request
   MetaData:
     type: object
     properties:
       BackendName:
         type: string
-        example: insights-datasource-groupsio
+        example: insights-datasource-github
       BackendVersion:
         type: string
         example: v0.1.0
       Project:
         type: string
-        example: Kubernetes
+        example: Hyperledger Sawtooth
       Tags:
         type: array
         items:
@@ -53,108 +58,332 @@ definitions:
         example: lgryglicki
       Email:
         type: string
-        example: lgryglicki@cncf.io
+        example: xyz@abc.com
       DataSourceId:
         type: string
-        example: groupsio
+        example: github
         description: data source type slug (FK)
-  MailingList:
+      AvatarURL:
+        type: string
+        example: https://avatars.githubusercontent.com/u/13455738?v=4
+  Label:
     type: object
     properties:
       Id:
         type: string
         example: 1234567890abcdef
         description: PK - up to 50 chars
-      MailingListId:
+      LabelId:
         type: string
-        example: 107625428
-        description: groups.io internal id - can be any string
-      URL:
-        type: string
-        example: https://groups.io/g/hyperledger+fabric
-        description: This always 'https://groups.io/g/' + group name
+        example: 1234567890abcdef
+        description: GitHub internal issue ID
       Name:
         type: string
-        example: hyperledger+fabric
-        description: group name
-  Message:
+        example: /lgtm
+  Reaction:
+    type: object
+    properties:
+      Type:
+        type: string
+        example: ok
+        description: literal reaction type
+      Emoji:
+        type: string
+        example: 😃
+        description: UNICODE emoji data
+      Author:
+        type: object
+        $ref: "#/definitions/Identity"
+      ObjectID:
+        type: string
+        example: 1234567890abcdef
+        description: reference to parent object (can be Issue.Id or IssueActivity.Key)
+  IssueActivity:
     type: object
     properties:
       Id:
         type: string
         example: 1234567890abcdef
         description: PK - up to 50 chars
-      MessageId:
+      IssueKey:
         type: string
-        example: '<CAGh20b-Gyh4U0b62dQgxzmHkspAN2_bO1uk7V36ES_XdS7WupA@mail.gmail.com>'
-        description: groups.io internal id - can be any string
+        example: 1234567890abcdef
+        description: FK - up to 50 chars, points to Issue.Id
+      IssueId:
+        type: string
+        example: 1234567890abcdef
+        description: points to Issue.IssueId 
       CreatedAt:
         type: string
         format: date-time
         example: '2019-09-02 03:00:33.000000'
-      CreatedAtInTZ:
+      ActivityType:
+        type: string
+        example: github_issue_created, github_issue_closed, github_issue_assignee_added, github_issue_comment_added, github_issue_reaction, github_issue_comment_reaction, 
+        description: FIXME allows reconstructing relations
+      Body:
+        type: string
+        description: issue/comment body
+        example: My comment body
+        x-nullable: true
+      URL:
+        type: string
+        description: issue/comment URL
+        x-nullable: true
+      Key:
+        type: string
+        description: activity unique key, this is GitHub comment ID if activity is a comment or Issue.Number when activity is an issue
+        example: "150"
+        x-nullable: true
+      IdentityAssociaction:
+        type: string
+      Identity:
+        type: object
+        description: activity creator (ProjectDataSourceIdentity)
+        $ref: "#/definitions/Identity"
+      Reaction:
+        type: object
+        x-nullable: true
+        $ref: "#/definitions/Reaction"
+  Issue:
+    type: object
+    properties:
+      Id:
+        type: string
+        example: 1234567890abcdef
+        description: PK - up to 50 chars
+      IssueId:
+        type: string
+        example: 1234567890abcdef
+        description: GitHub internal issue ID
+      IssueNumber:
+        type: integer
+        example: 123
+        description: GitHub internal issue number
+      CreatedAt:
+        type: string
+        format: date-time
+      UpdatedAt:
         type: string
         format: date-time
         example: '2019-09-02 03:00:33.000000'
-      CreatedTZ:
-        type: number
-        example: -2.5
-        description: time zone offset from UTC in hours
-      Subject:
+      ClosedAt:
         type: string
-        example: My message subject
-      Body:
+        format: date-time
+        x-nullable: true
+      IsClosed:
+        type: boolean
+        example: false
+      IsPullRequest:
+        type: boolean
+        example: false
+      Title:
         type: string
-        # x-nullable: true V2 schema is not allowing body = null, but obviously body can be null IMHO
-        example: My message body
+        example: My issue title
       DataSourceId:
         type: string
-        example: groupsio
+        example: github
         description: data source type slug (FK)
-      MailingList:
-        type: object
-        description: mailing list that message belongs to
-        $ref: "#/definitions/MailingList"
-      ParentMessageID:
-        type: string
-        x-nullable: true
-        example: '<CAGh20b-Gyh4U0b62dQgxzmHkspAN2_bO1uk7V36ES_XdS7WupA@mail.gmail.com>'
-        description: parent message internal ID (system dependent, if present)
-      ParentID:
-        type: string
-        x-nullable: true
-        example: 1234567890abcdef
-        description: parent message (if present)
-      Sender:
-        type: object
-        description: message sender
-        $ref: "#/definitions/Identity"
-      Recipients:
+      Activities:
         type: array
-        description: message recipients
         items:
-          $ref: "#/definitions/Identity"
+          $ref: "#/definitions/IssueActivity"
+      Labels:
+        type: array
+        items:
+          $ref: "#/definitions/Label"
+  CodeChangeRequestActivity:
+    type: object
+    properties:
+      Id:
+        type: string
+        example: 1234567890abcdef
+        description: PK - up to 50 chars
+      CodeChangeRequestKey:
+        type: string
+        example: 1234567890abcdef
+        description: FK - up to 50 chars, points to CodeChangeRequest.Id
+      CodeChangeRequestId:
+        type: string
+        example: 1234567890abcdef
+        description: points to CodeChangeRequest.CodeChangeRequestId 
+      CreatedAt:
+        type: string
+        format: date-time
+        example: '2019-09-02 03:00:33.000000'
+      ActivityType:
+        type: string
+        example: >
+          github_pull_request_created, github_pull_request_closed, github_pull_request_merged,
+          github_pull_request_assignee_added, github_pull_request_requested_reviewer_added,
+          github_pull_request_comment_added, github_pull_request_comment_reaction, github_pull_request_review_added
+        description: FIXME allows reconstructing relations
+      Body:
+        type: string
+        description: PR/comment/review body
+        example: My comment body
+        x-nullable: true
+      URL:
+        type: string
+        description: PR/comment/review URL
+        x-nullable: true
+      Key:
+        type: string
+        description: activity unique key, this is GitHub comment ID if activity is a comment or CodeChangeRequest.Number when activity is a PR
+        example: "150"
+        x-nullable: true
+      CommitSHA:
+        type: string
+        x-nullable: true
+        example: 2b20505d9d60202c6779342033d344dba0685d1b
+        description: if activity type is a review, then we have a commit SHA
+      State:
+        type: string
+        x-nullable: true
+        example: APPROVED, COMMENTED, CHANGES_REQUESTED
+        description: only present if activity type is a review
+      IsApproval:
+        type: boolean
+        x-nullable: true
+        example: true, false, null
+        description: only present if activity type is a review
+      IdentityAssociaction:
+        type: string
+      Identity:
+        type: object
+        description: activity creator (ProjectDataSourceIdentity)
+        $ref: "#/definitions/Identity"
+      Reaction:
+        type: object
+        x-nullable: true
+        $ref: "#/definitions/Reaction"
+  CodeChangeRequestCommit:
+    type: object
+    properties:
+      SHA:
+        type: string
+        example: 2b20505d9d60202c6779342033d344dba0685d1b
+      Identity:
+        type: object
+        description: committer
+        $ref: "#/definitions/Identity"
+  CodeChangeRequest:
+    type: object
+    properties:
+      Id:
+        type: string
+        example: 1234567890abcdef
+        description: PK - up to 50 chars
+      CodeChangeRequestId:
+        type: string
+        example: 1234567890abcdef
+        description: GitHub internal PR ID
+      CodeChangeRequestNumber:
+        type: integer
+        example: 123
+        description: GitHub internal PR number (for issue that is a PR CodeChangeRequest.Number = Issue.Number withing the same repo)
+      CreatedAt:
+        type: string
+        format: date-time
+      UpdatedAt:
+        type: string
+        format: date-time
+        example: '2019-09-02 03:00:33.000000'
+      ClosedAt:
+        type: string
+        format: date-time
+        x-nullable: true
+      IsClosed:
+        type: boolean
+        example: false
+      MergedAt:
+        type: string
+        format: date-time
+        x-nullable: true
+      IsMerged:
+        type: boolean
+        example: false
+      State:
+        type: string
+        example: open, closed, merged
+      Title:
+        type: string
+        example: My PR title
+      DataSourceId:
+        type: string
+        example: github
+        description: data source type slug (FK)
+      Activities:
+        type: array
+        items:
+          $ref: "#/definitions/CodeChangeRequestActivity"
+      Labels:
+        type: array
+        items:
+          $ref: "#/definitions/Label"
+      Commits:
+        type: array
+        items:
+          $ref: "#/definitions/CodeChangeRequestCommit"
+  RepositoryStatus:
+    type: object
+    properties:
+      URL:
+        type: string
+        example: https://github.com/cncf/devstats
+      ID:
+        type: integer
+        example: 1011
+        description: GitHub internal repository ID
+      CalculatedAt:
+        type: string
+        format: date-time
+      Forks:
+        type: integer
+        example: 10
+      Subscribers:
+        type: integer
+        example: 120
+      Stargazers:
+        type: integer
+        example: 95
   Event:
     type: object
-    description: single event in Groups.io is a message, it also includes its extra properties, sender, recipients, replies hierarchy etc.
+    description: single event in Github can be any combination of repository stats, code change request and issue.
     properties:
-      Message:
+      Issue:
         type: object
-        $ref: "#/definitions/Message"
+        x-nullable: true
+        $ref: "#/definitions/Issue"
+      CodeChangeRequest:
+        type: object
+        x-nullable: true
+        $ref: "#/definitions/CodeChangeRequest"
+      Repository:
+        type: object
+        x-nullable: true
+        $ref: "#/definitions/RepositoryStatus"
   Data:
     type: object
-    description: this is the final output of insights-datasource-groupsio, data source will output packs up to some fixed size, like 500 events pack at once
+    description: this is the final output of insights-datasource-github, data source will output packs up to some fixed size, like 500 events pack at once
     properties:
       DataSource:
         type: object
         $ref: "#/definitions/DataSource"
-      Endpoint:
-        type: string
-        description: Groups.io endpoint for which data is being sent
-        example: hyperledger+fabric
       MetaData:
         type: object
         $ref: "#/definitions/MetaData"
+      Endpoint:
+        type: object
+        properties:
+          Org:
+            type: string
+            description: GitHub org
+            example: cncf
+          Repo:
+            type: string
+            description: GitHub repo
+            example: devstats
       Events:
         type: array
         items:
