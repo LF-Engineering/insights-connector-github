@@ -204,6 +204,9 @@ func (j *DSGitHub) ParseArgs(ctx *shared.Ctx) (err error) {
 	if ctx.EnvSet("TOKENS") {
 		j.Tokens = ctx.Env("TOKENS")
 	}
+	if j.Tokens != "" {
+		shared.AddRedacted(j.Tokens, false)
+	}
 
 	// git cache path
 	j.CacheDir = GitHubDefaultCachePath
@@ -244,6 +247,9 @@ func (j *DSGitHub) Validate(ctx *shared.Ctx) (err error) {
 		err = fmt.Errorf("at least one github oauth token must be provided")
 		return
 	}
+	if j.Tokens != "" {
+		shared.AddRedacted(j.Tokens, false)
+	}
 	j.URL = GitHubURLRoot + j.Org + "/" + j.Repo
 	defer func() {
 		shared.Printf("configured %d GitHub OAuth clients\n", len(j.Clients))
@@ -255,6 +261,9 @@ func (j *DSGitHub) Validate(ctx *shared.Ctx) (err error) {
 		bytes, err := ioutil.ReadFile(oAuth)
 		shared.FatalOnError(err)
 		oAuth = strings.TrimSpace(string(bytes))
+		if oAuth != "" {
+			shared.AddRedacted(oAuth, false)
+		}
 	}
 	// GitHub authentication or use public access
 	j.Context = context.Background()
@@ -264,6 +273,9 @@ func (j *DSGitHub) Validate(ctx *shared.Ctx) (err error) {
 	} else {
 		oAuths := strings.Split(oAuth, ",")
 		for _, auth := range oAuths {
+			if auth != "" {
+				shared.AddRedacted(auth, false)
+			}
 			j.OAuthKeys = append(j.OAuthKeys, auth)
 			ts := oauth2.StaticTokenSource(
 				&oauth2.Token{AccessToken: auth},
