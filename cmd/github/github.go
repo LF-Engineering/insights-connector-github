@@ -3911,7 +3911,7 @@ func (j *DSGitHub) EnrichPullRequestItem(ctx *shared.Ctx, item map[string]interf
 	iLabels, ok := pull["labels"]
 	if ok && iLabels != nil {
 		ary, _ := iLabels.([]interface{})
-		labels := []interface{}{}
+		labels := []string{}
 		for _, iLabel := range ary {
 			label, _ := iLabel.(map[string]interface{})
 			iLabelName, _ := label["name"]
@@ -4214,7 +4214,7 @@ func (j *DSGitHub) EnrichIssueItem(ctx *shared.Ctx, item map[string]interface{})
 	iLabels, ok := issue["labels"]
 	if ok && iLabels != nil {
 		ary, _ := iLabels.([]interface{})
-		labels := []interface{}{}
+		labels := []string{}
 		for _, iLabel := range ary {
 			label, _ := iLabel.(map[string]interface{})
 			iLabelName, _ := label["name"]
@@ -5324,6 +5324,7 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 			isPullRequest, _ := doc["pull_request"].(bool)
 			title, _ := doc["title"].(string)
 			state, _ := doc["state"].(string)
+			labels, _ := doc["labels"].([]string)
 			createdOn, _ := doc["created_at"].(time.Time)
 			closedOn := j.ItemNullableDate(doc, "closed_at")
 			isClosed := closedOn != nil
@@ -5344,11 +5345,8 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 					IsPullRequest: isPullRequest,
 					Title:         title,
 					State:         state,
-					/*
-						Activities []*IssueActivity `json:"Activities"`
-						Labels []*Label `json:"Labels"`
-						Title string `json:"Title,omitempty"`
-					*/
+					Labels:        labels,
+					// Activities []*IssueActivity `json:"Activities"`
 				},
 			}
 			data.Events = append(data.Events, event)
@@ -5368,6 +5366,7 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 			prNumber, _ := doc["id_in_repo"].(int)
 			title, _ := doc["title"].(string)
 			state, _ := doc["state"].(string)
+			labels, _ := doc["labels"].([]string)
 			createdOn, _ := doc["created_at"].(time.Time)
 			closedOn := j.ItemNullableDate(doc, "closed_at")
 			isClosed := closedOn != nil
@@ -5391,11 +5390,9 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 					IsMerged:                isMerged,
 					Title:                   title,
 					State:                   state,
-					/*
-						Activities []*CodeChangeRequestActivity `json:"Activities"`
-						Commits []*CodeChangeRequestCommit `json:"Commits"`
-						Labels []*Label `json:"Labels"`
-					*/
+					Labels:                  labels,
+					// Activities []*CodeChangeRequestActivity `json:"Activities"`
+					// Commits []*CodeChangeRequestCommit `json:"Commits"`
 				},
 			}
 			data.Events = append(data.Events, event)

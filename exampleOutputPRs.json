@@ -16,25 +16,6 @@
     {
       "CodeChangeRequest": {
         "Activities": null,
-        "ClosedAt": "2021-07-13T08:31:44.000Z",
-        "CodeChangeRequestId": "686150120",
-        "CodeChangeRequestNumber": 302,
-        "Commits": null,
-        "CreatedAt": "2021-07-08T16:10:20.000Z",
-        "DataSourceId": "github",
-        "Id": "befdb592eef8a747aab245b79387052b15f4da08",
-        "IsClosed": true,
-        "IsMerged": true,
-        "Labels": null,
-        "MergedAt": "2021-07-13T08:31:44.000Z",
-        "State": "closed",
-        "Title": "Revert \"Add knative & knative-sandbox repo_groups\"",
-        "UpdatedAt": "2021-07-13T19:29:45.000Z"
-      }
-    },
-    {
-      "CodeChangeRequest": {
-        "Activities": null,
         "ClosedAt": "2021-01-22T12:14:47.000Z",
         "CodeChangeRequestId": "558984826",
         "CodeChangeRequestNumber": 283,
@@ -54,25 +35,6 @@
     {
       "CodeChangeRequest": {
         "Activities": null,
-        "ClosedAt": "2021-01-15T12:44:16.000Z",
-        "CodeChangeRequestId": "555661099",
-        "CodeChangeRequestNumber": 281,
-        "Commits": null,
-        "CreatedAt": "2021-01-15T12:12:43.000Z",
-        "DataSourceId": "github",
-        "Id": "95acb4b84714fc80c66a5e0b8635a0b926eb7e26",
-        "IsClosed": true,
-        "IsMerged": true,
-        "Labels": null,
-        "MergedAt": "2021-01-15T12:44:16.000Z",
-        "State": "closed",
-        "Title": "Run python3 /go/src/github.com/kubevirt/community/hack/generate-devstats-repo-sql.py --repo-groups-sql /go/src/github.com/cncf/devstats/scripts/kubevirt//repo_groups.sql",
-        "UpdatedAt": "2021-01-15T14:02:29.000Z"
-      }
-    },
-    {
-      "CodeChangeRequest": {
-        "Activities": null,
         "ClosedAt": "2021-03-04T04:58:21.000Z",
         "CodeChangeRequestId": "584134117",
         "CodeChangeRequestNumber": 287,
@@ -87,6 +49,44 @@
         "State": "closed",
         "Title": "Some notes on SIG Node repository group",
         "UpdatedAt": "2021-03-04T04:58:21.000Z"
+      }
+    },
+    {
+      "CodeChangeRequest": {
+        "Activities": null,
+        "ClosedAt": "2021-07-13T08:31:44.000Z",
+        "CodeChangeRequestId": "686150120",
+        "CodeChangeRequestNumber": 302,
+        "Commits": null,
+        "CreatedAt": "2021-07-08T16:10:20.000Z",
+        "DataSourceId": "github",
+        "Id": "befdb592eef8a747aab245b79387052b15f4da08",
+        "IsClosed": true,
+        "IsMerged": true,
+        "Labels": null,
+        "MergedAt": "2021-07-13T08:31:44.000Z",
+        "State": "closed",
+        "Title": "Revert \"Add knative & knative-sandbox repo_groups\"",
+        "UpdatedAt": "2021-07-13T19:29:45.000Z"
+      }
+    },
+    {
+      "CodeChangeRequest": {
+        "Activities": null,
+        "ClosedAt": "2021-01-15T12:44:16.000Z",
+        "CodeChangeRequestId": "555661099",
+        "CodeChangeRequestNumber": 281,
+        "Commits": null,
+        "CreatedAt": "2021-01-15T12:12:43.000Z",
+        "DataSourceId": "github",
+        "Id": "95acb4b84714fc80c66a5e0b8635a0b926eb7e26",
+        "IsClosed": true,
+        "IsMerged": true,
+        "Labels": null,
+        "MergedAt": "2021-01-15T12:44:16.000Z",
+        "State": "closed",
+        "Title": "Run python3 /go/src/github.com/kubevirt/community/hack/generate-devstats-repo-sql.py --repo-groups-sql /go/src/github.com/cncf/devstats/scripts/kubevirt//repo_groups.sql",
+        "UpdatedAt": "2021-01-15T14:02:29.000Z"
       }
     },
     {

@@ -49,65 +49,18 @@
     {
       "Issue": {
         "Activities": null,
-        "ClosedAt": "2021-05-18T05:08:49.000Z",
-        "CreatedAt": "2021-04-29T12:27:02.000Z",
+        "ClosedAt": "2021-03-04T04:58:21.000Z",
+        "CreatedAt": "2021-03-03T17:25:43.000Z",
         "DataSourceId": "github",
-        "Id": "7f8aeccae0eae9afe2ab28f37ef7af003a5c2a93",
+        "Id": "7ac8d14dc02d21ac8192cda92c0fdb4f2dde51e3",
         "IsClosed": true,
-        "IssueId": "870960795",
-        "IssueNumber": 292,
+        "IsPullRequest": true,
+        "IssueId": "821322634",
+        "IssueNumber": 287,
         "Labels": null,
         "State": "closed",
-        "Title": "[bug] typos in company affiliations",
-        "UpdatedAt": "2021-05-18T05:08:49.000Z"
-      }
-    },
-    {
-      "Issue": {
-        "Activities": null,
-        "ClosedAt": "2021-07-28T08:19:41.000Z",
-        "CreatedAt": "2021-07-01T06:02:35.000Z",
-        "DataSourceId": "github",
-        "Id": "ead55d7dd6da3e425d7ba5eda355a605dd4bf715",
-        "IsClosed": true,
-        "IssueId": "934433895",
-        "IssueNumber": 300,
-        "Labels": null,
-        "State": "closed",
-        "Title": "How to use devstats on a Cloud Grafana instance? ",
-        "UpdatedAt": "2021-07-28T08:19:42.000Z"
-      }
-    },
-    {
-      "Issue": {
-        "Activities": null,
-        "ClosedAt": "2021-07-15T17:16:06.000Z",
-        "CreatedAt": "2021-07-15T01:55:52.000Z",
-        "DataSourceId": "github",
-        "Id": "2e7d27e19d75cbab4d6af81b83a01d9090897eda",
-        "IsClosed": true,
-        "IssueId": "944923751",
-        "IssueNumber": 305,
-        "Labels": null,
-        "State": "closed",
-        "Title": "`column \"perezjasonr\" does not exist` on teststats user statistics page",
-        "UpdatedAt": "2021-07-15T17:16:06.000Z"
-      }
-    },
-    {
-      "Issue": {
-        "Activities": null,
-        "ClosedAt": "2021-06-15T14:21:50.000Z",
-        "CreatedAt": "2021-05-23T22:06:47.000Z",
-        "DataSourceId": "github",
-        "Id": "edceab64c969086f437ff9070021dfc174230175",
-        "IsClosed": true,
-        "IssueId": "899119345",
-        "IssueNumber": 295,
-        "Labels": null,
-        "State": "closed",
-        "Title": "[feature request][kubernetes] Add Company filter for the following charts",
-        "UpdatedAt": "2021-06-15T14:21:50.000Z"
+        "Title": "Some notes on SIG Node repository group",
+        "UpdatedAt": "2021-03-04T04:58:21.000Z"
       }
     },
     {
@@ -130,23 +83,6 @@
     {
       "Issue": {
         "Activities": null,
-        "ClosedAt": "2021-07-13T08:31:44.000Z",
-        "CreatedAt": "2021-07-08T16:10:20.000Z",
-        "DataSourceId": "github",
-        "Id": "f5802bab9af8653f50c1a6a7c87b560fe7987295",
-        "IsClosed": true,
-        "IsPullRequest": true,
-        "IssueId": "940015588",
-        "IssueNumber": 302,
-        "Labels": null,
-        "State": "closed",
-        "Title": "Revert \"Add knative & knative-sandbox repo_groups\"",
-        "UpdatedAt": "2021-07-13T19:29:45.000Z"
-      }
-    },
-    {
-      "Issue": {
-        "Activities": null,
         "ClosedAt": "2021-06-07T05:48:37.000Z",
         "CreatedAt": "2021-06-03T08:57:45.000Z",
         "DataSourceId": "github",
@@ -163,17 +99,19 @@
     {
       "Issue": {
         "Activities": null,
-        "ClosedAt": "2021-03-04T06:15:47.000Z",
-        "CreatedAt": "2021-02-18T17:59:48.000Z",
+        "ClosedAt": "2021-05-18T05:08:49.000Z",
+        "CreatedAt": "2021-04-29T12:27:02.000Z",
         "DataSourceId": "github",
-        "Id": "229965aa3d15c97872cfa62aa5fde21d27e711a5",
+        "Id": "7f8aeccae0eae9afe2ab28f37ef7af003a5c2a93",
         "IsClosed": true,
-        "IssueId": "811333211",
-        "IssueNumber": 284,
-        "Labels": null,
+        "IssueId": "870960795",
+        "IssueNumber": 292,
+        "Labels": [
+          "wip"
+        ],
         "State": "closed",
-        "Title": "[Feature Request]",
-        "UpdatedAt": "2021-03-04T17:00:41.000Z"
+        "Title": "[bug] typos in company affiliations",
+        "UpdatedAt": "2021-05-18T05:08:49.000Z"
       }
     },
     {
@@ -209,51 +147,70 @@
     {
       "Issue": {
         "Activities": null,
-        "ClosedAt": "2021-05-08T06:09:34.000Z",
-        "CreatedAt": "2021-05-07T16:23:27.000Z",
+        "ClosedAt": "2021-07-28T08:19:41.000Z",
+        "CreatedAt": "2021-07-01T06:02:35.000Z",
         "DataSourceId": "github",
-        "Id": "7f489bdd445148e783dcfb94eded64977c4106f4",
+        "Id": "ead55d7dd6da3e425d7ba5eda355a605dd4bf715",
         "IsClosed": true,
-        "IsPullRequest": true,
-        "IssueId": "879304637",
-        "IssueNumber": 294,
+        "IssueId": "934433895",
+        "IssueNumber": 300,
         "Labels": null,
         "State": "closed",
-        "Title": "Add knative & knative-sandbox repo_groups",
-        "UpdatedAt": "2021-05-10T04:49:35.000Z"
+        "Title": "How to use devstats on a Cloud Grafana instance? ",
+        "UpdatedAt": "2021-07-28T08:19:42.000Z"
       }
     },
     {
       "Issue": {
         "Activities": null,
-        "ClosedAt": "2021-03-04T04:58:21.000Z",
-        "CreatedAt": "2021-03-03T17:25:43.000Z",
+        "ClosedAt": "2021-06-15T14:21:50.000Z",
+        "CreatedAt": "2021-05-23T22:06:47.000Z",
         "DataSourceId": "github",
-        "Id": "7ac8d14dc02d21ac8192cda92c0fdb4f2dde51e3",
+        "Id": "edceab64c969086f437ff9070021dfc174230175",
         "IsClosed": true,
-        "IsPullRequest": true,
-        "IssueId": "821322634",
-        "IssueNumber": 287,
-        "Labels": null,
+        "IssueId": "899119345",
+        "IssueNumber": 295,
+        "Labels": [
+          "enhancement",
+          "wip",
+          "data"
+        ],
         "State": "closed",
-        "Title": "Some notes on SIG Node repository group",
-        "UpdatedAt": "2021-03-04T04:58:21.000Z"
+        "Title": "[feature request][kubernetes] Add Company filter for the following charts",
+        "UpdatedAt": "2021-06-15T14:21:50.000Z"
       }
     },
     {
       "Issue": {
         "Activities": null,
-        "ClosedAt": "2021-05-04T08:49:38.000Z",
-        "CreatedAt": "2021-05-03T17:25:12.000Z",
+        "ClosedAt": "2021-07-13T08:31:44.000Z",
+        "CreatedAt": "2021-07-08T16:10:20.000Z",
         "DataSourceId": "github",
-        "Id": "65c019c63797513c70282699f402ee6577f021ef",
+        "Id": "f5802bab9af8653f50c1a6a7c87b560fe7987295",
         "IsClosed": true,
-        "IssueId": "874759924",
-        "IssueNumber": 293,
+        "IsPullRequest": true,
+        "IssueId": "940015588",
+        "IssueNumber": 302,
         "Labels": null,
         "State": "closed",
-        "Title": "[feature request][Kubernetes] Adding SIG Security to dashboards",
-        "UpdatedAt": "2021-05-24T03:48:21.000Z"
+        "Title": "Revert \"Add knative & knative-sandbox repo_groups\"",
+        "UpdatedAt": "2021-07-13T19:29:45.000Z"
+      }
+    },
+    {
+      "Issue": {
+        "Activities": null,
+        "ClosedAt": "2021-03-04T06:15:47.000Z",
+        "CreatedAt": "2021-02-18T17:59:48.000Z",
+        "DataSourceId": "github",
+        "Id": "229965aa3d15c97872cfa62aa5fde21d27e711a5",
+        "IsClosed": true,
+        "IssueId": "811333211",
+        "IssueNumber": 284,
+        "Labels": null,
+        "State": "closed",
+        "Title": "[Feature Request]",
+        "UpdatedAt": "2021-03-04T17:00:41.000Z"
       }
     },
     {
@@ -275,49 +232,18 @@
     {
       "Issue": {
         "Activities": null,
-        "ClosedAt": "2021-06-18T06:31:20.000Z",
-        "CreatedAt": "2021-06-14T15:22:18.000Z",
+        "ClosedAt": "2021-05-08T06:09:34.000Z",
+        "CreatedAt": "2021-05-07T16:23:27.000Z",
         "DataSourceId": "github",
-        "Id": "cec61c1b840a3d2a1fb19ec6dd054ff8e78bf52d",
+        "Id": "7f489bdd445148e783dcfb94eded64977c4106f4",
         "IsClosed": true,
-        "IssueId": "920523308",
-        "IssueNumber": 298,
+        "IsPullRequest": true,
+        "IssueId": "879304637",
+        "IssueNumber": 294,
         "Labels": null,
         "State": "closed",
-        "Title": "[feature request] Add companies filter to Opened to Merge chart",
-        "UpdatedAt": "2021-06-18T06:31:20.000Z"
-      }
-    },
-    {
-      "Issue": {
-        "Activities": null,
-        "ClosedAt": "2021-06-11T10:50:00.000Z",
-        "CreatedAt": "2021-06-10T18:16:34.000Z",
-        "DataSourceId": "github",
-        "Id": "6f8f3f482f9e9827c129ecefe26a2c3f56e74925",
-        "IsClosed": true,
-        "IssueId": "917664277",
-        "IssueNumber": 297,
-        "Labels": null,
-        "State": "closed",
-        "Title": "[feature request] Argoproj-albs added to Argo ",
-        "UpdatedAt": "2021-06-11T10:50:01.000Z"
-      }
-    },
-    {
-      "Issue": {
-        "Activities": null,
-        "ClosedAt": "2021-03-03T13:46:31.000Z",
-        "CreatedAt": "2021-02-24T19:35:27.000Z",
-        "DataSourceId": "github",
-        "Id": "81eca44bf9ebc5a2bc17d3c8c8c2039a235af592",
-        "IsClosed": true,
-        "IssueId": "815781270",
-        "IssueNumber": 285,
-        "Labels": null,
-        "State": "closed",
-        "Title": "[BUG][Kubernetes] Missing data from pre 2021 on PR Reviews Dashboard",
-        "UpdatedAt": "2021-03-03T13:46:31.000Z"
+        "Title": "Add knative & knative-sandbox repo_groups",
+        "UpdatedAt": "2021-05-10T04:49:35.000Z"
       }
     },
     {
@@ -330,10 +256,86 @@
         "IsClosed": true,
         "IssueId": "748821451",
         "IssueNumber": 272,
-        "Labels": null,
+        "Labels": [
+          "blocked"
+        ],
         "State": "closed",
         "Title": "[feature request] Classifying contributions",
         "UpdatedAt": "2021-01-09T20:45:56.000Z"
+      }
+    },
+    {
+      "Issue": {
+        "Activities": null,
+        "ClosedAt": "2021-05-04T08:49:38.000Z",
+        "CreatedAt": "2021-05-03T17:25:12.000Z",
+        "DataSourceId": "github",
+        "Id": "65c019c63797513c70282699f402ee6577f021ef",
+        "IsClosed": true,
+        "IssueId": "874759924",
+        "IssueNumber": 293,
+        "Labels": [
+          "blocked"
+        ],
+        "State": "closed",
+        "Title": "[feature request][Kubernetes] Adding SIG Security to dashboards",
+        "UpdatedAt": "2021-05-24T03:48:21.000Z"
+      }
+    },
+    {
+      "Issue": {
+        "Activities": null,
+        "ClosedAt": "2021-03-03T13:46:31.000Z",
+        "CreatedAt": "2021-02-24T19:35:27.000Z",
+        "DataSourceId": "github",
+        "Id": "81eca44bf9ebc5a2bc17d3c8c8c2039a235af592",
+        "IsClosed": true,
+        "IssueId": "815781270",
+        "IssueNumber": 285,
+        "Labels": [
+          "wip"
+        ],
+        "State": "closed",
+        "Title": "[BUG][Kubernetes] Missing data from pre 2021 on PR Reviews Dashboard",
+        "UpdatedAt": "2021-03-03T13:46:31.000Z"
+      }
+    },
+    {
+      "Issue": {
+        "Activities": null,
+        "ClosedAt": "2021-06-11T10:50:00.000Z",
+        "CreatedAt": "2021-06-10T18:16:34.000Z",
+        "DataSourceId": "github",
+        "Id": "6f8f3f482f9e9827c129ecefe26a2c3f56e74925",
+        "IsClosed": true,
+        "IssueId": "917664277",
+        "IssueNumber": 297,
+        "Labels": [
+          "enhancement",
+          "data"
+        ],
+        "State": "closed",
+        "Title": "[feature request] Argoproj-albs added to Argo ",
+        "UpdatedAt": "2021-06-11T10:50:01.000Z"
+      }
+    },
+    {
+      "Issue": {
+        "Activities": null,
+        "ClosedAt": "2021-06-18T06:31:20.000Z",
+        "CreatedAt": "2021-06-14T15:22:18.000Z",
+        "DataSourceId": "github",
+        "Id": "cec61c1b840a3d2a1fb19ec6dd054ff8e78bf52d",
+        "IsClosed": true,
+        "IssueId": "920523308",
+        "IssueNumber": 298,
+        "Labels": [
+          "enhancement",
+          "data"
+        ],
+        "State": "closed",
+        "Title": "[feature request] Add companies filter to Opened to Merge chart",
+        "UpdatedAt": "2021-06-18T06:31:20.000Z"
       }
     },
     {
@@ -387,31 +389,17 @@
     {
       "Issue": {
         "Activities": null,
-        "ClosedAt": "2021-04-16T08:23:04.000Z",
-        "CreatedAt": "2021-04-11T00:19:44.000Z",
+        "ClosedAt": "2021-07-15T17:16:06.000Z",
+        "CreatedAt": "2021-07-15T01:55:52.000Z",
         "DataSourceId": "github",
-        "Id": "c5a7acc301a04124236b7a88ee13ecbe5936f3ce",
+        "Id": "2e7d27e19d75cbab4d6af81b83a01d9090897eda",
         "IsClosed": true,
-        "IssueId": "855184870",
-        "IssueNumber": 290,
+        "IssueId": "944923751",
+        "IssueNumber": 305,
         "Labels": null,
         "State": "closed",
-        "Title": "[feature request] API for getting key CNCF metrics",
-        "UpdatedAt": "2021-04-16T08:23:04.000Z"
-      }
-    },
-    {
-      "Issue": {
-        "Activities": null,
-        "CreatedAt": "2021-03-08T16:53:07.000Z",
-        "DataSourceId": "github",
-        "Id": "31979faf82f2ce31ad888c2e91e6eefd1895b249",
-        "IssueId": "824749200",
-        "IssueNumber": 288,
-        "Labels": null,
-        "State": "open",
-        "Title": "[feature request] create a dashboard for clone data",
-        "UpdatedAt": "2021-03-11T15:32:21.000Z"
+        "Title": "`column \"perezjasonr\" does not exist` on teststats user statistics page",
+        "UpdatedAt": "2021-07-15T17:16:06.000Z"
       }
     },
     {
@@ -433,17 +421,34 @@
     {
       "Issue": {
         "Activities": null,
-        "ClosedAt": "2021-03-03T05:15:55.000Z",
-        "CreatedAt": "2021-02-28T01:23:23.000Z",
+        "CreatedAt": "2021-03-08T16:53:07.000Z",
         "DataSourceId": "github",
-        "Id": "3a7f35c207f2d67a26511166e3b7f52023905300",
+        "Id": "31979faf82f2ce31ad888c2e91e6eefd1895b249",
+        "IssueId": "824749200",
+        "IssueNumber": 288,
+        "Labels": [
+          "blocked",
+          "backlog"
+        ],
+        "State": "open",
+        "Title": "[feature request] create a dashboard for clone data",
+        "UpdatedAt": "2021-03-11T15:32:21.000Z"
+      }
+    },
+    {
+      "Issue": {
+        "Activities": null,
+        "ClosedAt": "2021-04-16T08:23:04.000Z",
+        "CreatedAt": "2021-04-11T00:19:44.000Z",
+        "DataSourceId": "github",
+        "Id": "c5a7acc301a04124236b7a88ee13ecbe5936f3ce",
         "IsClosed": true,
-        "IssueId": "818072361",
-        "IssueNumber": 286,
+        "IssueId": "855184870",
+        "IssueNumber": 290,
         "Labels": null,
         "State": "closed",
-        "Title": "503 Service Temporarily Unavailable",
-        "UpdatedAt": "2021-03-03T05:15:55.000Z"
+        "Title": "[feature request] API for getting key CNCF metrics",
+        "UpdatedAt": "2021-04-16T08:23:04.000Z"
       }
     },
     {
@@ -481,12 +486,30 @@
     {
       "Issue": {
         "Activities": null,
+        "ClosedAt": "2021-03-03T05:15:55.000Z",
+        "CreatedAt": "2021-02-28T01:23:23.000Z",
+        "DataSourceId": "github",
+        "Id": "3a7f35c207f2d67a26511166e3b7f52023905300",
+        "IsClosed": true,
+        "IssueId": "818072361",
+        "IssueNumber": 286,
+        "Labels": null,
+        "State": "closed",
+        "Title": "503 Service Temporarily Unavailable",
+        "UpdatedAt": "2021-03-03T05:15:55.000Z"
+      }
+    },
+    {
+      "Issue": {
+        "Activities": null,
         "CreatedAt": "2021-06-15T14:21:35.000Z",
         "DataSourceId": "github",
         "Id": "91ce8fab6f2d416fdec1315f6d7233398657eb01",
         "IssueId": "921453822",
         "IssueNumber": 299,
-        "Labels": null,
+        "Labels": [
+          "blocked"
+        ],
         "State": "open",
         "Title": "[feature request][kubernetes] Add wg/sig label filter to Contributions chart",
         "UpdatedAt": "2021-06-22T13:36:49.000Z"
@@ -502,7 +525,11 @@
         "IsClosed": true,
         "IssueId": "825169758",
         "IssueNumber": 289,
-        "Labels": null,
+        "Labels": [
+          "enhancement",
+          "big",
+          "data"
+        ],
         "State": "closed",
         "Title": "[Feature Request][Kubernetes] Add additional filters to dashboards",
         "UpdatedAt": "2021-05-24T03:51:30.000Z"

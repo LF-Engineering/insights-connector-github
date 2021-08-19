@@ -66,20 +66,6 @@ definitions:
       AvatarURL:
         type: string
         example: https://avatars.githubusercontent.com/u/13455738?v=4
-  Label:
-    type: object
-    properties:
-      Id:
-        type: string
-        example: 1234567890abcdef
-        description: PK - up to 50 chars
-      LabelId:
-        type: string
-        example: 1234567890abcdef
-        description: GitHub internal issue ID
-      Name:
-        type: string
-        example: /lgtm
   Reaction:
     type: object
     properties:
@@ -194,7 +180,8 @@ definitions:
       Labels:
         type: array
         items:
-          $ref: "#/definitions/Label"
+          type: string
+          example: /lgtm
   CodeChangeRequestActivity:
     type: object
     properties:
@@ -327,7 +314,8 @@ definitions:
       Labels:
         type: array
         items:
-          $ref: "#/definitions/Label"
+          type: string
+          example: /lgtm
       Commits:
         type: array
         items:
