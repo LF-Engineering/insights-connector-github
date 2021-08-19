@@ -2162,27 +2162,7 @@ func (j *DSGitHub) EnrichIssueItem(ctx *shared.Ctx, item map[string]interface{})
 	}
 	rich["metadata__updated_on"] = createdAt
 	// FIXME
-	/*
-		if affs {
-			authorKey := "user_data"
-			var affsItems map[string]interface{}
-			affsItems, err = j.AffsItems(ctx, issue, GitHubIssueRoles, createdAt)
-			if err != nil {
-				return
-			}
-			for prop, value := range affsItems {
-				rich[prop] = value
-			}
-			for _, suff := range AffsFields {
-				rich[Author+suff] = rich[authorKey+suff]
-			}
-			orgsKey := authorKey + MultiOrgNames
-			_, ok := shared.Dig(rich, []string{orgsKey}, false, true)
-			if !ok {
-				rich[orgsKey] = []interface{}{}
-			}
-		}
-	*/
+	rich["roles"] = j.GetRoles(ctx, issue, GitHubIssueRoles, createdAt)
 	// NOTE: From shared
 	rich["metadata__enriched_on"] = time.Now()
 	// rich[ProjectSlug] = ctx.ProjectSlug
@@ -2281,28 +2261,7 @@ func (j *DSGitHub) EnrichIssueComments(ctx *shared.Ctx, issue map[string]interfa
 		createdAt, _ := shared.TimeParseInterfaceString(iCreatedAt)
 		rich["metadata__updated_on"] = createdAt
 		// FIXME
-		/*
-			if affs {
-				authorKey := "user_data"
-				var affsItems map[string]interface{}
-				affsItems, err = j.AffsItems(ctx, comment, GitHubIssueCommentRoles, createdAt)
-				if err != nil {
-					return
-				}
-				for prop, value := range affsItems {
-					rich[prop] = value
-				}
-				for _, suff := range AffsFields {
-					rich[Author+suff] = rich[authorKey+suff]
-					rich["commenter"+suff] = rich[authorKey+suff]
-				}
-				orgsKey := authorKey + MultiOrgNames
-				_, ok := shared.Dig(rich, []string{orgsKey}, false, true)
-				if !ok {
-					rich[orgsKey] = []interface{}{}
-				}
-			}
-		*/
+		rich["roles"] = j.GetRoles(ctx, comment, GitHubIssueCommentRoles, createdAt)
 		// NOTE: From shared
 		rich["metadata__enriched_on"] = time.Now()
 		// rich[ProjectSlug] = ctx.ProjectSlug
@@ -2376,27 +2335,7 @@ func (j *DSGitHub) EnrichIssueAssignees(ctx *shared.Ctx, issue map[string]interf
 		createdAt, _ := iCreatedAt.(time.Time)
 		rich["metadata__updated_on"] = createdAt
 		// FIXME
-		/*
-			if affs {
-				authorKey := "assignee"
-				var affsItems map[string]interface{}
-				affsItems, err = j.AffsItems(ctx, map[string]interface{}{"assignee": assignee}, GitHubIssueAssigneeRoles, createdAt)
-				if err != nil {
-					return
-				}
-				for prop, value := range affsItems {
-					rich[prop] = value
-				}
-				for _, suff := range AffsFields {
-					rich[Author+suff] = rich[authorKey+suff]
-				}
-				orgsKey := authorKey + MultiOrgNames
-				_, ok := shared.Dig(rich, []string{orgsKey}, false, true)
-				if !ok {
-					rich[orgsKey] = []interface{}{}
-				}
-			}
-		*/
+		rich["roles"] = j.GetRoles(ctx, map[string]interface{}{"assignee": assignee}, GitHubIssueAssigneeRoles, createdAt)
 		// NOTE: From shared
 		rich["metadata__enriched_on"] = time.Now()
 		// rich[ProjectSlug] = ctx.ProjectSlug
@@ -2519,28 +2458,7 @@ func (j *DSGitHub) EnrichIssueReactions(ctx *shared.Ctx, issue map[string]interf
 		}
 		rich["metadata__updated_on"] = createdAt
 		// FIXME
-		/*
-			if affs {
-				authorKey := "user_data"
-				var affsItems map[string]interface{}
-				affsItems, err = j.AffsItems(ctx, reaction, GitHubIssueReactionRoles, createdAt)
-				if err != nil {
-					return
-				}
-				for prop, value := range affsItems {
-					rich[prop] = value
-				}
-				for _, suff := range AffsFields {
-					rich[Author+suff] = rich[authorKey+suff]
-					rich["actor"+suff] = rich[authorKey+suff]
-				}
-				orgsKey := authorKey + MultiOrgNames
-				_, ok := shared.Dig(rich, []string{orgsKey}, false, true)
-				if !ok {
-					rich[orgsKey] = []interface{}{}
-				}
-			}
-		*/
+		rich["roles"] = j.GetRoles(ctx, reaction, GitHubIssueReactionRoles, createdAt)
 		// NOTE: From shared
 		rich["metadata__enriched_on"] = time.Now()
 		// rich[ProjectSlug] = ctx.ProjectSlug
