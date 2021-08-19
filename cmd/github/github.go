@@ -5297,24 +5297,25 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 	case "issue":
 		for _, iDoc := range docs {
 			doc, _ := iDoc.(map[string]interface{})
-			//shared.Printf("%s: %+v\n", source, doc)
 			updatedOn := j.ItemUpdatedOn(doc)
-			// FIXME
+			docUUID, _ := doc["uuid"].(string)
+			issueID, _ := doc["issue_id"].(float64)
+			issueNumber, _ := doc["id_in_repo"].(int)
 			// Event
 			event := &models.Event{
 				CodeChangeRequest: nil,
 				Repository:        nil,
 				Issue: &models.Issue{
+					ID:           docUUID,
+					IssueID:      fmt.Sprintf("%.0f", issueID),
+					IssueNumber:  int64(issueNumber),
 					DataSourceID: source,
 					/*
 						Activities []*IssueActivity `json:"Activities"`
 						ClosedAt *strfmt.DateTime `json:"ClosedAt,omitempty"`
 						CreatedAt strfmt.DateTime `json:"CreatedAt,omitempty"`
-						ID string `json:"Id,omitempty"`
 						IsClosed bool `json:"IsClosed,omitempty"`
 						IsPullRequest bool `json:"IsPullRequest,omitempty"`
-						IssueID string `json:"IssueId,omitempty"`
-						IssueNumber int64 `json:"IssueNumber,omitempty"`
 						Labels []*Label `json:"Labels"`
 						Title string `json:"Title,omitempty"`
 						UpdatedAt strfmt.DateTime `json:"UpdatedAt,omitempty"`
@@ -5333,21 +5334,23 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 			doc, _ := iDoc.(map[string]interface{})
 			//shared.Printf("%s: %+v\n", source, doc)
 			updatedOn := j.ItemUpdatedOn(doc)
-			// FIXME
+			docUUID, _ := doc["uuid"].(string)
+			prID, _ := doc["pull_request_id"].(float64)
+			prNumber, _ := doc["id_in_repo"].(int)
 			// Event
 			event := &models.Event{
 				Issue:      nil,
 				Repository: nil,
 				CodeChangeRequest: &models.CodeChangeRequest{
-					DataSourceID: source,
+					ID:                      docUUID,
+					CodeChangeRequestID:     fmt.Sprintf("%.0f", prID),
+					CodeChangeRequestNumber: int64(prNumber),
+					DataSourceID:            source,
 					/*
 						Activities []*CodeChangeRequestActivity `json:"Activities"`
 						ClosedAt *strfmt.DateTime `json:"ClosedAt,omitempty"`
-						CodeChangeRequestID string `json:"CodeChangeRequestId,omitempty"`
-						CodeChangeRequestNumber int64 `json:"CodeChangeRequestNumber,omitempty"`
 						Commits []*CodeChangeRequestCommit `json:"Commits"`
 						CreatedAt strfmt.DateTime `json:"CreatedAt,omitempty"`
-						ID string `json:"Id,omitempty"`
 						IsClosed bool `json:"IsClosed,omitempty"`
 						IsMerged bool `json:"IsMerged,omitempty"`
 						Labels []*Label `json:"Labels"`
