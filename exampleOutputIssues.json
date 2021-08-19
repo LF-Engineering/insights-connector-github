@@ -16,373 +16,429 @@
     {
       "Issue": {
         "Activities": null,
-        "CreatedAt": "0001-01-01T00:00:00.000Z",
+        "ClosedAt": "2021-01-15T12:44:16.000Z",
+        "CreatedAt": "2021-01-15T12:12:43.000Z",
         "DataSourceId": "github",
         "Id": "ad1213d16b202f49a707ca3f03132a58d0de6f75",
+        "IsClosed": true,
         "IssueId": "786849951",
         "IssueNumber": 281,
         "Labels": null,
-        "UpdatedAt": "0001-01-01T00:00:00.000Z"
+        "UpdatedAt": "2021-01-15T14:02:29.000Z"
       }
     },
     {
       "Issue": {
         "Activities": null,
-        "CreatedAt": "0001-01-01T00:00:00.000Z",
-        "DataSourceId": "github",
-        "Id": "8ffc8fe0e546d32eaf3a936d31b1743cf5506e80",
-        "IssueId": "750189697",
-        "IssueNumber": 273,
-        "Labels": null,
-        "UpdatedAt": "0001-01-01T00:00:00.000Z"
-      }
-    },
-    {
-      "Issue": {
-        "Activities": null,
-        "CreatedAt": "0001-01-01T00:00:00.000Z",
+        "ClosedAt": "2021-03-04T04:58:21.000Z",
+        "CreatedAt": "2021-03-03T17:25:43.000Z",
         "DataSourceId": "github",
         "Id": "7ac8d14dc02d21ac8192cda92c0fdb4f2dde51e3",
+        "IsClosed": true,
         "IssueId": "821322634",
         "IssueNumber": 287,
         "Labels": null,
-        "UpdatedAt": "0001-01-01T00:00:00.000Z"
+        "UpdatedAt": "2021-03-04T04:58:21.000Z"
       }
     },
     {
       "Issue": {
         "Activities": null,
-        "CreatedAt": "0001-01-01T00:00:00.000Z",
-        "DataSourceId": "github",
-        "Id": "2e7d27e19d75cbab4d6af81b83a01d9090897eda",
-        "IssueId": "944923751",
-        "IssueNumber": 305,
-        "Labels": null,
-        "UpdatedAt": "0001-01-01T00:00:00.000Z"
-      }
-    },
-    {
-      "Issue": {
-        "Activities": null,
-        "CreatedAt": "0001-01-01T00:00:00.000Z",
-        "DataSourceId": "github",
-        "Id": "b87f7ee3e720efc7a097a70625a93949e825aeff",
-        "IssueId": "910276912",
-        "IssueNumber": 296,
-        "Labels": null,
-        "UpdatedAt": "0001-01-01T00:00:00.000Z"
-      }
-    },
-    {
-      "Issue": {
-        "Activities": null,
-        "CreatedAt": "0001-01-01T00:00:00.000Z",
-        "DataSourceId": "github",
-        "Id": "ead55d7dd6da3e425d7ba5eda355a605dd4bf715",
-        "IssueId": "934433895",
-        "IssueNumber": 300,
-        "Labels": null,
-        "UpdatedAt": "0001-01-01T00:00:00.000Z"
-      }
-    },
-    {
-      "Issue": {
-        "Activities": null,
-        "CreatedAt": "0001-01-01T00:00:00.000Z",
-        "DataSourceId": "github",
-        "Id": "fea23f7655722bf708e9c779babf0dfe5ebf4bd5",
-        "IssueId": "946345414",
-        "IssueNumber": 306,
-        "Labels": null,
-        "UpdatedAt": "0001-01-01T00:00:00.000Z"
-      }
-    },
-    {
-      "Issue": {
-        "Activities": null,
-        "CreatedAt": "0001-01-01T00:00:00.000Z",
-        "DataSourceId": "github",
-        "Id": "1a9753e8dca839da6a12933d0257af6396cd0085",
-        "IssueId": "790834811",
-        "IssueNumber": 283,
-        "Labels": null,
-        "UpdatedAt": "0001-01-01T00:00:00.000Z"
-      }
-    },
-    {
-      "Issue": {
-        "Activities": null,
-        "CreatedAt": "0001-01-01T00:00:00.000Z",
-        "DataSourceId": "github",
-        "Id": "edceab64c969086f437ff9070021dfc174230175",
-        "IssueId": "899119345",
-        "IssueNumber": 295,
-        "Labels": null,
-        "UpdatedAt": "0001-01-01T00:00:00.000Z"
-      }
-    },
-    {
-      "Issue": {
-        "Activities": null,
-        "CreatedAt": "0001-01-01T00:00:00.000Z",
+        "ClosedAt": "2021-07-13T08:31:44.000Z",
+        "CreatedAt": "2021-07-08T16:10:20.000Z",
         "DataSourceId": "github",
         "Id": "f5802bab9af8653f50c1a6a7c87b560fe7987295",
+        "IsClosed": true,
         "IssueId": "940015588",
         "IssueNumber": 302,
         "Labels": null,
-        "UpdatedAt": "0001-01-01T00:00:00.000Z"
+        "UpdatedAt": "2021-07-13T19:29:45.000Z"
       }
     },
     {
       "Issue": {
         "Activities": null,
-        "CreatedAt": "0001-01-01T00:00:00.000Z",
+        "ClosedAt": "2021-01-09T20:45:36.000Z",
+        "CreatedAt": "2020-11-25T00:30:18.000Z",
         "DataSourceId": "github",
-        "Id": "229965aa3d15c97872cfa62aa5fde21d27e711a5",
-        "IssueId": "811333211",
-        "IssueNumber": 284,
+        "Id": "8ffc8fe0e546d32eaf3a936d31b1743cf5506e80",
+        "IsClosed": true,
+        "IssueId": "750189697",
+        "IssueNumber": 273,
         "Labels": null,
-        "UpdatedAt": "0001-01-01T00:00:00.000Z"
+        "UpdatedAt": "2021-01-09T20:45:36.000Z"
       }
     },
     {
       "Issue": {
         "Activities": null,
-        "CreatedAt": "0001-01-01T00:00:00.000Z",
+        "ClosedAt": "2021-01-22T12:14:47.000Z",
+        "CreatedAt": "2021-01-21T08:52:38.000Z",
+        "DataSourceId": "github",
+        "Id": "1a9753e8dca839da6a12933d0257af6396cd0085",
+        "IsClosed": true,
+        "IssueId": "790834811",
+        "IssueNumber": 283,
+        "Labels": null,
+        "UpdatedAt": "2021-01-22T13:00:16.000Z"
+      }
+    },
+    {
+      "Issue": {
+        "Activities": null,
+        "ClosedAt": "2021-06-07T05:48:37.000Z",
+        "CreatedAt": "2021-06-03T08:57:45.000Z",
+        "DataSourceId": "github",
+        "Id": "b87f7ee3e720efc7a097a70625a93949e825aeff",
+        "IsClosed": true,
+        "IssueId": "910276912",
+        "IssueNumber": 296,
+        "Labels": null,
+        "UpdatedAt": "2021-06-07T05:52:51.000Z"
+      }
+    },
+    {
+      "Issue": {
+        "Activities": null,
+        "ClosedAt": "2021-05-18T05:08:49.000Z",
+        "CreatedAt": "2021-04-29T12:27:02.000Z",
+        "DataSourceId": "github",
+        "Id": "7f8aeccae0eae9afe2ab28f37ef7af003a5c2a93",
+        "IsClosed": true,
+        "IssueId": "870960795",
+        "IssueNumber": 292,
+        "Labels": null,
+        "UpdatedAt": "2021-05-18T05:08:49.000Z"
+      }
+    },
+    {
+      "Issue": {
+        "Activities": null,
+        "ClosedAt": "2021-07-15T17:16:06.000Z",
+        "CreatedAt": "2021-07-15T01:55:52.000Z",
+        "DataSourceId": "github",
+        "Id": "2e7d27e19d75cbab4d6af81b83a01d9090897eda",
+        "IsClosed": true,
+        "IssueId": "944923751",
+        "IssueNumber": 305,
+        "Labels": null,
+        "UpdatedAt": "2021-07-15T17:16:06.000Z"
+      }
+    },
+    {
+      "Issue": {
+        "Activities": null,
+        "CreatedAt": "2021-08-05T16:18:24.000Z",
         "DataSourceId": "github",
         "Id": "1f83a139819795440192f384d2d1227819645c8a",
         "IssueId": "961988267",
         "IssueNumber": 308,
         "Labels": null,
-        "UpdatedAt": "0001-01-01T00:00:00.000Z"
+        "UpdatedAt": "2021-08-06T09:07:17.000Z"
       }
     },
     {
       "Issue": {
         "Activities": null,
-        "CreatedAt": "0001-01-01T00:00:00.000Z",
+        "ClosedAt": "2021-07-28T08:19:41.000Z",
+        "CreatedAt": "2021-07-01T06:02:35.000Z",
         "DataSourceId": "github",
-        "Id": "7f8aeccae0eae9afe2ab28f37ef7af003a5c2a93",
-        "IssueId": "870960795",
-        "IssueNumber": 292,
+        "Id": "ead55d7dd6da3e425d7ba5eda355a605dd4bf715",
+        "IsClosed": true,
+        "IssueId": "934433895",
+        "IssueNumber": 300,
         "Labels": null,
-        "UpdatedAt": "0001-01-01T00:00:00.000Z"
+        "UpdatedAt": "2021-07-28T08:19:42.000Z"
       }
     },
     {
       "Issue": {
         "Activities": null,
-        "CreatedAt": "0001-01-01T00:00:00.000Z",
+        "ClosedAt": "2021-07-19T05:28:20.000Z",
+        "CreatedAt": "2021-07-16T14:28:13.000Z",
         "DataSourceId": "github",
-        "Id": "6f8f3f482f9e9827c129ecefe26a2c3f56e74925",
-        "IssueId": "917664277",
-        "IssueNumber": 297,
+        "Id": "fea23f7655722bf708e9c779babf0dfe5ebf4bd5",
+        "IsClosed": true,
+        "IssueId": "946345414",
+        "IssueNumber": 306,
         "Labels": null,
-        "UpdatedAt": "0001-01-01T00:00:00.000Z"
+        "UpdatedAt": "2021-07-19T05:28:22.000Z"
       }
     },
     {
       "Issue": {
         "Activities": null,
-        "CreatedAt": "0001-01-01T00:00:00.000Z",
+        "ClosedAt": "2021-06-15T14:21:50.000Z",
+        "CreatedAt": "2021-05-23T22:06:47.000Z",
         "DataSourceId": "github",
-        "Id": "cec61c1b840a3d2a1fb19ec6dd054ff8e78bf52d",
-        "IssueId": "920523308",
-        "IssueNumber": 298,
+        "Id": "edceab64c969086f437ff9070021dfc174230175",
+        "IsClosed": true,
+        "IssueId": "899119345",
+        "IssueNumber": 295,
         "Labels": null,
-        "UpdatedAt": "0001-01-01T00:00:00.000Z"
+        "UpdatedAt": "2021-06-15T14:21:50.000Z"
       }
     },
     {
       "Issue": {
         "Activities": null,
-        "CreatedAt": "0001-01-01T00:00:00.000Z",
+        "ClosedAt": "2021-03-04T06:15:47.000Z",
+        "CreatedAt": "2021-02-18T17:59:48.000Z",
         "DataSourceId": "github",
-        "Id": "7f489bdd445148e783dcfb94eded64977c4106f4",
-        "IssueId": "879304637",
-        "IssueNumber": 294,
+        "Id": "229965aa3d15c97872cfa62aa5fde21d27e711a5",
+        "IsClosed": true,
+        "IssueId": "811333211",
+        "IssueNumber": 284,
         "Labels": null,
-        "UpdatedAt": "0001-01-01T00:00:00.000Z"
+        "UpdatedAt": "2021-03-04T17:00:41.000Z"
       }
     },
     {
       "Issue": {
         "Activities": null,
-        "CreatedAt": "0001-01-01T00:00:00.000Z",
+        "ClosedAt": "2021-07-08T17:26:56.000Z",
+        "CreatedAt": "2021-07-06T08:45:14.000Z",
         "DataSourceId": "github",
         "Id": "f60eb50b4f6f2f8cc93f51f53ca02a615535e364",
+        "IsClosed": true,
         "IssueId": "937662270",
         "IssueNumber": 301,
         "Labels": null,
-        "UpdatedAt": "0001-01-01T00:00:00.000Z"
+        "UpdatedAt": "2021-07-08T17:26:56.000Z"
       }
     },
     {
       "Issue": {
         "Activities": null,
-        "CreatedAt": "0001-01-01T00:00:00.000Z",
+        "ClosedAt": "2021-05-08T06:09:34.000Z",
+        "CreatedAt": "2021-05-07T16:23:27.000Z",
         "DataSourceId": "github",
-        "Id": "ffb76a6a8a376bd6fb7e965648889acecb2f02c0",
-        "IssueId": "748821451",
-        "IssueNumber": 272,
+        "Id": "7f489bdd445148e783dcfb94eded64977c4106f4",
+        "IsClosed": true,
+        "IssueId": "879304637",
+        "IssueNumber": 294,
         "Labels": null,
-        "UpdatedAt": "0001-01-01T00:00:00.000Z"
+        "UpdatedAt": "2021-05-10T04:49:35.000Z"
       }
     },
     {
       "Issue": {
         "Activities": null,
-        "CreatedAt": "0001-01-01T00:00:00.000Z",
-        "DataSourceId": "github",
-        "Id": "2691ba2e6074e0c03dfe43c3066c14255dd314fd",
-        "IssueId": "778305781",
-        "IssueNumber": 280,
-        "Labels": null,
-        "UpdatedAt": "0001-01-01T00:00:00.000Z"
-      }
-    },
-    {
-      "Issue": {
-        "Activities": null,
-        "CreatedAt": "0001-01-01T00:00:00.000Z",
-        "DataSourceId": "github",
-        "Id": "81eca44bf9ebc5a2bc17d3c8c8c2039a235af592",
-        "IssueId": "815781270",
-        "IssueNumber": 285,
-        "Labels": null,
-        "UpdatedAt": "0001-01-01T00:00:00.000Z"
-      }
-    },
-    {
-      "Issue": {
-        "Activities": null,
-        "CreatedAt": "0001-01-01T00:00:00.000Z",
+        "ClosedAt": "2021-05-04T08:49:38.000Z",
+        "CreatedAt": "2021-05-03T17:25:12.000Z",
         "DataSourceId": "github",
         "Id": "65c019c63797513c70282699f402ee6577f021ef",
+        "IsClosed": true,
         "IssueId": "874759924",
         "IssueNumber": 293,
         "Labels": null,
-        "UpdatedAt": "0001-01-01T00:00:00.000Z"
+        "UpdatedAt": "2021-05-24T03:48:21.000Z"
       }
     },
     {
       "Issue": {
         "Activities": null,
-        "CreatedAt": "0001-01-01T00:00:00.000Z",
+        "ClosedAt": "2021-01-04T20:19:17.000Z",
+        "CreatedAt": "2021-01-04T19:20:30.000Z",
+        "DataSourceId": "github",
+        "Id": "2691ba2e6074e0c03dfe43c3066c14255dd314fd",
+        "IsClosed": true,
+        "IssueId": "778305781",
+        "IssueNumber": 280,
+        "Labels": null,
+        "UpdatedAt": "2021-01-04T20:25:11.000Z"
+      }
+    },
+    {
+      "Issue": {
+        "Activities": null,
+        "ClosedAt": "2021-06-11T10:50:00.000Z",
+        "CreatedAt": "2021-06-10T18:16:34.000Z",
+        "DataSourceId": "github",
+        "Id": "6f8f3f482f9e9827c129ecefe26a2c3f56e74925",
+        "IsClosed": true,
+        "IssueId": "917664277",
+        "IssueNumber": 297,
+        "Labels": null,
+        "UpdatedAt": "2021-06-11T10:50:01.000Z"
+      }
+    },
+    {
+      "Issue": {
+        "Activities": null,
+        "ClosedAt": "2021-06-18T06:31:20.000Z",
+        "CreatedAt": "2021-06-14T15:22:18.000Z",
+        "DataSourceId": "github",
+        "Id": "cec61c1b840a3d2a1fb19ec6dd054ff8e78bf52d",
+        "IsClosed": true,
+        "IssueId": "920523308",
+        "IssueNumber": 298,
+        "Labels": null,
+        "UpdatedAt": "2021-06-18T06:31:20.000Z"
+      }
+    },
+    {
+      "Issue": {
+        "Activities": null,
+        "ClosedAt": "2021-01-09T20:45:56.000Z",
+        "CreatedAt": "2020-11-23T13:52:22.000Z",
+        "DataSourceId": "github",
+        "Id": "ffb76a6a8a376bd6fb7e965648889acecb2f02c0",
+        "IsClosed": true,
+        "IssueId": "748821451",
+        "IssueNumber": 272,
+        "Labels": null,
+        "UpdatedAt": "2021-01-09T20:45:56.000Z"
+      }
+    },
+    {
+      "Issue": {
+        "Activities": null,
+        "ClosedAt": "2021-03-04T06:16:21.000Z",
+        "CreatedAt": "2021-01-18T11:21:32.000Z",
         "DataSourceId": "github",
         "Id": "f346d7c570e823447fb99a665027516760154057",
+        "IsClosed": true,
         "IssueId": "788182876",
         "IssueNumber": 282,
         "Labels": null,
-        "UpdatedAt": "0001-01-01T00:00:00.000Z"
+        "UpdatedAt": "2021-03-04T06:16:22.000Z"
       }
     },
     {
       "Issue": {
         "Activities": null,
-        "CreatedAt": "0001-01-01T00:00:00.000Z",
+        "ClosedAt": "2021-03-03T13:46:31.000Z",
+        "CreatedAt": "2021-02-24T19:35:27.000Z",
+        "DataSourceId": "github",
+        "Id": "81eca44bf9ebc5a2bc17d3c8c8c2039a235af592",
+        "IsClosed": true,
+        "IssueId": "815781270",
+        "IssueNumber": 285,
+        "Labels": null,
+        "UpdatedAt": "2021-03-03T13:46:31.000Z"
+      }
+    },
+    {
+      "Issue": {
+        "Activities": null,
+        "ClosedAt": "2021-08-03T10:38:50.000Z",
+        "CreatedAt": "2021-07-22T05:54:55.000Z",
+        "DataSourceId": "github",
+        "Id": "e9bbc6ab506a5423490fe27035695acec0194621",
+        "IsClosed": true,
+        "IssueId": "950324379",
+        "IssueNumber": 307,
+        "Labels": null,
+        "UpdatedAt": "2021-08-03T16:31:38.000Z"
+      }
+    },
+    {
+      "Issue": {
+        "Activities": null,
+        "ClosedAt": "2021-04-16T08:23:04.000Z",
+        "CreatedAt": "2021-04-11T00:19:44.000Z",
+        "DataSourceId": "github",
+        "Id": "c5a7acc301a04124236b7a88ee13ecbe5936f3ce",
+        "IsClosed": true,
+        "IssueId": "855184870",
+        "IssueNumber": 290,
+        "Labels": null,
+        "UpdatedAt": "2021-04-16T08:23:04.000Z"
+      }
+    },
+    {
+      "Issue": {
+        "Activities": null,
+        "ClosedAt": "2021-03-03T05:15:55.000Z",
+        "CreatedAt": "2021-02-28T01:23:23.000Z",
+        "DataSourceId": "github",
+        "Id": "3a7f35c207f2d67a26511166e3b7f52023905300",
+        "IsClosed": true,
+        "IssueId": "818072361",
+        "IssueNumber": 286,
+        "Labels": null,
+        "UpdatedAt": "2021-03-03T05:15:55.000Z"
+      }
+    },
+    {
+      "Issue": {
+        "Activities": null,
+        "CreatedAt": "2021-03-08T16:53:07.000Z",
         "DataSourceId": "github",
         "Id": "31979faf82f2ce31ad888c2e91e6eefd1895b249",
         "IssueId": "824749200",
         "IssueNumber": 288,
         "Labels": null,
-        "UpdatedAt": "0001-01-01T00:00:00.000Z"
+        "UpdatedAt": "2021-03-11T15:32:21.000Z"
       }
     },
     {
       "Issue": {
         "Activities": null,
-        "CreatedAt": "0001-01-01T00:00:00.000Z",
-        "DataSourceId": "github",
-        "Id": "c5a7acc301a04124236b7a88ee13ecbe5936f3ce",
-        "IssueId": "855184870",
-        "IssueNumber": 290,
-        "Labels": null,
-        "UpdatedAt": "0001-01-01T00:00:00.000Z"
-      }
-    },
-    {
-      "Issue": {
-        "Activities": null,
-        "CreatedAt": "0001-01-01T00:00:00.000Z",
-        "DataSourceId": "github",
-        "Id": "3a7f35c207f2d67a26511166e3b7f52023905300",
-        "IssueId": "818072361",
-        "IssueNumber": 286,
-        "Labels": null,
-        "UpdatedAt": "0001-01-01T00:00:00.000Z"
-      }
-    },
-    {
-      "Issue": {
-        "Activities": null,
-        "CreatedAt": "0001-01-01T00:00:00.000Z",
+        "ClosedAt": "2021-04-26T06:25:16.000Z",
+        "CreatedAt": "2021-04-20T08:09:32.000Z",
         "DataSourceId": "github",
         "Id": "1c48924a5e7341797ffe68c18f303e45b182b213",
+        "IsClosed": true,
         "IssueId": "862543529",
         "IssueNumber": 291,
         "Labels": null,
-        "UpdatedAt": "0001-01-01T00:00:00.000Z"
+        "UpdatedAt": "2021-04-26T07:59:31.000Z"
       }
     },
     {
       "Issue": {
         "Activities": null,
-        "CreatedAt": "0001-01-01T00:00:00.000Z",
+        "ClosedAt": "2021-07-14T09:08:40.000Z",
+        "CreatedAt": "2021-07-09T18:21:22.000Z",
         "DataSourceId": "github",
         "Id": "87f2cd7d327799786e16ad3aadb95af56620a228",
+        "IsClosed": true,
         "IssueId": "940977537",
         "IssueNumber": 304,
         "Labels": null,
-        "UpdatedAt": "0001-01-01T00:00:00.000Z"
+        "UpdatedAt": "2021-07-14T09:08:41.000Z"
       }
     },
     {
       "Issue": {
         "Activities": null,
-        "CreatedAt": "0001-01-01T00:00:00.000Z",
-        "DataSourceId": "github",
-        "Id": "e9bbc6ab506a5423490fe27035695acec0194621",
-        "IssueId": "950324379",
-        "IssueNumber": 307,
-        "Labels": null,
-        "UpdatedAt": "0001-01-01T00:00:00.000Z"
-      }
-    },
-    {
-      "Issue": {
-        "Activities": null,
-        "CreatedAt": "0001-01-01T00:00:00.000Z",
+        "ClosedAt": "2021-07-13T08:02:36.000Z",
+        "CreatedAt": "2021-07-09T17:21:59.000Z",
         "DataSourceId": "github",
         "Id": "4a9c8935c56db3243a2b051481370e74eb570b05",
+        "IsClosed": true,
         "IssueId": "940943814",
         "IssueNumber": 303,
         "Labels": null,
-        "UpdatedAt": "0001-01-01T00:00:00.000Z"
+        "UpdatedAt": "2021-07-19T18:22:12.000Z"
       }
     },
     {
       "Issue": {
         "Activities": null,
-        "CreatedAt": "0001-01-01T00:00:00.000Z",
+        "ClosedAt": "2021-05-21T14:11:19.000Z",
+        "CreatedAt": "2021-03-09T01:59:35.000Z",
+        "DataSourceId": "github",
+        "Id": "62bfa95b39cec5a712b21321c094a21c200af10c",
+        "IsClosed": true,
+        "IssueId": "825169758",
+        "IssueNumber": 289,
+        "Labels": null,
+        "UpdatedAt": "2021-05-24T03:51:30.000Z"
+      }
+    },
+    {
+      "Issue": {
+        "Activities": null,
+        "CreatedAt": "2021-06-15T14:21:35.000Z",
         "DataSourceId": "github",
         "Id": "91ce8fab6f2d416fdec1315f6d7233398657eb01",
         "IssueId": "921453822",
         "IssueNumber": 299,
         "Labels": null,
-        "UpdatedAt": "0001-01-01T00:00:00.000Z"
-      }
-    },
-    {
-      "Issue": {
-        "Activities": null,
-        "CreatedAt": "0001-01-01T00:00:00.000Z",
-        "DataSourceId": "github",
-        "Id": "62bfa95b39cec5a712b21321c094a21c200af10c",
-        "IssueId": "825169758",
-        "IssueNumber": 289,
-        "Labels": null,
-        "UpdatedAt": "0001-01-01T00:00:00.000Z"
+        "UpdatedAt": "2021-06-22T13:36:49.000Z"
       }
     }
   ],

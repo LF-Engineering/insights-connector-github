@@ -2505,6 +2505,26 @@ func (j *DSGitHub) ItemUpdatedOn(item interface{}) time.Time {
 	return when
 }
 
+// ItemNullableDate - return date value for a given field name, can be null
+func (j *DSGitHub) ItemNullableDate(item interface{}, field string) *strfmt.DateTime {
+	iWhen, ok := shared.Dig(item, []string{field}, false, true)
+	if !ok || iWhen == nil {
+		return nil
+	}
+	sWhen, ok := iWhen.(string)
+	if !ok {
+		// shared.Printf("ItemNullableDate: incorrect date (non string): %v,%T\n", iWhen, iWhen)
+		return nil
+	}
+	when, err := shared.TimeParseES(sWhen)
+	if err != nil {
+		// shared.Printf("ItemNullableDate: incorrect date (cannot parse): %s,%v\n", sWhen, err)
+		return nil
+	}
+	dt := strfmt.DateTime(when)
+	return &dt
+}
+
 // AddMetadata - add metadata to the item
 func (j *DSGitHub) AddMetadata(ctx *shared.Ctx, item interface{}) (mItem map[string]interface{}) {
 	mItem = make(map[string]interface{})
@@ -5301,6 +5321,10 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 			docUUID, _ := doc["uuid"].(string)
 			issueID, _ := doc["issue_id"].(float64)
 			issueNumber, _ := doc["id_in_repo"].(int)
+			createdOn, _ := doc["created_at"].(time.Time)
+			closedOn := j.ItemNullableDate(doc, "closed_at")
+			isClosed := closedOn != nil
+			// updatedOn can be dynamically updated when any activity is after the current value
 			// Event
 			event := &models.Event{
 				CodeChangeRequest: nil,
@@ -5310,15 +5334,15 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 					IssueID:      fmt.Sprintf("%.0f", issueID),
 					IssueNumber:  int64(issueNumber),
 					DataSourceID: source,
+					CreatedAt:    strfmt.DateTime(createdOn),
+					UpdatedAt:    strfmt.DateTime(updatedOn),
+					ClosedAt:     closedOn,
+					IsClosed:     isClosed,
 					/*
 						Activities []*IssueActivity `json:"Activities"`
-						ClosedAt *strfmt.DateTime `json:"ClosedAt,omitempty"`
-						CreatedAt strfmt.DateTime `json:"CreatedAt,omitempty"`
-						IsClosed bool `json:"IsClosed,omitempty"`
 						IsPullRequest bool `json:"IsPullRequest,omitempty"`
 						Labels []*Label `json:"Labels"`
 						Title string `json:"Title,omitempty"`
-						UpdatedAt strfmt.DateTime `json:"UpdatedAt,omitempty"`
 					*/
 				},
 			}
@@ -5337,6 +5361,12 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 			docUUID, _ := doc["uuid"].(string)
 			prID, _ := doc["pull_request_id"].(float64)
 			prNumber, _ := doc["id_in_repo"].(int)
+			createdOn, _ := doc["created_at"].(time.Time)
+			closedOn := j.ItemNullableDate(doc, "closed_at")
+			isClosed := closedOn != nil
+			mergedOn := j.ItemNullableDate(doc, "merged_at")
+			isMerged := mergedOn != nil
+			// updatedOn can be dynamically updated when any activity is after the current value
 			// Event
 			event := &models.Event{
 				Issue:      nil,
@@ -5346,19 +5376,18 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 					CodeChangeRequestID:     fmt.Sprintf("%.0f", prID),
 					CodeChangeRequestNumber: int64(prNumber),
 					DataSourceID:            source,
+					CreatedAt:               strfmt.DateTime(createdOn),
+					UpdatedAt:               strfmt.DateTime(updatedOn),
+					ClosedAt:                closedOn,
+					IsClosed:                isClosed,
+					MergedAt:                mergedOn,
+					IsMerged:                isMerged,
 					/*
 						Activities []*CodeChangeRequestActivity `json:"Activities"`
-						ClosedAt *strfmt.DateTime `json:"ClosedAt,omitempty"`
 						Commits []*CodeChangeRequestCommit `json:"Commits"`
-						CreatedAt strfmt.DateTime `json:"CreatedAt,omitempty"`
-						IsClosed bool `json:"IsClosed,omitempty"`
-						IsMerged bool `json:"IsMerged,omitempty"`
 						Labels []*Label `json:"Labels"`
-						MergedAt *strfmt.DateTime `json:"MergedAt,omitempty"`
 						State string `json:"State,omitempty"`
 						Title string `json:"Title,omitempty"`
-						// Format: date-time
-						UpdatedAt strfmt.DateTime `json:"UpdatedAt,omitempty"`
 					*/
 				},
 			}
