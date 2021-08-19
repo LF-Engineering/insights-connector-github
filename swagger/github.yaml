@@ -384,6 +384,10 @@ definitions:
             type: string
             description: GitHub repo
             example: devstats
+          URL:
+            type: string
+            description: GitHub path/url
+            example: https://github.com/cncf/devstats
       Events:
         type: array
         items:
