@@ -1822,6 +1822,55 @@ func (j *DSGitHub) FetchItemsIssue(ctx *shared.Ctx) (err error) {
 	return
 }
 
+// GetRoles - return identities for given roles
+func (j *DSGitHub) GetRoles(ctx *shared.Ctx, item map[string]interface{}, roles []string, dt time.Time) (identities []map[string]interface{}) {
+	for _, role := range roles {
+		identity := j.GetRoleIdentity(ctx, item, role)
+		if identity == nil || len(identity) == 0 {
+			continue
+		}
+		identity["dt"] = dt
+		identities = append(identities, identity)
+	}
+	return
+}
+
+// GetRoleIdentity - return identity data for a given role
+func (j *DSGitHub) GetRoleIdentity(ctx *shared.Ctx, item map[string]interface{}, role string) (identity map[string]interface{}) {
+	user, ok := item[role]
+	if ok && user != nil && len(user.(map[string]interface{})) > 0 {
+		ident := j.IdentityForObject(ctx, user.(map[string]interface{}))
+		identity = map[string]interface{}{
+			"name":     ident[0],
+			"username": ident[1],
+			"email":    ident[2],
+			"role":     role,
+		}
+	}
+	return
+}
+
+// IdentityForObject - construct identity from a given object
+func (j *DSGitHub) IdentityForObject(ctx *shared.Ctx, item map[string]interface{}) (identity [3]string) {
+	if ctx.Debug > 1 {
+		defer func() {
+			shared.Printf("%s/%s: IdentityForObject: %+v -> %+v\n", j.URL, j.CurrentCategory, item, identity)
+		}()
+	}
+	for i, prop := range []string{"name", "login", "email"} {
+		iVal, ok := shared.Dig(item, []string{prop}, false, true)
+		if ok {
+			val, ok := iVal.(string)
+			if ok {
+				identity[i] = val
+			}
+		} else {
+			identity[i] = ""
+		}
+	}
+	return
+}
+
 // GetFirstIssueAttention - get first non-author action date on the issue
 func (j *DSGitHub) GetFirstIssueAttention(issue map[string]interface{}) (dt time.Time) {
 	iUserLogin, _ := shared.Dig(issue, []string{"user", "login"}, false, true)
