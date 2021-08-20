@@ -4893,49 +4893,35 @@ func (j *DSGitHub) GitHubPullRequestEnrichItemsFunc(ctx *shared.Ctx, items []int
 		}
 		iComments, ok := shared.Dig(data, []string{"review_comments_data"}, false, true)
 		if ok && iComments != nil {
-			comments, ok := iComments.([]interface{})
-			if ok {
-				var comms []map[string]interface{}
-				for _, iComment := range comments {
-					comment, ok := iComment.(map[string]interface{})
-					if !ok {
-						continue
-					}
-					comms = append(comms, comment)
+			comments, ok := iComments.([]map[string]interface{})
+			if ok && len(comments) > 0 {
+				var riches []interface{}
+				riches, e = j.EnrichPullRequestComments(ctx, rich, comments)
+				if e != nil {
+					return
 				}
-				if len(comms) > 0 {
-					var riches []interface{}
-					riches, e = j.EnrichPullRequestComments(ctx, rich, comms)
-					if e != nil {
-						return
-					}
-					rich["comments_array"] = riches
-					if WantEnrichPullRequestCommentReactions {
-						var reacts []map[string]interface{}
-						for _, comment := range comms {
-							iReactions, ok := shared.Dig(comment, []string{"reactions_data"}, false, true)
-							if ok && iReactions != nil {
-								reactions, ok := iReactions.([]interface{})
-								if ok {
-									for _, iReaction := range reactions {
-										reaction, ok := iReaction.(map[string]interface{})
-										if !ok {
-											continue
-										}
-										reaction["parent"] = comment
-										reacts = append(reacts, reaction)
-									}
+				rich["review_comments_array"] = riches
+				if WantEnrichPullRequestCommentReactions {
+					var reacts []map[string]interface{}
+					for _, comment := range comments {
+						iReactions, ok := shared.Dig(comment, []string{"reactions_data"}, false, true)
+						if ok && iReactions != nil {
+							reactions, ok := iReactions.([]map[string]interface{})
+							if ok {
+								for _, reaction := range reactions {
+									reaction["parent"] = comment
+									reacts = append(reacts, reaction)
 								}
 							}
 						}
-						if len(reacts) > 0 {
-							var riches []interface{}
-							riches, e = j.EnrichPullRequestReactions(ctx, rich, reacts)
-							if e != nil {
-								return
-							}
-							rich["comments_reactions_array"] = riches
+					}
+					if len(reacts) > 0 {
+						var riches []interface{}
+						riches, e = j.EnrichPullRequestReactions(ctx, rich, reacts)
+						if e != nil {
+							return
 						}
+						rich["review_comments_reactions_array"] = riches
 					}
 				}
 			}
@@ -5476,7 +5462,7 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 			}
 			commentsAry, okComments := doc["comments_array"].([]interface{})
 			if okComments {
-				actType := "github_issue_comment"
+				actType := "github_issue_comment_added"
 				for _, iComment := range commentsAry {
 					comment, okComment := iComment.(map[string]interface{})
 					if !okComment || comment == nil {
@@ -5830,6 +5816,153 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 							CommitSHA:            nil,
 							IsApproval:           nil,
 							State:                nil,
+						})
+					}
+				}
+			}
+			commentsAry, okComments := doc["review_comments_array"].([]interface{})
+			if okComments {
+				actType := "github_pull_request_review_comment_added"
+				for _, iComment := range commentsAry {
+					comment, okComment := iComment.(map[string]interface{})
+					if !okComment || comment == nil {
+						continue
+					}
+					roles, okRoles := comment["roles"].([]map[string]interface{})
+					if !okRoles || len(roles) == 0 {
+						continue
+					}
+					var (
+						commentBody *string
+						commentURL  *string
+						authorAssoc *string
+					)
+					sCommentBody, _ := comment["body"].(string)
+					if sCommentBody != "" {
+						commentBody = &sCommentBody
+					}
+					sCommentURL, _ := comment["html_url"].(string)
+					if sCommentURL != "" {
+						commentURL = &sCommentURL
+					}
+					sAuthorAssoc, _ := comment["author_association"].(string)
+					if sAuthorAssoc != "" {
+						authorAssoc = &sAuthorAssoc
+					}
+					commentCreatedOn, _ := comment["metadata__updated_on"].(time.Time)
+					commentID, _ := comment["pull_request_comment_id"].(int64)
+					sCommentID := fmt.Sprintf("%d", commentID)
+					if commentCreatedOn.After(updatedOn) {
+						updatedOn = commentCreatedOn
+					}
+					for _, role := range roles {
+						roleType, _ := role["role"].(string)
+						if roleType != "user_data" {
+							continue
+						}
+						name, _ := role["name"].(string)
+						username, _ := role["username"].(string)
+						email, _ := role["email"].(string)
+						avatarURL, _ := role["avatar_url"].(string)
+						name, username = shared.PostprocessNameUsername(name, username, email)
+						userUUID := shared.UUIDAffs(ctx, source, email, name, username)
+						identity := &models.Identity{
+							ID:           userUUID,
+							DataSourceID: source,
+							Name:         name,
+							Username:     username,
+							Email:        email,
+							AvatarURL:    avatarURL,
+						}
+						actUUID := shared.UUIDNonEmpty(ctx, docUUID, actType, sCommentID)
+						activities = append(activities, &models.CodeChangeRequestActivity{
+							ID:                   actUUID,
+							CodeChangeRequestKey: docUUID,
+							CodeChangeRequestID:  prID,
+							ActivityType:         actType,
+							Identity:             identity,
+							CreatedAt:            strfmt.DateTime(commentCreatedOn),
+							Key:                  &sCommentID,
+							Body:                 commentBody,
+							URL:                  commentURL,
+							IdentityAssociaction: authorAssoc,
+							Reaction:             nil,
+							CommitSHA:            nil,
+							IsApproval:           nil,
+							State:                nil,
+						})
+					}
+				}
+			}
+			reactionsAry, okReactions := doc["review_comments_reactions_array"].([]interface{})
+			if okReactions {
+				actType := "github_pull_request_review_comment_reaction"
+				for _, iReaction := range reactionsAry {
+					reaction, okReaction := iReaction.(map[string]interface{})
+					if !okReaction || reaction == nil {
+						continue
+					}
+					var (
+						commentAuthorAssoc *string
+						commentURL         *string
+					)
+					commentID, _ := reaction["pull_request_comment_id"].(int64)
+					sCommentID := fmt.Sprintf("%d", commentID)
+					reactionCreatedOn, _ := reaction["metadata__updated_on"].(time.Time)
+					sCommentAuthorAssoc, _ := reaction["pull_request_comment_author_association"].(string)
+					sCommentURL, _ := reaction["pull_request_comment_html_url"].(string)
+					if sCommentAuthorAssoc != "" {
+						commentAuthorAssoc = &sCommentAuthorAssoc
+					}
+					if sCommentURL != "" {
+						commentURL = &sCommentURL
+					}
+					roles, okRoles := reaction["roles"].([]map[string]interface{})
+					if !okRoles || len(roles) == 0 {
+						continue
+					}
+					content, _ := reaction["content"].(string)
+					emojiContent := j.emojiForContent(content)
+					for _, role := range roles {
+						roleType, _ := role["role"].(string)
+						if roleType != "user_data" {
+							continue
+						}
+						name, _ := role["name"].(string)
+						username, _ := role["username"].(string)
+						email, _ := role["email"].(string)
+						avatarURL, _ := role["avatar_url"].(string)
+						name, username = shared.PostprocessNameUsername(name, username, email)
+						userUUID := shared.UUIDAffs(ctx, source, email, name, username)
+						identity := &models.Identity{
+							ID:           userUUID,
+							DataSourceID: source,
+							Name:         name,
+							Username:     username,
+							Email:        email,
+							AvatarURL:    avatarURL,
+						}
+						actUUID := shared.UUIDNonEmpty(ctx, docUUID, actType, sCommentID, userUUID, content)
+						activities = append(activities, &models.CodeChangeRequestActivity{
+							ID:                   actUUID,
+							CodeChangeRequestKey: docUUID,
+							CodeChangeRequestID:  prID,
+							ActivityType:         actType,
+							Identity:             identity,
+							CreatedAt:            strfmt.DateTime(reactionCreatedOn),
+							Key:                  &sCommentID,
+							Body:                 &content,
+							URL:                  commentURL,
+							IdentityAssociaction: commentAuthorAssoc,
+							Reaction: &models.Reaction{
+								Author:   identity,
+								Type:     content,
+								Emoji:    emojiContent,
+								ObjectID: sPRNumber,
+							},
+							CommitSHA:  nil,
+							IsApproval: nil,
+							State:      nil,
 						})
 					}
 				}
