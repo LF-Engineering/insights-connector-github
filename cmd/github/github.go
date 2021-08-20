@@ -4856,24 +4856,14 @@ func (j *DSGitHub) GitHubPullRequestEnrichItemsFunc(ctx *shared.Ctx, items []int
 		if WantEnrichPullRequestAssignees {
 			iAssignees, ok := shared.Dig(data, []string{"assignees_data"}, false, true)
 			if ok && iAssignees != nil {
-				assignees, ok := iAssignees.([]interface{})
-				if ok {
-					var asgs []map[string]interface{}
-					for _, iAssignee := range assignees {
-						assignee, ok := iAssignee.(map[string]interface{})
-						if !ok {
-							continue
-						}
-						asgs = append(asgs, assignee)
+				assignees, ok := iAssignees.([]map[string]interface{})
+				if ok && len(assignees) > 0 {
+					var riches []interface{}
+					riches, e = j.EnrichPullRequestAssignees(ctx, rich, assignees)
+					if e != nil {
+						return
 					}
-					if len(asgs) > 0 {
-						var riches []interface{}
-						riches, e = j.EnrichPullRequestAssignees(ctx, rich, asgs)
-						if e != nil {
-							return
-						}
-						rich["assignees_array"] = riches
-					}
+					rich["assignees_array"] = riches
 				}
 			}
 		}
@@ -5382,17 +5372,15 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 					}
 					actUUID := shared.UUIDNonEmpty(ctx, docUUID, actType)
 					activities = append(activities, &models.IssueActivity{
-						ID:                   actUUID,
-						IssueKey:             docUUID,
-						IssueID:              issueID,
-						ActivityType:         actType,
-						Body:                 body,
-						Identity:             identity,
-						CreatedAt:            strfmt.DateTime(createdOn),
-						Key:                  &sIssueNumber,
-						URL:                  url,
-						IdentityAssociaction: nil,
-						Reaction:             nil,
+						ID:           actUUID,
+						IssueKey:     docUUID,
+						IssueID:      issueID,
+						ActivityType: actType,
+						Body:         body,
+						Identity:     identity,
+						CreatedAt:    strfmt.DateTime(createdOn),
+						Key:          &sIssueNumber,
+						URL:          url,
 					})
 				}
 			}
@@ -5432,17 +5420,13 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 						}
 						actUUID := shared.UUIDNonEmpty(ctx, docUUID, actType, userUUID)
 						activities = append(activities, &models.IssueActivity{
-							ID:                   actUUID,
-							IssueKey:             docUUID,
-							IssueID:              issueID,
-							ActivityType:         actType,
-							Identity:             identity,
-							CreatedAt:            strfmt.DateTime(createdOn),
-							Key:                  &sIssueNumber,
-							Body:                 nil,
-							URL:                  nil,
-							IdentityAssociaction: nil,
-							Reaction:             nil,
+							ID:           actUUID,
+							IssueKey:     docUUID,
+							IssueID:      issueID,
+							ActivityType: actType,
+							Identity:     identity,
+							CreatedAt:    strfmt.DateTime(createdOn),
+							Key:          &sIssueNumber,
 						})
 					}
 				}
@@ -5496,8 +5480,6 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 								Emoji:    emojiContent,
 								ObjectID: sIssueNumber,
 							},
-							URL:                  nil,
-							IdentityAssociaction: nil,
 						})
 					}
 				}
@@ -5568,7 +5550,6 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 							Body:                 commentBody,
 							URL:                  commentURL,
 							IdentityAssociaction: authorAssoc,
-							Reaction:             nil,
 						})
 					}
 				}
@@ -5677,8 +5658,11 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 			//shared.Printf("%s: %+v\n", source, doc)
 			updatedOn := j.ItemUpdatedOn(doc)
 			docUUID, _ := doc["uuid"].(string)
-			prID, _ := doc["pull_request_id"].(float64)
-			prNumber, _ := doc["id_in_repo"].(int)
+			fPRID, _ := doc["pull_request_id"].(float64)
+			prID := fmt.Sprintf("%.0f", fPRID)
+			prNumber32, _ := doc["id_in_repo"].(int)
+			prNumber := int64(prNumber32)
+			sPRNumber := fmt.Sprintf("%d", prNumber)
 			title, _ := doc["title"].(string)
 			state, _ := doc["state"].(string)
 			labels, _ := doc["labels"].([]string)
@@ -5687,6 +5671,63 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 			isClosed := closedOn != nil
 			mergedOn := j.ItemNullableDate(doc, "merged_at")
 			isMerged := mergedOn != nil
+			primaryAssignee := ""
+			// FIXME
+			activities := []*models.CodeChangeRequestActivity{}
+			assigneesAry, okAssignees := doc["assignees_array"].([]interface{})
+			if okAssignees {
+				actType := "github_pull_request_assignee_added"
+				for _, iAssignee := range assigneesAry {
+					assignee, okAssignee := iAssignee.(map[string]interface{})
+					if !okAssignee || assignee == nil {
+						continue
+					}
+					roles, okRoles := assignee["roles"].([]map[string]interface{})
+					if !okRoles || len(roles) == 0 {
+						continue
+					}
+					for _, role := range roles {
+						roleType, _ := role["role"].(string)
+						if roleType != "assignee" {
+							continue
+						}
+						name, _ := role["name"].(string)
+						username, _ := role["username"].(string)
+						email, _ := role["email"].(string)
+						avatarURL, _ := role["avatar_url"].(string)
+						if username == primaryAssignee {
+							continue
+						}
+						name, username = shared.PostprocessNameUsername(name, username, email)
+						userUUID := shared.UUIDAffs(ctx, source, email, name, username)
+						identity := &models.Identity{
+							ID:           userUUID,
+							DataSourceID: source,
+							Name:         name,
+							Username:     username,
+							Email:        email,
+							AvatarURL:    avatarURL,
+						}
+						actUUID := shared.UUIDNonEmpty(ctx, docUUID, actType, userUUID)
+						activities = append(activities, &models.CodeChangeRequestActivity{
+							ID:                   actUUID,
+							CodeChangeRequestKey: docUUID,
+							CodeChangeRequestID:  prID,
+							ActivityType:         actType,
+							Identity:             identity,
+							CreatedAt:            strfmt.DateTime(createdOn),
+							Key:                  &sPRNumber,
+							Body:                 nil,
+							URL:                  nil,
+							IdentityAssociaction: nil,
+							Reaction:             nil,
+							CommitSHA:            nil,
+							IsApproval:           nil,
+							State:                nil,
+						})
+					}
+				}
+			}
 			commits := []*models.CodeChangeRequestCommit{}
 			commitsAry, okCommits := doc["commits_array"].([]interface{})
 			if okCommits {
@@ -5740,8 +5781,8 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 				Repository: nil,
 				CodeChangeRequest: &models.CodeChangeRequest{
 					ID:                      docUUID,
-					CodeChangeRequestID:     fmt.Sprintf("%.0f", prID),
-					CodeChangeRequestNumber: int64(prNumber),
+					CodeChangeRequestID:     prID,
+					CodeChangeRequestNumber: prNumber,
 					DataSourceID:            source,
 					CreatedAt:               strfmt.DateTime(createdOn),
 					UpdatedAt:               strfmt.DateTime(updatedOn),
@@ -5753,8 +5794,7 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 					State:                   state,
 					Labels:                  labels,
 					Commits:                 commits,
-					// FIXME
-					// Activities []*CodeChangeRequestActivity `json:"Activities"`
+					Activities:              activities,
 				},
 			}
 			data.Events = append(data.Events, event)
