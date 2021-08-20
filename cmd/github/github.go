@@ -1005,7 +1005,7 @@ func (j *DSGitHub) githubRepo(ctx *shared.Ctx, org, repo string) (repoData map[s
 	return
 }
 
-func (j *DSGitHub) githubIssues(ctx *shared.Ctx, org, repo string, since *time.Time) (issuesData []map[string]interface{}, err error) {
+func (j *DSGitHub) githubIssues(ctx *shared.Ctx, org, repo string, since, until *time.Time) (issuesData []map[string]interface{}, err error) {
 	var found bool
 	origin := org + "/" + repo
 	// Try memory cache 1st
@@ -1041,6 +1041,7 @@ func (j *DSGitHub) githubIssues(ctx *shared.Ctx, org, repo string, since *time.T
 	if since != nil {
 		opt.Since = *since
 	}
+	// GitHub doesn't support date-to/until
 	retry := false
 	for {
 		var (
@@ -1642,13 +1643,13 @@ func (j *DSGitHub) githubPull(ctx *shared.Ctx, org, repo string, number int) (pu
 }
 
 // githubPullsFromIssues - consider fetching this data in a stream-like mode to avoid a need of pulling all data and then of everything at once
-func (j *DSGitHub) githubPullsFromIssues(ctx *shared.Ctx, org, repo string, since *time.Time) (pullsData []map[string]interface{}, err error) {
+func (j *DSGitHub) githubPullsFromIssues(ctx *shared.Ctx, org, repo string, since, until *time.Time) (pullsData []map[string]interface{}, err error) {
 	var (
 		issues []map[string]interface{}
 		pull   map[string]interface{}
 		ok     bool
 	)
-	issues, err = j.githubIssues(ctx, org, repo, ctx.DateFrom)
+	issues, err = j.githubIssues(ctx, org, repo, since, until)
 	if err != nil {
 		return
 	}
@@ -1721,7 +1722,8 @@ func (j *DSGitHub) githubPullsFromIssues(ctx *shared.Ctx, org, repo string, sinc
 	return
 }
 
-func (j *DSGitHub) githubPulls(ctx *shared.Ctx, org, repo string) (pullsData []map[string]interface{}, err error) {
+func (j *DSGitHub) githubPulls(ctx *shared.Ctx, org, repo string, since, until *time.Time) (pullsData []map[string]interface{}, err error) {
+	// since & until params are ignored
 	// WARNING: this is not returning all possible Pull sub fields, recommend to use githubPullsFromIssues instead.
 	var found bool
 	origin := org + "/" + repo
@@ -2835,7 +2837,7 @@ func (j *DSGitHub) FetchItemsIssue(ctx *shared.Ctx) (err error) {
 		}
 		return
 	}
-	issues, err := j.githubIssues(ctx, j.Org, j.Repo, ctx.DateFrom)
+	issues, err := j.githubIssues(ctx, j.Org, j.Repo, ctx.DateFrom, ctx.DateTo)
 	shared.FatalOnError(err)
 	runtime.GC()
 	nIss = len(issues)
@@ -3017,9 +3019,9 @@ func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 	// If there is a date from Pulls API doesn't support Since parameter
 	// if ctx.DateFrom != nil {
 	if 1 == 1 {
-		pulls, err = j.githubPullsFromIssues(ctx, j.Org, j.Repo, ctx.DateFrom)
+		pulls, err = j.githubPullsFromIssues(ctx, j.Org, j.Repo, ctx.DateFrom, ctx.DateTo)
 	} else {
-		pulls, err = j.githubPulls(ctx, j.Org, j.Repo)
+		pulls, err = j.githubPulls(ctx, j.Org, j.Repo, ctx.DateFrom, ctx.DateTo)
 	}
 	shared.FatalOnError(err)
 	runtime.GC()
@@ -5314,9 +5316,7 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 		}
 	case "issue":
 		for _, iDoc := range docs {
-			var (
-				issueBody *string
-			)
+			var issueBody *string
 			doc, _ := iDoc.(map[string]interface{})
 			updatedOn := j.ItemUpdatedOn(doc)
 			docUUID, _ := doc["uuid"].(string)
@@ -5327,9 +5327,9 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 			sIssueNumber := fmt.Sprintf("%d", issueNumber)
 			isPullRequest, _ := doc["pull_request"].(bool)
 			title, _ := doc["title"].(string)
-			sBody, _ := doc["body"].(string)
-			if sBody != "" {
-				issueBody = &sBody
+			sIssueBody, _ := doc["body"].(string)
+			if sIssueBody != "" {
+				issueBody = &sIssueBody
 			}
 			issueURL, _ := doc["url"].(string)
 			state, _ := doc["state"].(string)
@@ -5654,6 +5654,7 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 		}
 	case "pull_request":
 		for _, iDoc := range docs {
+			var prBody *string
 			doc, _ := iDoc.(map[string]interface{})
 			//shared.Printf("%s: %+v\n", source, doc)
 			updatedOn := j.ItemUpdatedOn(doc)
@@ -5664,6 +5665,11 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 			prNumber := int64(prNumber32)
 			sPRNumber := fmt.Sprintf("%d", prNumber)
 			title, _ := doc["title"].(string)
+			sPRBody, _ := doc["body"].(string)
+			if sPRBody != "" {
+				prBody = &sPRBody
+			}
+			prURL, _ := doc["url"].(string)
 			state, _ := doc["state"].(string)
 			labels, _ := doc["labels"].([]string)
 			createdOn, _ := doc["created_at"].(time.Time)
@@ -5672,8 +5678,67 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 			mergedOn := j.ItemNullableDate(doc, "merged_at")
 			isMerged := mergedOn != nil
 			primaryAssignee := ""
-			// FIXME
 			activities := []*models.CodeChangeRequestActivity{}
+			roles, okRoles := doc["roles"].([]map[string]interface{})
+			if okRoles {
+				for _, role := range roles {
+					var (
+						body       *string
+						url        *string
+						actType    string
+						activityOn strfmt.DateTime
+					)
+					roleType, _ := role["role"].(string)
+					username, _ := role["username"].(string)
+					switch roleType {
+					case "assignee_data":
+						primaryAssignee = username
+						actType = "github_pull_request_primary_assignee_added"
+						activityOn = strfmt.DateTime(createdOn)
+					case "merged_by_data":
+						if mergedOn == nil {
+							continue
+						}
+						activityOn = *mergedOn
+						actType = "github_pull_request_merged"
+					case "user_data":
+						actType = "github_pull_request_created"
+						body = prBody
+						url = &prURL
+						activityOn = strfmt.DateTime(createdOn)
+					}
+					name, _ := role["name"].(string)
+					email, _ := role["email"].(string)
+					avatarURL, _ := role["avatar_url"].(string)
+					name, username = shared.PostprocessNameUsername(name, username, email)
+					userUUID := shared.UUIDAffs(ctx, source, email, name, username)
+					identity := &models.Identity{
+						ID:           userUUID,
+						DataSourceID: source,
+						Name:         name,
+						Username:     username,
+						Email:        email,
+						AvatarURL:    avatarURL,
+					}
+					actUUID := shared.UUIDNonEmpty(ctx, docUUID, actType)
+					activities = append(activities, &models.CodeChangeRequestActivity{
+						ID:                   actUUID,
+						CodeChangeRequestKey: docUUID,
+						CodeChangeRequestID:  prID,
+						ActivityType:         actType,
+						Body:                 body,
+						Identity:             identity,
+						CreatedAt:            activityOn,
+						Key:                  &sPRNumber,
+						URL:                  url,
+						IdentityAssociaction: nil,
+						Reaction:             nil,
+						CommitSHA:            nil,
+						IsApproval:           nil,
+						State:                nil,
+					})
+				}
+			}
 			assigneesAry, okAssignees := doc["assignees_array"].([]interface{})
 			if okAssignees {
 				actType := "github_pull_request_assignee_added"
