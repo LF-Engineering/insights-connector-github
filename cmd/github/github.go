@@ -4687,50 +4687,36 @@ func (j *DSGitHub) GitHubIssueEnrichItemsFunc(ctx *shared.Ctx, items []interface
 		// issue: reactions_data[].user_data
 		iComments, ok := shared.Dig(data, []string{"comments_data"}, false, true)
 		if ok && iComments != nil {
-			comments, ok := iComments.([]interface{})
-			if ok {
-				var comms []map[string]interface{}
-				for _, iComment := range comments {
-					comment, ok := iComment.(map[string]interface{})
-					if !ok {
-						continue
-					}
-					comms = append(comms, comment)
+			comments, ok := iComments.([]map[string]interface{})
+			if ok && len(comments) > 0 {
+				var riches []interface{}
+				riches, e = j.EnrichIssueComments(ctx, rich, comments)
+				if e != nil {
+					return
 				}
-				if len(comms) > 0 {
-					var riches []interface{}
-					riches, e = j.EnrichIssueComments(ctx, rich, comms)
-					if e != nil {
-						return
-					}
-					rich["comments_array"] = riches
-					if WantEnrichIssueCommentReactions {
-						var reacts []map[string]interface{}
-						for _, comment := range comms {
-							iReactions, ok := shared.Dig(comment, []string{"reactions_data"}, false, true)
-							if ok && iReactions != nil {
-								reactions, ok := iReactions.([]interface{})
-								if ok {
-									for _, iReaction := range reactions {
-										reaction, ok := iReaction.(map[string]interface{})
-										if !ok {
-											continue
-										}
-										// Store parent comment (not present in issue)
-										reaction["parent"] = comment
-										reacts = append(reacts, reaction)
-									}
+				rich["comments_array"] = riches
+				if WantEnrichIssueCommentReactions {
+					var reacts []map[string]interface{}
+					for _, comment := range comments {
+						iReactions, ok := shared.Dig(comment, []string{"reactions_data"}, false, true)
+						if ok && iReactions != nil {
+							reactions, ok := iReactions.([]map[string]interface{})
+							if ok {
+								for _, reaction := range reactions {
+									// Store parent comment (not present in issue)
+									reaction["parent"] = comment
+									reacts = append(reacts, reaction)
 								}
 							}
 						}
-						if len(reacts) > 0 {
-							var riches []interface{}
-							riches, e = j.EnrichIssueReactions(ctx, rich, reacts)
-							if e != nil {
-								return
-							}
-							rich["comments_reactions_array"] = riches
+					}
+					if len(reacts) > 0 {
+						var riches []interface{}
+						riches, e = j.EnrichIssueReactions(ctx, rich, reacts)
+						if e != nil {
+							return
 						}
+						rich["comments_reactions_array"] = riches
 					}
 				}
 			}
@@ -5490,7 +5476,6 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 							AvatarURL:    avatarURL,
 						}
 						actType := "github_issue_reaction"
-						// FIXME
 						actUUID := shared.UUIDNonEmpty(ctx, docUUID, actType, userUUID, content)
 						activities = append(activities, &models.IssueActivity{
 							ID:           actUUID,
