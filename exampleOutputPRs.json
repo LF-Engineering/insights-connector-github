@@ -19,7 +19,27 @@
         "ClosedAt": "2021-01-22T12:14:47.000Z",
         "CodeChangeRequestId": "558984826",
         "CodeChangeRequestNumber": 283,
-        "Commits": null,
+        "Commits": [
+          {
+            "Author": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/6251?v=4",
+              "DataSourceId": "github",
+              "Email": "v.behar@free.fr",
+              "Id": "b5b2cc4d32cc833dac8ece8463de1b1d6b724a68",
+              "Name": "Vincent Behar",
+              "Username": "vbehar"
+            },
+            "Committer": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/6251?v=4",
+              "DataSourceId": "github",
+              "Email": "v.behar@free.fr",
+              "Id": "b5b2cc4d32cc833dac8ece8463de1b1d6b724a68",
+              "Name": "Vincent Behar",
+              "Username": "vbehar"
+            },
+            "SHA": "ccb4a1388989743dfe8fbd79161246066dd04ff4"
+          }
+        ],
         "CreatedAt": "2021-01-21T08:52:38.000Z",
         "DataSourceId": "github",
         "Id": "fef0f17607b9560500d858fe3bfd48ee7729a0c2",
@@ -35,29 +55,30 @@
     {
       "CodeChangeRequest": {
         "Activities": null,
-        "ClosedAt": "2021-03-04T04:58:21.000Z",
-        "CodeChangeRequestId": "584134117",
-        "CodeChangeRequestNumber": 287,
-        "Commits": null,
-        "CreatedAt": "2021-03-03T17:25:43.000Z",
-        "DataSourceId": "github",
-        "Id": "bc1850aa2b5998d0fb8cee02058d1982ccf1f542",
-        "IsClosed": true,
-        "IsMerged": true,
-        "Labels": null,
-        "MergedAt": "2021-03-04T04:58:21.000Z",
-        "State": "closed",
-        "Title": "Some notes on SIG Node repository group",
-        "UpdatedAt": "2021-03-04T04:58:21.000Z"
-      }
-    },
-    {
-      "CodeChangeRequest": {
-        "Activities": null,
         "ClosedAt": "2021-07-13T08:31:44.000Z",
         "CodeChangeRequestId": "686150120",
         "CodeChangeRequestNumber": 302,
-        "Commits": null,
+        "Commits": [
+          {
+            "Author": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/1062564?v=4",
+              "DataSourceId": "github",
+              "Email": "vohra.sam@gmail.com",
+              "Id": "a64df5294fe4bf620367d25b508e91bdef10adf4",
+              "Name": "Sameer Vohra",
+              "Username": "xtreme-sameer-vohra"
+            },
+            "Committer": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/1062564?v=4",
+              "DataSourceId": "github",
+              "Email": "vohra.sam@gmail.com",
+              "Id": "a64df5294fe4bf620367d25b508e91bdef10adf4",
+              "Name": "Sameer Vohra",
+              "Username": "xtreme-sameer-vohra"
+            },
+            "SHA": "9f875f717f8a2b00bfd579130cd2397979a046bc"
+          }
+        ],
         "CreatedAt": "2021-07-08T16:10:20.000Z",
         "DataSourceId": "github",
         "Id": "befdb592eef8a747aab245b79387052b15f4da08",
@@ -73,10 +94,67 @@
     {
       "CodeChangeRequest": {
         "Activities": null,
+        "ClosedAt": "2021-05-08T06:09:34.000Z",
+        "CodeChangeRequestId": "633033158",
+        "CodeChangeRequestNumber": 294,
+        "Commits": [
+          {
+            "Author": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/1062564?v=4",
+              "DataSourceId": "github",
+              "Email": "vohra.sam@gmail.com",
+              "Id": "a64df5294fe4bf620367d25b508e91bdef10adf4",
+              "Name": "Sameer Vohra",
+              "Username": "xtreme-sameer-vohra"
+            },
+            "Committer": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/1062564?v=4",
+              "DataSourceId": "github",
+              "Email": "vohra.sam@gmail.com",
+              "Id": "a64df5294fe4bf620367d25b508e91bdef10adf4",
+              "Name": "Sameer Vohra",
+              "Username": "xtreme-sameer-vohra"
+            },
+            "SHA": "a102a49a0984f3d3d43c174125593a7c3db2cbfa"
+          }
+        ],
+        "CreatedAt": "2021-05-07T16:23:27.000Z",
+        "DataSourceId": "github",
+        "Id": "a7c72ea52dc7e0e5f3c82aebe86101bc2545174a",
+        "IsClosed": true,
+        "IsMerged": true,
+        "Labels": null,
+        "MergedAt": "2021-05-08T06:09:34.000Z",
+        "State": "closed",
+        "Title": "Add knative & knative-sandbox repo_groups",
+        "UpdatedAt": "2021-05-10T04:49:35.000Z"
+      }
+    },
+    {
+      "CodeChangeRequest": {
+        "Activities": null,
         "ClosedAt": "2021-01-15T12:44:16.000Z",
         "CodeChangeRequestId": "555661099",
         "CodeChangeRequestNumber": 281,
-        "Commits": null,
+        "Commits": [
+          {
+            "Author": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/25687724?v=4",
+              "DataSourceId": "github",
+              "Id": "1fe458e125dcb81ff41b180c51dddc2b72e9eab4",
+              "Name": "kubevirt-bot-MISSING-NAME",
+              "Username": "kubevirt-bot"
+            },
+            "Committer": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/25687724?v=4",
+              "DataSourceId": "github",
+              "Id": "1fe458e125dcb81ff41b180c51dddc2b72e9eab4",
+              "Name": "kubevirt-bot-MISSING-NAME",
+              "Username": "kubevirt-bot"
+            },
+            "SHA": "b940be31997ae0df16a7d1ff814dff849a9b89fb"
+          }
+        ],
         "CreatedAt": "2021-01-15T12:12:43.000Z",
         "DataSourceId": "github",
         "Id": "95acb4b84714fc80c66a5e0b8635a0b926eb7e26",
@@ -92,20 +170,89 @@
     {
       "CodeChangeRequest": {
         "Activities": null,
-        "ClosedAt": "2021-05-08T06:09:34.000Z",
-        "CodeChangeRequestId": "633033158",
-        "CodeChangeRequestNumber": 294,
-        "Commits": null,
-        "CreatedAt": "2021-05-07T16:23:27.000Z",
+        "ClosedAt": "2021-03-04T04:58:21.000Z",
+        "CodeChangeRequestId": "584134117",
+        "CodeChangeRequestNumber": 287,
+        "Commits": [
+          {
+            "Author": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/9950081?v=4",
+              "DataSourceId": "github",
+              "Id": "d52e186f27c4199fbd493f292f4930e31864f47f",
+              "Name": "Sergey Kanzhelev",
+              "Username": "SergeyKanzhelev"
+            },
+            "Committer": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/19864447?v=4",
+              "DataSourceId": "github",
+              "Id": "f1cf5b3450be44f19a45b9d812faffcaf1c07ca0",
+              "Name": "GitHub Web Flow",
+              "Username": "web-flow"
+            },
+            "SHA": "16ce3a75fdff71c8492f8f7603b43ae0b79eec77"
+          },
+          {
+            "Author": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/9950081?v=4",
+              "DataSourceId": "github",
+              "Id": "d52e186f27c4199fbd493f292f4930e31864f47f",
+              "Name": "Sergey Kanzhelev",
+              "Username": "SergeyKanzhelev"
+            },
+            "Committer": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/19864447?v=4",
+              "DataSourceId": "github",
+              "Id": "f1cf5b3450be44f19a45b9d812faffcaf1c07ca0",
+              "Name": "GitHub Web Flow",
+              "Username": "web-flow"
+            },
+            "SHA": "41ace8376d0b22c301dd80f52dac1ea71c7763f4"
+          },
+          {
+            "Author": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/9950081?v=4",
+              "DataSourceId": "github",
+              "Id": "d52e186f27c4199fbd493f292f4930e31864f47f",
+              "Name": "Sergey Kanzhelev",
+              "Username": "SergeyKanzhelev"
+            },
+            "Committer": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/19864447?v=4",
+              "DataSourceId": "github",
+              "Id": "f1cf5b3450be44f19a45b9d812faffcaf1c07ca0",
+              "Name": "GitHub Web Flow",
+              "Username": "web-flow"
+            },
+            "SHA": "6774673bdba3a24cae46ff3949d99a37b4fff2c5"
+          },
+          {
+            "Author": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/9950081?v=4",
+              "DataSourceId": "github",
+              "Id": "d52e186f27c4199fbd493f292f4930e31864f47f",
+              "Name": "Sergey Kanzhelev",
+              "Username": "SergeyKanzhelev"
+            },
+            "Committer": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/19864447?v=4",
+              "DataSourceId": "github",
+              "Id": "f1cf5b3450be44f19a45b9d812faffcaf1c07ca0",
+              "Name": "GitHub Web Flow",
+              "Username": "web-flow"
+            },
+            "SHA": "1406924b3b70f574b0bdfeaab37567dfb8900bb7"
+          }
+        ],
+        "CreatedAt": "2021-03-03T17:25:43.000Z",
         "DataSourceId": "github",
-        "Id": "a7c72ea52dc7e0e5f3c82aebe86101bc2545174a",
+        "Id": "bc1850aa2b5998d0fb8cee02058d1982ccf1f542",
         "IsClosed": true,
         "IsMerged": true,
         "Labels": null,
-        "MergedAt": "2021-05-08T06:09:34.000Z",
+        "MergedAt": "2021-03-04T04:58:21.000Z",
         "State": "closed",
-        "Title": "Add knative & knative-sandbox repo_groups",
-        "UpdatedAt": "2021-05-10T04:49:35.000Z"
+        "Title": "Some notes on SIG Node repository group",
+        "UpdatedAt": "2021-03-04T04:58:21.000Z"
       }
     }
   ],

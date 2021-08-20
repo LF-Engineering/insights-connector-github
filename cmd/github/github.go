@@ -3086,23 +3086,24 @@ func (j *DSGitHub) GetRoleIdentity(ctx *shared.Ctx, item map[string]interface{},
 	if ok && user != nil && len(user.(map[string]interface{})) > 0 {
 		ident := j.IdentityForObject(ctx, user.(map[string]interface{}))
 		identity = map[string]interface{}{
-			"name":     ident[0],
-			"username": ident[1],
-			"email":    ident[2],
-			"role":     role,
+			"name":       ident[0],
+			"username":   ident[1],
+			"email":      ident[2],
+			"avatar_url": ident[3],
+			"role":       role,
 		}
 	}
 	return
 }
 
 // IdentityForObject - construct identity from a given object
-func (j *DSGitHub) IdentityForObject(ctx *shared.Ctx, item map[string]interface{}) (identity [3]string) {
+func (j *DSGitHub) IdentityForObject(ctx *shared.Ctx, item map[string]interface{}) (identity [4]string) {
 	if ctx.Debug > 1 {
 		defer func() {
 			shared.Printf("%s/%s: IdentityForObject: %+v -> %+v\n", j.URL, j.CurrentCategory, item, identity)
 		}()
 	}
-	for i, prop := range []string{"name", "login", "email"} {
+	for i, prop := range []string{"name", "login", "email", "avatar_url"} {
 		iVal, ok := shared.Dig(item, []string{prop}, false, true)
 		if ok {
 			val, ok := iVal.(string)
@@ -5373,6 +5374,53 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 			isClosed := closedOn != nil
 			mergedOn := j.ItemNullableDate(doc, "merged_at")
 			isMerged := mergedOn != nil
+			commits := []*models.CodeChangeRequestCommit{}
+			commitsAry, okCommits := doc["commits_array"].([]interface{})
+			if okCommits {
+				for _, iCommit := range commitsAry {
+					commit, okCommit := iCommit.(map[string]interface{})
+					if !okCommit || commit == nil {
+						continue
+					}
+					roles, okRoles := commit["roles"].([]map[string]interface{})
+					sha, _ := commit["sha"].(string)
+					if !okRoles || sha == "" || len(roles) == 0 {
+						continue
+					}
+					var (
+						author    *models.Identity
+						committer *models.Identity
+					)
+					for _, role := range roles {
+						roleType, _ := role["role"].(string)
+						name, _ := role["name"].(string)
+						username, _ := role["username"].(string)
+						email, _ := role["email"].(string)
+						avatarURL, _ := role["avatar_url"].(string)
+						name, username = shared.PostprocessNameUsername(name, username, email)
+						userUUID := shared.UUIDAffs(ctx, source, email, name, username)
+						identity := &models.Identity{
+							ID:           userUUID,
+							DataSourceID: source,
+							Name:         name,
+							Username:     username,
+							Email:        email,
+							AvatarURL:    avatarURL,
+						}
+						if roleType == "author_data" {
+							author = identity
+						} else if roleType == "committer_data" {
+							committer = identity
+						}
+					}
+					commits = append(commits, &models.CodeChangeRequestCommit{
+						SHA:       sha,
+						Author:    author,
+						Committer: committer,
+					},
+					)
+				}
+			}
 			// updatedOn can be dynamically updated when any activity is after the current value
 			// Event
 			event := &models.Event{
@@ -5392,9 +5440,9 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 					Title:                   title,
 					State:                   state,
 					Labels:                  labels,
+					Commits:                 commits,
 					// FIXME
 					// Activities []*CodeChangeRequestActivity `json:"Activities"`
-					// Commits []*CodeChangeRequestCommit `json:"Commits"`
 				},
 			}
 			data.Events = append(data.Events, event)
