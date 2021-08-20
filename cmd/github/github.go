@@ -4943,24 +4943,14 @@ func (j *DSGitHub) GitHubPullRequestEnrichItemsFunc(ctx *shared.Ctx, items []int
 		if WantEnrichPullRequestRequestedReviewers {
 			iReviewers, ok := shared.Dig(data, []string{"requested_reviewers_data"}, false, true)
 			if ok && iReviewers != nil {
-				reviewers, ok := iReviewers.([]interface{})
-				if ok {
-					var revs []map[string]interface{}
-					for _, iReviewer := range reviewers {
-						reviewer, ok := iReviewer.(map[string]interface{})
-						if !ok {
-							continue
-						}
-						revs = append(revs, reviewer)
+				reviewers, ok := iReviewers.([]map[string]interface{})
+				if ok && len(reviewers) > 0 {
+					var riches []interface{}
+					riches, e = j.EnrichPullRequestRequestedReviewers(ctx, rich, reviewers)
+					if e != nil {
+						return
 					}
-					if len(revs) > 0 {
-						var riches []interface{}
-						riches, e = j.EnrichPullRequestRequestedReviewers(ctx, rich, revs)
-						if e != nil {
-							return
-						}
-						rich["requested_reviewers_array"] = riches
-					}
+					rich["requested_reviewers_array"] = riches
 				}
 			}
 		}
@@ -5763,6 +5753,57 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 						if username == primaryAssignee {
 							continue
 						}
+						name, username = shared.PostprocessNameUsername(name, username, email)
+						userUUID := shared.UUIDAffs(ctx, source, email, name, username)
+						identity := &models.Identity{
+							ID:           userUUID,
+							DataSourceID: source,
+							Name:         name,
+							Username:     username,
+							Email:        email,
+							AvatarURL:    avatarURL,
+						}
+						actUUID := shared.UUIDNonEmpty(ctx, docUUID, actType, userUUID)
+						activities = append(activities, &models.CodeChangeRequestActivity{
+							ID:                   actUUID,
+							CodeChangeRequestKey: docUUID,
+							CodeChangeRequestID:  prID,
+							ActivityType:         actType,
+							Identity:             identity,
+							CreatedAt:            strfmt.DateTime(createdOn),
+							Key:                  &sPRNumber,
+							Body:                 nil,
+							URL:                  nil,
+							IdentityAssociaction: nil,
+							Reaction:             nil,
+							CommitSHA:            nil,
+							IsApproval:           nil,
+							State:                nil,
+						})
+					}
+				}
+			}
+			requestedReviewersAry, okRequestedReviewers := doc["requested_reviewers_array"].([]interface{})
+			if okRequestedReviewers {
+				actType := "github_pull_request_requested_reviewer_added"
+				for _, iRequestedReviewer := range requestedReviewersAry {
+					requestedReviewer, okRequestedReviewer := iRequestedReviewer.(map[string]interface{})
+					if !okRequestedReviewer || requestedReviewer == nil {
+						continue
+					}
+					roles, okRoles := requestedReviewer["roles"].([]map[string]interface{})
+					if !okRoles || len(roles) == 0 {
+						continue
+					}
+					for _, role := range roles {
+						roleType, _ := role["role"].(string)
+						if roleType != "requested_reviewer" {
+							continue
+						}
+						name, _ := role["name"].(string)
+						username, _ := role["username"].(string)
+						email, _ := role["email"].(string)
+						avatarURL, _ := role["avatar_url"].(string)
 						name, username = shared.PostprocessNameUsername(name, username, email)
 						userUUID := shared.UUIDAffs(ctx, source, email, name, username)
 						identity := &models.Identity{
