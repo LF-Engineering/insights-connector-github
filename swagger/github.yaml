@@ -83,7 +83,7 @@ definitions:
       ObjectID:
         type: string
         example: 1234567890abcdef
-        description: reference to parent object (can be Issue.Id or IssueActivity.Key)
+        description: reference to parent object (can be Issue.Number or IssueActivity.Key)
   IssueActivity:
     type: object
     properties:

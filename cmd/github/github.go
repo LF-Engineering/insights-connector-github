@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/LF-Engineering/dev-analytics-libraries/emoji"
 	"github.com/LF-Engineering/insights-datasource-github/gen/models"
 	shared "github.com/LF-Engineering/insights-datasource-shared"
 	"github.com/go-openapi/strfmt"
@@ -175,6 +176,8 @@ type DSGitHub struct {
 	GitHubPullRequestedReviewers    map[string][]map[string]interface{}
 	GitHubPullCommits               map[string][]map[string]interface{}
 	GitHubUserOrgs                  map[string][]map[string]interface{}
+	EmojisMtx                       *sync.RWMutex
+	Emojis                          map[string]string
 }
 
 // AddFlags - add GitHub specific flags
@@ -333,6 +336,7 @@ func (j *DSGitHub) Validate(ctx *shared.Ctx) (err error) {
 	if CacheGitHubUserOrgs {
 		j.GitHubUserOrgs = make(map[string][]map[string]interface{})
 	}
+	j.Emojis = make(map[string]string)
 	// Multithreading
 	j.ThrN = shared.GetThreadsNum(ctx)
 	if j.ThrN > 1 {
@@ -380,6 +384,7 @@ func (j *DSGitHub) Validate(ctx *shared.Ctx) (err error) {
 		if CacheGitHubUserOrgs {
 			j.GitHubUserOrgsMtx = &sync.RWMutex{}
 		}
+		j.EmojisMtx = &sync.RWMutex{}
 	}
 	j.Hint, _ = j.handleRate(ctx)
 	j.CacheDir = os.ExpandEnv(j.CacheDir)
@@ -417,6 +422,38 @@ func (j *DSGitHub) Endpoint() string {
 		return j.URL
 	}
 	return j.URL + " " + j.CurrentCategory
+}
+
+func (j *DSGitHub) emojiForContent(content string) string {
+	if content == "" {
+		return ""
+	}
+	if j.EmojisMtx != nil {
+		j.EmojisMtx.RLock()
+	}
+	emojiContent, found := j.Emojis[content]
+	if j.EmojisMtx != nil {
+		j.EmojisMtx.RUnlock()
+	}
+	if found {
+		return emojiContent
+	}
+	// +1, -1, laugh, confused, heart, hooray, rocket, eyes
+	switch content {
+	case "laugh":
+		content = "laughing"
+	case "hooray":
+		content = "tada"
+	}
+	emojiContent = emoji.GetEmojiUnicode(":" + content + ":")
+	if j.EmojisMtx != nil {
+		j.EmojisMtx.Lock()
+	}
+	j.Emojis[content] = emojiContent
+	if j.EmojisMtx != nil {
+		j.EmojisMtx.Unlock()
+	}
+	return emojiContent
 }
 
 func (j *DSGitHub) getRateLimits(gctx context.Context, ctx *shared.Ctx, gcs []*github.Client, core bool) (int, []int, []int, []time.Duration) {
@@ -4715,24 +4752,14 @@ func (j *DSGitHub) GitHubIssueEnrichItemsFunc(ctx *shared.Ctx, items []interface
 		if WantEnrichIssueReactions {
 			iReactions, ok := shared.Dig(data, []string{"reactions_data"}, false, true)
 			if ok && iReactions != nil {
-				reactions, ok := iReactions.([]interface{})
-				if ok {
-					var reacts []map[string]interface{}
-					for _, iReaction := range reactions {
-						reaction, ok := iReaction.(map[string]interface{})
-						if !ok {
-							continue
-						}
-						reacts = append(reacts, reaction)
+				reactions, ok := iReactions.([]map[string]interface{})
+				if ok && len(reactions) > 0 {
+					var riches []interface{}
+					riches, e = j.EnrichIssueReactions(ctx, rich, reactions)
+					if e != nil {
+						return
 					}
-					if len(reacts) > 0 {
-						var riches []interface{}
-						riches, e = j.EnrichIssueReactions(ctx, rich, reacts)
-						if e != nil {
-							return
-						}
-						rich["reactions_array"] = riches
-					}
+					rich["reactions_array"] = riches
 				}
 			}
 		}
@@ -5330,7 +5357,7 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 			createdOn, _ := doc["created_at"].(time.Time)
 			closedOn := j.ItemNullableDate(doc, "closed_at")
 			isClosed := closedOn != nil
-			// github_issue_created, github_issue_assignee_added, github_issue_comment_added, github_issue_reaction, github_issue_comment_reaction,
+			// github_issue_created, github_issue_primary_assignee_added, github_issue_assignee_added, github_issue_comment_added, github_issue_reaction, github_issue_comment_reaction,
 			primaryAssignee := ""
 			activities := []*models.IssueActivity{}
 			roles, okRoles := doc["roles"].([]map[string]interface{})
@@ -5426,6 +5453,62 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 							URL:                  nil,
 							IdentityAssociaction: nil,
 							Reaction:             nil,
+						})
+					}
+				}
+			}
+			reactionsAry, okReactions := doc["reactions_array"].([]interface{})
+			if okReactions {
+				for _, iReaction := range reactionsAry {
+					reaction, okReaction := iReaction.(map[string]interface{})
+					if !okReaction || reaction == nil {
+						continue
+					}
+					roles, okRoles := reaction["roles"].([]map[string]interface{})
+					if !okRoles || len(roles) == 0 {
+						continue
+					}
+					content, _ := reaction["content"].(string)
+					emojiContent := j.emojiForContent(content)
+					for _, role := range roles {
+						roleType, _ := role["role"].(string)
+						if roleType != "user_data" {
+							continue
+						}
+						name, _ := role["name"].(string)
+						username, _ := role["username"].(string)
+						email, _ := role["email"].(string)
+						avatarURL, _ := role["avatar_url"].(string)
+						name, username = shared.PostprocessNameUsername(name, username, email)
+						userUUID := shared.UUIDAffs(ctx, source, email, name, username)
+						identity := &models.Identity{
+							ID:           userUUID,
+							DataSourceID: source,
+							Name:         name,
+							Username:     username,
+							Email:        email,
+							AvatarURL:    avatarURL,
+						}
+						actType := "github_issue_reaction"
+						// FIXME
+						actUUID := shared.UUIDNonEmpty(ctx, docUUID, actType, userUUID, content)
+						activities = append(activities, &models.IssueActivity{
+							ID:           actUUID,
+							IssueKey:     docUUID,
+							IssueID:      issueID,
+							ActivityType: actType,
+							Identity:     identity,
+							CreatedAt:    strfmt.DateTime(createdOn),
+							Key:          &sIssueNumber,
+							Body:         &content,
+							Reaction: &models.Reaction{
+								Author:   identity,
+								Type:     content,
+								Emoji:    emojiContent,
+								ObjectID: sIssueNumber,
+							},
+							URL:                  nil,
+							IdentityAssociaction: nil,
 						})
 					}
 				}
