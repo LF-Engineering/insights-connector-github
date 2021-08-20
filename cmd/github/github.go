@@ -5498,6 +5498,74 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 					}
 				}
 			}
+			commentsAry, okComments := doc["comments_array"].([]interface{})
+			if okComments {
+				for _, iComment := range commentsAry {
+					comment, okComment := iComment.(map[string]interface{})
+					if !okComment || comment == nil {
+						continue
+					}
+					roles, okRoles := comment["roles"].([]map[string]interface{})
+					if !okRoles || len(roles) == 0 {
+						continue
+					}
+					var (
+						commentBody *string
+						commentURL  *string
+						authorAssoc *string
+					)
+					sCommentBody, _ := comment["body"].(string)
+					if sCommentBody != "" {
+						commentBody = &sCommentBody
+					}
+					sCommentURL, _ := comment["html_url"].(string)
+					if sCommentURL != "" {
+						commentURL = &sCommentURL
+					}
+					sAuthorAssoc, _ := comment["author_association"].(string)
+					if sAuthorAssoc != "" {
+						authorAssoc = &sAuthorAssoc
+					}
+					commentCreatedOn, _ := comment["metadata__updated_on"].(time.Time)
+					commentID, _ := comment["issue_comment_id"].(int64)
+					sCommentID := fmt.Sprintf("%d", commentID)
+					for _, role := range roles {
+						roleType, _ := role["role"].(string)
+						if roleType != "user_data" {
+							continue
+						}
+						name, _ := role["name"].(string)
+						username, _ := role["username"].(string)
+						email, _ := role["email"].(string)
+						avatarURL, _ := role["avatar_url"].(string)
+						name, username = shared.PostprocessNameUsername(name, username, email)
+						userUUID := shared.UUIDAffs(ctx, source, email, name, username)
+						identity := &models.Identity{
+							ID:           userUUID,
+							DataSourceID: source,
+							Name:         name,
+							Username:     username,
+							Email:        email,
+							AvatarURL:    avatarURL,
+						}
+						actType := "github_issue_comment"
+						actUUID := shared.UUIDNonEmpty(ctx, docUUID, actType, sCommentID)
+						activities = append(activities, &models.IssueActivity{
+							ID:                   actUUID,
+							IssueKey:             docUUID,
+							IssueID:              issueID,
+							ActivityType:         actType,
+							Identity:             identity,
+							CreatedAt:            strfmt.DateTime(commentCreatedOn),
+							Key:                  &sCommentID,
+							Body:                 commentBody,
+							URL:                  commentURL,
+							IdentityAssociaction: authorAssoc,
+							Reaction:             nil,
+						})
+					}
+				}
+			}
 			// updatedOn can be dynamically updated when any activity is after the current value
 			// Event
 			event := &models.Event{
