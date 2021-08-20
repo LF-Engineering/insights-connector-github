@@ -83,7 +83,7 @@ definitions:
       ObjectID:
         type: string
         example: 1234567890abcdef
-        description: reference to parent object (can be Issue.Number or IssueActivity.Key)
+        description: reference to parent object (can be Issue.Number, IssueActivity.Key, CodeChangeRequest.Key)
   IssueActivity:
     type: object
     properties:
@@ -205,10 +205,10 @@ definitions:
       ActivityType:
         type: string
         example: >
-          github_pull_request_created, github_pull_request_closed, github_pull_request_merged,
+          github_pull_request_created, github_pull_request_primary_assignee_added, github_pull_request_merged,
           github_pull_request_assignee_added, github_pull_request_requested_reviewer_added,
-          github_pull_request_comment_added, github_pull_request_comment_reaction, github_pull_request_review_added
-        description: FIXME allows reconstructing relations
+          github_pull_request_review_comment_added, github_pull_request_review_comment_reaction, github_pull_request_review_added
+        description: allows reconstructing relations
       Body:
         type: string
         description: PR/comment/review body
@@ -220,7 +220,7 @@ definitions:
         x-nullable: true
       Key:
         type: string
-        description: activity unique key, this is GitHub comment ID if activity is a comment or CodeChangeRequest.Number when activity is a PR
+        description: activity unique key, this is GitHub comment ID if activity is a comment or GitHub review ID for reviews or CodeChangeRequest.Number for PRs
         example: "150"
         x-nullable: true
       CommitSHA:

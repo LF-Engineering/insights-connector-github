@@ -4871,24 +4871,14 @@ func (j *DSGitHub) GitHubPullRequestEnrichItemsFunc(ctx *shared.Ctx, items []int
 		}
 		iReviews, ok := shared.Dig(data, []string{"reviews_data"}, false, true)
 		if ok && iReviews != nil {
-			reviews, ok := iReviews.([]interface{})
-			if ok {
-				var revs []map[string]interface{}
-				for _, iReview := range reviews {
-					review, ok := iReview.(map[string]interface{})
-					if !ok {
-						continue
-					}
-					revs = append(revs, review)
+			reviews, ok := iReviews.([]map[string]interface{})
+			if ok && len(reviews) > 0 {
+				var riches []interface{}
+				riches, e = j.EnrichPullRequestReviews(ctx, rich, reviews)
+				if e != nil {
+					return
 				}
-				if len(revs) > 0 {
-					var riches []interface{}
-					riches, e = j.EnrichPullRequestReviews(ctx, rich, revs)
-					if e != nil {
-						return
-					}
-					rich["reviews_array"] = riches
-				}
+				rich["reviews_array"] = riches
 			}
 		}
 		iComments, ok := shared.Dig(data, []string{"review_comments_data"}, false, true)
@@ -5707,11 +5697,6 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 						CreatedAt:            activityOn,
 						Key:                  &sPRNumber,
 						URL:                  url,
-						IdentityAssociaction: nil,
-						Reaction:             nil,
-						CommitSHA:            nil,
-						IsApproval:           nil,
-						State:                nil,
 					})
 				}
 			}
@@ -5758,13 +5743,6 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 							Identity:             identity,
 							CreatedAt:            strfmt.DateTime(createdOn),
 							Key:                  &sPRNumber,
-							Body:                 nil,
-							URL:                  nil,
-							IdentityAssociaction: nil,
-							Reaction:             nil,
-							CommitSHA:            nil,
-							IsApproval:           nil,
-							State:                nil,
 						})
 					}
 				}
@@ -5809,13 +5787,6 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 							Identity:             identity,
 							CreatedAt:            strfmt.DateTime(createdOn),
 							Key:                  &sPRNumber,
-							Body:                 nil,
-							URL:                  nil,
-							IdentityAssociaction: nil,
-							Reaction:             nil,
-							CommitSHA:            nil,
-							IsApproval:           nil,
-							State:                nil,
 						})
 					}
 				}
@@ -5823,6 +5794,11 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 			commentsAry, okComments := doc["review_comments_array"].([]interface{})
 			if okComments {
 				actType := "github_pull_request_review_comment_added"
+				// Those comments are duplicated in "github_pull_request_review_added" type, with reviewState=COMMENTED
+				// NOTE: if review state is "COMMENTED" that means it is also returned in "github_pull_request_review_comment_added"
+				// But the reviews API is not returning comment body in those objects.
+				// I could skip such reviews (to avoid duplication) but they contain some extra data not present here like review ID etc.
+				// Also the comment body is stored here.
 				for _, iComment := range commentsAry {
 					comment, okComment := iComment.(map[string]interface{})
 					if !okComment || comment == nil {
@@ -5886,10 +5862,6 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 							Body:                 commentBody,
 							URL:                  commentURL,
 							IdentityAssociaction: authorAssoc,
-							Reaction:             nil,
-							CommitSHA:            nil,
-							IsApproval:           nil,
-							State:                nil,
 						})
 					}
 				}
@@ -5960,9 +5932,93 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 								Emoji:    emojiContent,
 								ObjectID: sPRNumber,
 							},
-							CommitSHA:  nil,
-							IsApproval: nil,
-							State:      nil,
+						})
+					}
+				}
+			}
+			reviewsAry, okReviews := doc["reviews_array"].([]interface{})
+			if okReviews {
+				actType := "github_pull_request_review_added"
+				for _, iReview := range reviewsAry {
+					review, okReview := iReview.(map[string]interface{})
+					if !okReview || review == nil {
+						continue
+					}
+					roles, okRoles := review["roles"].([]map[string]interface{})
+					if !okRoles || len(roles) == 0 {
+						continue
+					}
+					var (
+						reviewBody  *string
+						reviewURL   *string
+						authorAssoc *string
+						commitID    *string
+						reviewState *string
+					)
+					sReviewBody, _ := review["body"].(string)
+					if sReviewBody != "" {
+						reviewBody = &sReviewBody
+					}
+					sReviewURL, _ := review["html_url"].(string)
+					if sReviewURL != "" {
+						reviewURL = &sReviewURL
+					}
+					sAuthorAssoc, _ := review["author_association"].(string)
+					if sAuthorAssoc != "" {
+						authorAssoc = &sAuthorAssoc
+					}
+					sCommitID, _ := review["commit_id"].(string)
+					if sCommitID != "" {
+						commitID = &sCommitID
+					}
+					sReviewState, _ := review["state"].(string)
+					if sReviewState != "" {
+						reviewState = &sReviewState
+					}
+					reviewCreatedOn, _ := review["metadata__updated_on"].(time.Time)
+					reviewID, _ := review["pull_request_review_id"].(int64)
+					sReviewID := fmt.Sprintf("%d", reviewID)
+					if reviewCreatedOn.After(updatedOn) {
+						updatedOn = reviewCreatedOn
+					}
+					// NOTE: if review state is "COMMENTED" that means it is also returned in "github_pull_request_review_comment_added"
+					// And API is not returning comment body in this object in such cases. I could skip such reviews here (to avoid duplication)
+					// but this object contains some extra data not present in the another like commit sha, review ID etc. So let's keep it
+					isApproval := sReviewState == "APPROVED"
+					for _, role := range roles {
+						roleType, _ := role["role"].(string)
+						if roleType != "user_data" {
+							continue
+						}
+						name, _ := role["name"].(string)
+						username, _ := role["username"].(string)
+						email, _ := role["email"].(string)
+						avatarURL, _ := role["avatar_url"].(string)
+						name, username = shared.PostprocessNameUsername(name, username, email)
+						userUUID := shared.UUIDAffs(ctx, source, email, name, username)
+						identity := &models.Identity{
+							ID:           userUUID,
+							DataSourceID: source,
+							Name:         name,
+							Username:     username,
+							Email:        email,
+							AvatarURL:    avatarURL,
+						}
+						actUUID := shared.UUIDNonEmpty(ctx, docUUID, actType, sReviewID)
+						activities = append(activities, &models.CodeChangeRequestActivity{
+							ID:                   actUUID,
+							CodeChangeRequestKey: docUUID,
+							CodeChangeRequestID:  prID,
+							ActivityType:         actType,
+							Identity:             identity,
+							CreatedAt:            strfmt.DateTime(reviewCreatedOn),
+							Key:                  &sReviewID,
+							Body:                 reviewBody,
+							URL:                  reviewURL,
+							IdentityAssociaction: authorAssoc,
+							CommitSHA:            commitID,
+							IsApproval:           &isApproval,
+							State:                reviewState,
 						})
 					}
 				}
