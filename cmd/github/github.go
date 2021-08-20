@@ -4701,24 +4701,14 @@ func (j *DSGitHub) GitHubIssueEnrichItemsFunc(ctx *shared.Ctx, items []interface
 		if WantEnrichIssueAssignees {
 			iAssignees, ok := shared.Dig(data, []string{"assignees_data"}, false, true)
 			if ok && iAssignees != nil {
-				assignees, ok := iAssignees.([]interface{})
-				if ok {
-					var asgs []map[string]interface{}
-					for _, iAssignee := range assignees {
-						assignee, ok := iAssignee.(map[string]interface{})
-						if !ok {
-							continue
-						}
-						asgs = append(asgs, assignee)
+				assignees, ok := iAssignees.([]map[string]interface{})
+				if ok && len(assignees) > 0 {
+					var riches []interface{}
+					riches, e = j.EnrichIssueAssignees(ctx, rich, assignees)
+					if e != nil {
+						return
 					}
-					if len(asgs) > 0 {
-						var riches []interface{}
-						riches, e = j.EnrichIssueAssignees(ctx, rich, asgs)
-						if e != nil {
-							return
-						}
-						rich["assignees_array"] = riches
-					}
+					rich["assignees_array"] = riches
 				}
 			}
 		}
@@ -5327,6 +5317,7 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 			issueID := fmt.Sprintf("%.0f", fIssueID)
 			issueNumber32, _ := doc["id_in_repo"].(int)
 			issueNumber := int64(issueNumber32)
+			sIssueNumber := fmt.Sprintf("%d", issueNumber)
 			isPullRequest, _ := doc["pull_request"].(bool)
 			title, _ := doc["title"].(string)
 			sBody, _ := doc["body"].(string)
@@ -5364,7 +5355,6 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 						Email:        email,
 						AvatarURL:    avatarURL,
 					}
-					key := fmt.Sprintf("%d", issueNumber)
 					actType := "github_issue_created"
 					if roleType == "assignee_data" {
 						primaryAssignee = username
@@ -5382,15 +5372,64 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 						Body:                 body,
 						Identity:             identity,
 						CreatedAt:            strfmt.DateTime(createdOn),
-						Key:                  &key,
+						Key:                  &sIssueNumber,
 						URL:                  url,
 						IdentityAssociaction: nil,
 						Reaction:             nil,
 					})
 				}
 			}
-			fmt.Printf("primaryAssignee=%s\n", primaryAssignee)
-			/////////
+			assigneesAry, okAssignees := doc["assignees_array"].([]interface{})
+			if okAssignees {
+				for _, iAssignee := range assigneesAry {
+					assignee, okAssignee := iAssignee.(map[string]interface{})
+					if !okAssignee || assignee == nil {
+						continue
+					}
+					roles, okRoles := assignee["roles"].([]map[string]interface{})
+					if !okRoles || len(roles) == 0 {
+						continue
+					}
+					for _, role := range roles {
+						roleType, _ := role["role"].(string)
+						if roleType != "assignee" {
+							continue
+						}
+						name, _ := role["name"].(string)
+						username, _ := role["username"].(string)
+						email, _ := role["email"].(string)
+						avatarURL, _ := role["avatar_url"].(string)
+						if username == primaryAssignee {
+							continue
+						}
+						name, username = shared.PostprocessNameUsername(name, username, email)
+						userUUID := shared.UUIDAffs(ctx, source, email, name, username)
+						identity := &models.Identity{
+							ID:           userUUID,
+							DataSourceID: source,
+							Name:         name,
+							Username:     username,
+							Email:        email,
+							AvatarURL:    avatarURL,
+						}
+						actType := "github_issue_assignee_added"
+						actUUID := shared.UUIDNonEmpty(ctx, docUUID, actType, userUUID)
+						activities = append(activities, &models.IssueActivity{
+							ID:                   actUUID,
+							IssueKey:             docUUID,
+							IssueID:              issueID,
+							ActivityType:         actType,
+							Identity:             identity,
+							CreatedAt:            strfmt.DateTime(createdOn),
+							Key:                  &sIssueNumber,
+							Body:                 nil,
+							URL:                  nil,
+							IdentityAssociaction: nil,
+							Reaction:             nil,
+						})
+					}
+				}
+			}
 			// updatedOn can be dynamically updated when any activity is after the current value
 			// Event
 			event := &models.Event{
