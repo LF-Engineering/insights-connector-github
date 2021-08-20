@@ -105,8 +105,8 @@ definitions:
         example: '2019-09-02 03:00:33.000000'
       ActivityType:
         type: string
-        example: github_issue_created, github_issue_closed, github_issue_assignee_added, github_issue_comment_added, github_issue_reaction, github_issue_comment_reaction, 
-        description: FIXME allows reconstructing relations
+        example: github_issue_created, github_issue_primary_assignee_added, github_issue_assignee_added, github_issue_comment_added, github_issue_reaction, github_issue_comment_reaction
+        description: allows reconstructing relations
       Body:
         type: string
         description: issue/comment body
@@ -123,6 +123,7 @@ definitions:
         x-nullable: true
       IdentityAssociaction:
         type: string
+        x-nullable: true
       Identity:
         type: object
         description: activity creator (ProjectDataSourceIdentity)

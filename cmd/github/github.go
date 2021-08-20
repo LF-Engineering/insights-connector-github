@@ -5317,18 +5317,80 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 		}
 	case "issue":
 		for _, iDoc := range docs {
+			var (
+				issueBody *string
+			)
 			doc, _ := iDoc.(map[string]interface{})
 			updatedOn := j.ItemUpdatedOn(doc)
 			docUUID, _ := doc["uuid"].(string)
-			issueID, _ := doc["issue_id"].(float64)
-			issueNumber, _ := doc["id_in_repo"].(int)
+			fIssueID, _ := doc["issue_id"].(float64)
+			issueID := fmt.Sprintf("%.0f", fIssueID)
+			issueNumber32, _ := doc["id_in_repo"].(int)
+			issueNumber := int64(issueNumber32)
 			isPullRequest, _ := doc["pull_request"].(bool)
 			title, _ := doc["title"].(string)
+			sBody, _ := doc["body"].(string)
+			if sBody != "" {
+				issueBody = &sBody
+			}
+			issueURL, _ := doc["url"].(string)
 			state, _ := doc["state"].(string)
 			labels, _ := doc["labels"].([]string)
 			createdOn, _ := doc["created_at"].(time.Time)
 			closedOn := j.ItemNullableDate(doc, "closed_at")
 			isClosed := closedOn != nil
+			// github_issue_created, github_issue_assignee_added, github_issue_comment_added, github_issue_reaction, github_issue_comment_reaction,
+			primaryAssignee := ""
+			activities := []*models.IssueActivity{}
+			roles, okRoles := doc["roles"].([]map[string]interface{})
+			if okRoles {
+				for _, role := range roles {
+					var (
+						body *string
+						url  *string
+					)
+					roleType, _ := role["role"].(string)
+					name, _ := role["name"].(string)
+					username, _ := role["username"].(string)
+					email, _ := role["email"].(string)
+					avatarURL, _ := role["avatar_url"].(string)
+					name, username = shared.PostprocessNameUsername(name, username, email)
+					userUUID := shared.UUIDAffs(ctx, source, email, name, username)
+					identity := &models.Identity{
+						ID:           userUUID,
+						DataSourceID: source,
+						Name:         name,
+						Username:     username,
+						Email:        email,
+						AvatarURL:    avatarURL,
+					}
+					key := fmt.Sprintf("%d", issueNumber)
+					actType := "github_issue_created"
+					if roleType == "assignee_data" {
+						primaryAssignee = username
+						actType = "github_issue_primary_assignee_added"
+					} else {
+						body = issueBody
+						url = &issueURL
+					}
+					actUUID := shared.UUIDNonEmpty(ctx, docUUID, actType)
+					activities = append(activities, &models.IssueActivity{
+						ID:                   actUUID,
+						IssueKey:             docUUID,
+						IssueID:              issueID,
+						ActivityType:         actType,
+						Body:                 body,
+						Identity:             identity,
+						CreatedAt:            strfmt.DateTime(createdOn),
+						Key:                  &key,
+						URL:                  url,
+						IdentityAssociaction: nil,
+						Reaction:             nil,
+					})
+				}
+			}
+			fmt.Printf("primaryAssignee=%s\n", primaryAssignee)
+			/////////
 			// updatedOn can be dynamically updated when any activity is after the current value
 			// Event
 			event := &models.Event{
@@ -5336,8 +5398,8 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 				Repository:        nil,
 				Issue: &models.Issue{
 					ID:            docUUID,
-					IssueID:       fmt.Sprintf("%.0f", issueID),
-					IssueNumber:   int64(issueNumber),
+					IssueID:       issueID,
+					IssueNumber:   issueNumber,
 					DataSourceID:  source,
 					CreatedAt:     strfmt.DateTime(createdOn),
 					UpdatedAt:     strfmt.DateTime(updatedOn),
@@ -5347,8 +5409,7 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 					Title:         title,
 					State:         state,
 					Labels:        labels,
-					// FIXME
-					// Activities []*IssueActivity `json:"Activities"`
+					Activities:    activities,
 				},
 			}
 			data.Events = append(data.Events, event)
@@ -5417,8 +5478,7 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 						SHA:       sha,
 						Author:    author,
 						Committer: committer,
-					},
-					)
+					})
 				}
 			}
 			// updatedOn can be dynamically updated when any activity is after the current value

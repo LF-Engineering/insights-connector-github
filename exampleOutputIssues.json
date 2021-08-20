@@ -15,7 +15,25 @@
   "Events": [
     {
       "Issue": {
-        "Activities": null,
+        "Activities": [
+          {
+            "ActivityType": "github_issue_created",
+            "Body": "Automatic run of \"python3 /go/src/github.com/kubevirt/community/hack/generate-devstats-repo-sql.py --repo-groups-sql /go/src/github.com/cncf/devstats/scripts/kubevirt//repo_groups.sql\". Please review",
+            "CreatedAt": "2021-01-15T12:12:43.000Z",
+            "Id": "6c7c3112c96156d8dccd592940ce38da24bdf7ba",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/25687724?v=4",
+              "DataSourceId": "github",
+              "Id": "1fe458e125dcb81ff41b180c51dddc2b72e9eab4",
+              "Name": "kubevirt-bot-MISSING-NAME",
+              "Username": "kubevirt-bot"
+            },
+            "IssueId": "786849951",
+            "IssueKey": "ad1213d16b202f49a707ca3f03132a58d0de6f75",
+            "Key": "281",
+            "URL": "https://github.com/cncf/devstats/pull/281"
+          }
+        ],
         "ClosedAt": "2021-01-15T12:44:16.000Z",
         "CreatedAt": "2021-01-15T12:12:43.000Z",
         "DataSourceId": "github",
@@ -32,7 +50,26 @@
     },
     {
       "Issue": {
-        "Activities": null,
+        "Activities": [
+          {
+            "ActivityType": "github_issue_created",
+            "Body": "It would be great to have both CAPI itself, and each of the providers represented on the [dashboard](https://k8s.devstats.cncf.io/d/12/dashboards?orgId=1&refresh=15m)\r\n",
+            "CreatedAt": "2020-11-25T00:30:18.000Z",
+            "Id": "c75db93f4ef4b626113b7d525a28f3857c7f50b2",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/9445180?v=4",
+              "DataSourceId": "github",
+              "Email": "craig.l.peters@gmail.com",
+              "Id": "f4f41726360af4768be9ef41e11b4e06eef9bb61",
+              "Name": "Craig Peters",
+              "Username": "craiglpeters"
+            },
+            "IssueId": "750189697",
+            "IssueKey": "8ffc8fe0e546d32eaf3a936d31b1743cf5506e80",
+            "Key": "273",
+            "URL": "https://github.com/cncf/devstats/issues/273"
+          }
+        ],
         "ClosedAt": "2021-01-09T20:45:36.000Z",
         "CreatedAt": "2020-11-25T00:30:18.000Z",
         "DataSourceId": "github",
@@ -48,57 +85,92 @@
     },
     {
       "Issue": {
-        "Activities": null,
-        "ClosedAt": "2021-03-04T04:58:21.000Z",
-        "CreatedAt": "2021-03-03T17:25:43.000Z",
+        "Activities": [
+          {
+            "ActivityType": "github_issue_created",
+            "Body": "https://istio.teststats.cncf.io/d/48/users-statistics-by-repository-group gives error `db query error: pq: column \"perezjasonr\" does not exist`. Other pages seem to load fine.\r\n\r\nThis was working at least a few weeks ago, so seems like something recently may have broken things?",
+            "CreatedAt": "2021-07-15T01:55:52.000Z",
+            "Id": "5c5e2885a31cc3b43fd5828637979df260c7f9e8",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/623453?v=4",
+              "DataSourceId": "github",
+              "Id": "221e80c698aa9830b57c0c4a24e7064a2f7809a9",
+              "Name": "John Howard",
+              "Username": "howardjohn"
+            },
+            "IssueId": "944923751",
+            "IssueKey": "2e7d27e19d75cbab4d6af81b83a01d9090897eda",
+            "Key": "305",
+            "URL": "https://github.com/cncf/devstats/issues/305"
+          },
+          {
+            "ActivityType": "github_issue_primary_assignee_added",
+            "CreatedAt": "2021-07-15T01:55:52.000Z",
+            "Id": "d0dca2edc3cc60aff07da716ad9fddaac0796402",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/2469783?v=4",
+              "DataSourceId": "github",
+              "Email": "lukaszgryglicki@o2.pl",
+              "Id": "16fe424acecf8d614d102fc0ece919a22200481d",
+              "Name": "Łukasz Gryglicki",
+              "Username": "lukaszgryglicki"
+            },
+            "IssueId": "944923751",
+            "IssueKey": "2e7d27e19d75cbab4d6af81b83a01d9090897eda",
+            "Key": "305"
+          }
+        ],
+        "ClosedAt": "2021-07-15T17:16:06.000Z",
+        "CreatedAt": "2021-07-15T01:55:52.000Z",
         "DataSourceId": "github",
-        "Id": "7ac8d14dc02d21ac8192cda92c0fdb4f2dde51e3",
+        "Id": "2e7d27e19d75cbab4d6af81b83a01d9090897eda",
         "IsClosed": true,
-        "IsPullRequest": true,
-        "IssueId": "821322634",
-        "IssueNumber": 287,
+        "IssueId": "944923751",
+        "IssueNumber": 305,
         "Labels": null,
         "State": "closed",
-        "Title": "Some notes on SIG Node repository group",
-        "UpdatedAt": "2021-03-04T04:58:21.000Z"
+        "Title": "`column \"perezjasonr\" does not exist` on teststats user statistics page",
+        "UpdatedAt": "2021-07-15T17:16:06.000Z"
       }
     },
     {
       "Issue": {
-        "Activities": null,
-        "ClosedAt": "2021-01-22T12:14:47.000Z",
-        "CreatedAt": "2021-01-21T08:52:38.000Z",
-        "DataSourceId": "github",
-        "Id": "1a9753e8dca839da6a12933d0257af6396cd0085",
-        "IsClosed": true,
-        "IsPullRequest": true,
-        "IssueId": "790834811",
-        "IssueNumber": 283,
-        "Labels": null,
-        "State": "closed",
-        "Title": "add 2 new jenkins-x orgs to track",
-        "UpdatedAt": "2021-01-22T13:00:16.000Z"
-      }
-    },
-    {
-      "Issue": {
-        "Activities": null,
-        "ClosedAt": "2021-06-07T05:48:37.000Z",
-        "CreatedAt": "2021-06-03T08:57:45.000Z",
-        "DataSourceId": "github",
-        "Id": "b87f7ee3e720efc7a097a70625a93949e825aeff",
-        "IsClosed": true,
-        "IssueId": "910276912",
-        "IssueNumber": 296,
-        "Labels": null,
-        "State": "closed",
-        "Title": "[bug] Sandbox project vineyard has been migrated to v6d-io/v6d",
-        "UpdatedAt": "2021-06-07T05:52:51.000Z"
-      }
-    },
-    {
-      "Issue": {
-        "Activities": null,
+        "Activities": [
+          {
+            "ActivityType": "github_issue_created",
+            "Body": "https://argo.devstats.cncf.io/d/66/developer-activity-counts-by-companies?orgId=1\r\n\r\nA bunch of contributions are marked as \"Innuit\" not \"Intuit\".",
+            "CreatedAt": "2021-04-29T12:27:02.000Z",
+            "Id": "5e799b43e984432a1e55e21309d65e1724cca3f9",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/482364?v=4",
+              "DataSourceId": "github",
+              "Email": "justin@specialbusservice.com",
+              "Id": "4566ea147295b30e7369273fa2ed0dd4f317611d",
+              "Name": "Justin Cormack",
+              "Username": "justincormack"
+            },
+            "IssueId": "870960795",
+            "IssueKey": "7f8aeccae0eae9afe2ab28f37ef7af003a5c2a93",
+            "Key": "292",
+            "URL": "https://github.com/cncf/devstats/issues/292"
+          },
+          {
+            "ActivityType": "github_issue_primary_assignee_added",
+            "CreatedAt": "2021-04-29T12:27:02.000Z",
+            "Id": "8d21720cef915e5aaad55507933a5b8655212768",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/2469783?v=4",
+              "DataSourceId": "github",
+              "Email": "lukaszgryglicki@o2.pl",
+              "Id": "16fe424acecf8d614d102fc0ece919a22200481d",
+              "Name": "Łukasz Gryglicki",
+              "Username": "lukaszgryglicki"
+            },
+            "IssueId": "870960795",
+            "IssueKey": "7f8aeccae0eae9afe2ab28f37ef7af003a5c2a93",
+            "Key": "292"
+          }
+        ],
         "ClosedAt": "2021-05-18T05:08:49.000Z",
         "CreatedAt": "2021-04-29T12:27:02.000Z",
         "DataSourceId": "github",
@@ -116,37 +188,25 @@
     },
     {
       "Issue": {
-        "Activities": null,
-        "ClosedAt": "2021-07-19T05:28:20.000Z",
-        "CreatedAt": "2021-07-16T14:28:13.000Z",
-        "DataSourceId": "github",
-        "Id": "fea23f7655722bf708e9c779babf0dfe5ebf4bd5",
-        "IsClosed": true,
-        "IssueId": "946345414",
-        "IssueNumber": 306,
-        "Labels": null,
-        "State": "closed",
-        "Title": "https://all.devstats.cncf.io/d/50/countries-statistics-in-repository-groups is broken",
-        "UpdatedAt": "2021-07-19T05:28:22.000Z"
-      }
-    },
-    {
-      "Issue": {
-        "Activities": null,
-        "CreatedAt": "2021-08-05T16:18:24.000Z",
-        "DataSourceId": "github",
-        "Id": "1f83a139819795440192f384d2d1227819645c8a",
-        "IssueId": "961988267",
-        "IssueNumber": 308,
-        "Labels": null,
-        "State": "open",
-        "Title": "[bug] Specifics of \"last quarter\" doesn't show up",
-        "UpdatedAt": "2021-08-06T09:07:17.000Z"
-      }
-    },
-    {
-      "Issue": {
-        "Activities": null,
+        "Activities": [
+          {
+            "ActivityType": "github_issue_created",
+            "Body": "Hi there. I am a community manager with limited developer knowledge. Devstats looks awesome and exactly what I need.. I have a Grafana cloud instance though - I couldn't find any instructions on how I use this on on cloud? I've read https://github.com/cncf/devstats/blob/master/GRAFANA.md but that doesn't seem to apply.\r\n\r\nWould love to get a bit of help on how I would set this up on my cloud instance..\r\n\r\nThanks!",
+            "CreatedAt": "2021-07-01T06:02:35.000Z",
+            "Id": "79be44886be794dd0ab35a9ed8cdf55ec8b59b50",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/47233565?v=4",
+              "DataSourceId": "github",
+              "Id": "3289eb95b3f6827617d412dc19d14861fcbbc1af",
+              "Name": "Kristy",
+              "Username": "kristydv"
+            },
+            "IssueId": "934433895",
+            "IssueKey": "ead55d7dd6da3e425d7ba5eda355a605dd4bf715",
+            "Key": "300",
+            "URL": "https://github.com/cncf/devstats/issues/300"
+          }
+        ],
         "ClosedAt": "2021-07-28T08:19:41.000Z",
         "CreatedAt": "2021-07-01T06:02:35.000Z",
         "DataSourceId": "github",
@@ -162,7 +222,267 @@
     },
     {
       "Issue": {
-        "Activities": null,
+        "Activities": [
+          {
+            "ActivityType": "github_issue_created",
+            "Body": "Updated SIG Node subprojects based on https://github.com/kubernetes/community/tree/master/sig-node#subprojects",
+            "CreatedAt": "2021-03-03T17:25:43.000Z",
+            "Id": "acb7bdc37e7d0d31018e3677cd82f6c4f13ad0b3",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/9950081?v=4",
+              "DataSourceId": "github",
+              "Id": "d52e186f27c4199fbd493f292f4930e31864f47f",
+              "Name": "Sergey Kanzhelev",
+              "Username": "SergeyKanzhelev"
+            },
+            "IssueId": "821322634",
+            "IssueKey": "7ac8d14dc02d21ac8192cda92c0fdb4f2dde51e3",
+            "Key": "287",
+            "URL": "https://github.com/cncf/devstats/pull/287"
+          }
+        ],
+        "ClosedAt": "2021-03-04T04:58:21.000Z",
+        "CreatedAt": "2021-03-03T17:25:43.000Z",
+        "DataSourceId": "github",
+        "Id": "7ac8d14dc02d21ac8192cda92c0fdb4f2dde51e3",
+        "IsClosed": true,
+        "IsPullRequest": true,
+        "IssueId": "821322634",
+        "IssueNumber": 287,
+        "Labels": null,
+        "State": "closed",
+        "Title": "Some notes on SIG Node repository group",
+        "UpdatedAt": "2021-03-04T04:58:21.000Z"
+      }
+    },
+    {
+      "Issue": {
+        "Activities": [
+          {
+            "ActivityType": "github_issue_created",
+            "Body": "Hi @lukaszgryglicki,\r\n\r\nI'm from the team behind project vineyard. During our [onboarding process](https://github.com/cncf/toc/issues/645), we have transfer our repo from `alibaba/v6d` to a neutral org [`v6d-io/v6`](https://github.com/v6d-io/v6d).\r\n\r\nCould you please us to update related devstats settings to make it work again?\r\n\r\nThanks in advance!",
+            "CreatedAt": "2021-06-03T08:57:45.000Z",
+            "Id": "3fd1ecef9e93a2ac445f8db645e542623b26b3f4",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/7144772?v=4",
+              "DataSourceId": "github",
+              "Email": "sighingnow@gmail.com",
+              "Id": "8e3ae66bb408da58b96d4791070a909f6d3fba61",
+              "Name": "Tao He",
+              "Username": "sighingnow"
+            },
+            "IssueId": "910276912",
+            "IssueKey": "b87f7ee3e720efc7a097a70625a93949e825aeff",
+            "Key": "296",
+            "URL": "https://github.com/cncf/devstats/issues/296"
+          },
+          {
+            "ActivityType": "github_issue_primary_assignee_added",
+            "CreatedAt": "2021-06-03T08:57:45.000Z",
+            "Id": "87aa7e81193fbb638588471276267c90c94171c7",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/2469783?v=4",
+              "DataSourceId": "github",
+              "Email": "lukaszgryglicki@o2.pl",
+              "Id": "16fe424acecf8d614d102fc0ece919a22200481d",
+              "Name": "Łukasz Gryglicki",
+              "Username": "lukaszgryglicki"
+            },
+            "IssueId": "910276912",
+            "IssueKey": "b87f7ee3e720efc7a097a70625a93949e825aeff",
+            "Key": "296"
+          }
+        ],
+        "ClosedAt": "2021-06-07T05:48:37.000Z",
+        "CreatedAt": "2021-06-03T08:57:45.000Z",
+        "DataSourceId": "github",
+        "Id": "b87f7ee3e720efc7a097a70625a93949e825aeff",
+        "IsClosed": true,
+        "IssueId": "910276912",
+        "IssueNumber": 296,
+        "Labels": null,
+        "State": "closed",
+        "Title": "[bug] Sandbox project vineyard has been migrated to v6d-io/v6d",
+        "UpdatedAt": "2021-06-07T05:52:51.000Z"
+      }
+    },
+    {
+      "Issue": {
+        "Activities": [
+          {
+            "ActivityType": "github_issue_created",
+            "Body": "no data\r\n\r\nhttps://all.devstats.cncf.io/d/50/countries-statistics-in-repository-groups?\r\n",
+            "CreatedAt": "2021-07-16T14:28:13.000Z",
+            "Id": "0fb2f68162de97f0c973daf0510be0420c755c5a",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/63777?v=4",
+              "DataSourceId": "github",
+              "Email": "caniszczyk@gmail.com",
+              "Id": "cb516154c8100a025d53fa32bf8bf9ecf62818a6",
+              "Name": "Chris Aniszczyk",
+              "Username": "caniszczyk"
+            },
+            "IssueId": "946345414",
+            "IssueKey": "fea23f7655722bf708e9c779babf0dfe5ebf4bd5",
+            "Key": "306",
+            "URL": "https://github.com/cncf/devstats/issues/306"
+          },
+          {
+            "ActivityType": "github_issue_primary_assignee_added",
+            "CreatedAt": "2021-07-16T14:28:13.000Z",
+            "Id": "ce87f4cdcbfde8eb49af2572177065a85f3fb86d",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/2469783?v=4",
+              "DataSourceId": "github",
+              "Email": "lukaszgryglicki@o2.pl",
+              "Id": "16fe424acecf8d614d102fc0ece919a22200481d",
+              "Name": "Łukasz Gryglicki",
+              "Username": "lukaszgryglicki"
+            },
+            "IssueId": "946345414",
+            "IssueKey": "fea23f7655722bf708e9c779babf0dfe5ebf4bd5",
+            "Key": "306"
+          }
+        ],
+        "ClosedAt": "2021-07-19T05:28:20.000Z",
+        "CreatedAt": "2021-07-16T14:28:13.000Z",
+        "DataSourceId": "github",
+        "Id": "fea23f7655722bf708e9c779babf0dfe5ebf4bd5",
+        "IsClosed": true,
+        "IssueId": "946345414",
+        "IssueNumber": 306,
+        "Labels": null,
+        "State": "closed",
+        "Title": "https://all.devstats.cncf.io/d/50/countries-statistics-in-repository-groups is broken",
+        "UpdatedAt": "2021-07-19T05:28:22.000Z"
+      }
+    },
+    {
+      "Issue": {
+        "Activities": [
+          {
+            "ActivityType": "github_issue_created",
+            "Body": "- https://github.com/jenkins-x-plugins\r\n- https://github.com/jenkins-x-images\r\n",
+            "CreatedAt": "2021-01-21T08:52:38.000Z",
+            "Id": "3ff14cbab70433cbdae3819f44ff2d072b8a0cb3",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/6251?v=4",
+              "DataSourceId": "github",
+              "Email": "v.behar@free.fr",
+              "Id": "b5b2cc4d32cc833dac8ece8463de1b1d6b724a68",
+              "Name": "Vincent Behar",
+              "Username": "vbehar"
+            },
+            "IssueId": "790834811",
+            "IssueKey": "1a9753e8dca839da6a12933d0257af6396cd0085",
+            "Key": "283",
+            "URL": "https://github.com/cncf/devstats/pull/283"
+          }
+        ],
+        "ClosedAt": "2021-01-22T12:14:47.000Z",
+        "CreatedAt": "2021-01-21T08:52:38.000Z",
+        "DataSourceId": "github",
+        "Id": "1a9753e8dca839da6a12933d0257af6396cd0085",
+        "IsClosed": true,
+        "IsPullRequest": true,
+        "IssueId": "790834811",
+        "IssueNumber": 283,
+        "Labels": null,
+        "State": "closed",
+        "Title": "add 2 new jenkins-x orgs to track",
+        "UpdatedAt": "2021-01-22T13:00:16.000Z"
+      }
+    },
+    {
+      "Issue": {
+        "Activities": [
+          {
+            "ActivityType": "github_issue_created",
+            "Body": "This reverts commit a102a49a0984f3d3d43c174125593a7c3db2cbfa https://github.com/cncf/devstats/pull/294\r\n\r\nIdeally, we would be able to have repo level & org level stats.\r\nSince the current system doesn't support both, the repo level stats are\r\nmore valuable.\r\n\r\n",
+            "CreatedAt": "2021-07-08T16:10:20.000Z",
+            "Id": "7d09b120b385d9a0ca67b5f532204fbb4d7ed960",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/1062564?v=4",
+              "DataSourceId": "github",
+              "Email": "vohra.sam@gmail.com",
+              "Id": "a64df5294fe4bf620367d25b508e91bdef10adf4",
+              "Name": "Sameer Vohra",
+              "Username": "xtreme-sameer-vohra"
+            },
+            "IssueId": "940015588",
+            "IssueKey": "f5802bab9af8653f50c1a6a7c87b560fe7987295",
+            "Key": "302",
+            "URL": "https://github.com/cncf/devstats/pull/302"
+          },
+          {
+            "ActivityType": "github_issue_primary_assignee_added",
+            "CreatedAt": "2021-07-08T16:10:20.000Z",
+            "Id": "64f2c3520088f0f46db46e89320e878a2adf3d53",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/2469783?v=4",
+              "DataSourceId": "github",
+              "Email": "lukaszgryglicki@o2.pl",
+              "Id": "16fe424acecf8d614d102fc0ece919a22200481d",
+              "Name": "Łukasz Gryglicki",
+              "Username": "lukaszgryglicki"
+            },
+            "IssueId": "940015588",
+            "IssueKey": "f5802bab9af8653f50c1a6a7c87b560fe7987295",
+            "Key": "302"
+          }
+        ],
+        "ClosedAt": "2021-07-13T08:31:44.000Z",
+        "CreatedAt": "2021-07-08T16:10:20.000Z",
+        "DataSourceId": "github",
+        "Id": "f5802bab9af8653f50c1a6a7c87b560fe7987295",
+        "IsClosed": true,
+        "IsPullRequest": true,
+        "IssueId": "940015588",
+        "IssueNumber": 302,
+        "Labels": null,
+        "State": "closed",
+        "Title": "Revert \"Add knative & knative-sandbox repo_groups\"",
+        "UpdatedAt": "2021-07-13T19:29:45.000Z"
+      }
+    },
+    {
+      "Issue": {
+        "Activities": [
+          {
+            "ActivityType": "github_issue_created",
+            "Body": "Follow up from #289\r\n\r\n**NOTE:** This is it for now, I need to think a bit on some of the other dashboards on how best to represent company involvement.\r\n\r\n---\r\n\r\n## Problem 3 - Companies cannot reasonably measure their involvement\r\n\r\n**Feature Request:** On dashboards where `repo_group` is present, allow further filtering by Company.\r\n\r\nAs a company trying to gauge our involvement within a particular SIG or subproject, we cannot establish what areas we are contributing to because `repo_group` does not provide enough detail (the previous two requests).\r\n\r\nBeing able to look at the areas, and check company investment helps highlight areas that need potential headcount, or internal re-alignment to ensure the upstream group/repo/subproject remains healthy.\r\n\r\n(No examples, please see above requests examples, but think of company metric)\r\n\r\n\r\n[kubernetes/kubernetes]: https://github.com/kubernetes/kubernetes\r\n[kubernetes/enhancements]: https://github.com/kubernetes/enhancements\r\n\r\n---\r\n\r\n## Dashboards\r\n\r\n- Community Sizing and Health Assessment Dashboards\r\n  - GitHub Stats by Repository\r\n  - GitHub Stats by Repository Groups\r\n\r\n\r\n",
+            "CreatedAt": "2021-05-23T22:06:47.000Z",
+            "Id": "8807cd10daed1e1aa7ea3ce623093cda3c15e794",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/6500863?v=4",
+              "DataSourceId": "github",
+              "Email": "bob.killen@linux.com",
+              "Id": "28e70942cc2cbe8605f2a0dad26fcf61e2fbf711",
+              "Name": "Bob Killen",
+              "Username": "mrbobbytables"
+            },
+            "IssueId": "899119345",
+            "IssueKey": "edceab64c969086f437ff9070021dfc174230175",
+            "Key": "295",
+            "URL": "https://github.com/cncf/devstats/issues/295"
+          },
+          {
+            "ActivityType": "github_issue_primary_assignee_added",
+            "CreatedAt": "2021-05-23T22:06:47.000Z",
+            "Id": "cbe169ec00602c591059ac2190cf672a92d95d81",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/2469783?v=4",
+              "DataSourceId": "github",
+              "Email": "lukaszgryglicki@o2.pl",
+              "Id": "16fe424acecf8d614d102fc0ece919a22200481d",
+              "Name": "Łukasz Gryglicki",
+              "Username": "lukaszgryglicki"
+            },
+            "IssueId": "899119345",
+            "IssueKey": "edceab64c969086f437ff9070021dfc174230175",
+            "Key": "295"
+          }
+        ],
         "ClosedAt": "2021-06-15T14:21:50.000Z",
         "CreatedAt": "2021-05-23T22:06:47.000Z",
         "DataSourceId": "github",
@@ -182,24 +502,58 @@
     },
     {
       "Issue": {
-        "Activities": null,
-        "ClosedAt": "2021-07-13T08:31:44.000Z",
-        "CreatedAt": "2021-07-08T16:10:20.000Z",
+        "Activities": [
+          {
+            "ActivityType": "github_issue_created",
+            "Body": "When I look up \"last quarter\" here:\r\nhttps://all.devstats.cncf.io/d/5/companies-table?orgId=1&var-period_name=Last%20quarter&var-metric=contributions\r\n\r\nI can't tell if it means the last 90 days starting today, or if it means April 1 - June 30, 2021. Maybe I'm missing something but it seems that the dev stats isn't showing this clarification. Maybe an error?\r\n\r\nI hope my question makes sense and thanks in advance for your help.\r\n❤ 🤗",
+            "CreatedAt": "2021-08-05T16:18:24.000Z",
+            "Id": "663cf205c8e0b2c50dfacad38fc622ca83a5e644",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/7811869?v=4",
+              "DataSourceId": "github",
+              "Email": "tamao@weave.works",
+              "Id": "52d51cc34850999cc19166a31dff6f0a9feeffc6",
+              "Name": "tamao-MISSING-NAME",
+              "Username": "mewzherder"
+            },
+            "IssueId": "961988267",
+            "IssueKey": "1f83a139819795440192f384d2d1227819645c8a",
+            "Key": "308",
+            "URL": "https://github.com/cncf/devstats/issues/308"
+          }
+        ],
+        "CreatedAt": "2021-08-05T16:18:24.000Z",
         "DataSourceId": "github",
-        "Id": "f5802bab9af8653f50c1a6a7c87b560fe7987295",
-        "IsClosed": true,
-        "IsPullRequest": true,
-        "IssueId": "940015588",
-        "IssueNumber": 302,
+        "Id": "1f83a139819795440192f384d2d1227819645c8a",
+        "IssueId": "961988267",
+        "IssueNumber": 308,
         "Labels": null,
-        "State": "closed",
-        "Title": "Revert \"Add knative & knative-sandbox repo_groups\"",
-        "UpdatedAt": "2021-07-13T19:29:45.000Z"
+        "State": "open",
+        "Title": "[bug] Specifics of \"last quarter\" doesn't show up",
+        "UpdatedAt": "2021-08-06T09:07:17.000Z"
       }
     },
     {
       "Issue": {
-        "Activities": null,
+        "Activities": [
+          {
+            "ActivityType": "github_issue_created",
+            "Body": "Please add `[feature request]` to the issue title when requesting new features, dashboards, projects etc.\r\nPlease add `[bug]` to the issue title when reporting a bug.\r\n\r\nIs there a way you can add company contribution totals to data like this? https://k8s.devstats.cncf.io/d/66/developer-activity-counts-by-companies?orgId=1&from=1447338914018&to=1605191714018&var-period_name=v1.19.0%20-%20v1.20.0&var-metric=contributions&var-repogroup_name=All&var-country_name=All&var-companies=VMware%20Inc.&var-companies=Pivotal\r\n\r\neither at the top or at the bottom. The idea would be to compare different companies totals together and see which company is contributing more or less?\r\n\r\nAlso, is there a metric to traffic contributions of companies between each release? i.e. 1.19 vs 1.20 data to see increase vs decreases",
+            "CreatedAt": "2021-02-18T17:59:48.000Z",
+            "Id": "ac1922684f3031d310705c92f8800c37a7031742",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/71297425?v=4",
+              "DataSourceId": "github",
+              "Id": "7a1fe8b45e39ffe63f697d9f7a3cf7d98a9a90db",
+              "Name": "adamkane13-MISSING-NAME",
+              "Username": "adamkane13"
+            },
+            "IssueId": "811333211",
+            "IssueKey": "229965aa3d15c97872cfa62aa5fde21d27e711a5",
+            "Key": "284",
+            "URL": "https://github.com/cncf/devstats/issues/284"
+          }
+        ],
         "ClosedAt": "2021-03-04T06:15:47.000Z",
         "CreatedAt": "2021-02-18T17:59:48.000Z",
         "DataSourceId": "github",
@@ -215,7 +569,26 @@
     },
     {
       "Issue": {
-        "Activities": null,
+        "Activities": [
+          {
+            "ActivityType": "github_issue_created",
+            "Body": "## Description\r\nThe current graphs have a static set of values for the range drop down. It would be valuable to be able to define a custom range eg( start date to end date ) or if more granular data (monthly for the last year) that would be very helpful.\r\n\r\n## Motivation\r\nI'd like to generate monthly stats and aggregate them across custom 3 month periods and the current range values wouldn't be able to generate such data.",
+            "CreatedAt": "2021-01-04T19:20:30.000Z",
+            "Id": "e43a4b61ea37ef724ce9bb72fb420238d0f16045",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/1062564?v=4",
+              "DataSourceId": "github",
+              "Email": "vohra.sam@gmail.com",
+              "Id": "a64df5294fe4bf620367d25b508e91bdef10adf4",
+              "Name": "Sameer Vohra",
+              "Username": "xtreme-sameer-vohra"
+            },
+            "IssueId": "778305781",
+            "IssueKey": "2691ba2e6074e0c03dfe43c3066c14255dd314fd",
+            "Key": "280",
+            "URL": "https://github.com/cncf/devstats/issues/280"
+          }
+        ],
         "ClosedAt": "2021-01-04T20:19:17.000Z",
         "CreatedAt": "2021-01-04T19:20:30.000Z",
         "DataSourceId": "github",
@@ -231,97 +604,42 @@
     },
     {
       "Issue": {
-        "Activities": null,
-        "ClosedAt": "2021-05-08T06:09:34.000Z",
-        "CreatedAt": "2021-05-07T16:23:27.000Z",
-        "DataSourceId": "github",
-        "Id": "7f489bdd445148e783dcfb94eded64977c4106f4",
-        "IsClosed": true,
-        "IsPullRequest": true,
-        "IssueId": "879304637",
-        "IssueNumber": 294,
-        "Labels": null,
-        "State": "closed",
-        "Title": "Add knative & knative-sandbox repo_groups",
-        "UpdatedAt": "2021-05-10T04:49:35.000Z"
-      }
-    },
-    {
-      "Issue": {
-        "Activities": null,
-        "ClosedAt": "2021-01-09T20:45:56.000Z",
-        "CreatedAt": "2020-11-23T13:52:22.000Z",
-        "DataSourceId": "github",
-        "Id": "ffb76a6a8a376bd6fb7e965648889acecb2f02c0",
-        "IsClosed": true,
-        "IssueId": "748821451",
-        "IssueNumber": 272,
-        "Labels": [
-          "blocked"
+        "Activities": [
+          {
+            "ActivityType": "github_issue_created",
+            "Body": "I am looking at Presto's  dashboards: https://prestodb.devstats.prestodb.io/d/8/dashboards?orgId=1&refresh=15m (I reached this repository by following the link on the top right.)\r\n\r\nIt would be very useful to filter by company in the Opened to Merged chart:\r\n\r\nhttps://prestodb.devstats.prestodb.io/d/16/opened-to-merged?orgId=1\r\n\r\nThe reasoning is, we want to make sure all community contributors have a good, fast time to merge, and to help understand this it would be useful to filter by company.",
+            "CreatedAt": "2021-06-14T15:22:18.000Z",
+            "Id": "2ba884321ace088239d1b20acd678cc3edcf6312",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/7980573?v=4",
+              "DataSourceId": "github",
+              "Email": "tim@timdmeehan.com",
+              "Id": "15c72a071eda1211e68c305d13516d8cdb78865f",
+              "Name": "Timothy Meehan",
+              "Username": "tdcmeehan"
+            },
+            "IssueId": "920523308",
+            "IssueKey": "cec61c1b840a3d2a1fb19ec6dd054ff8e78bf52d",
+            "Key": "298",
+            "URL": "https://github.com/cncf/devstats/issues/298"
+          },
+          {
+            "ActivityType": "github_issue_primary_assignee_added",
+            "CreatedAt": "2021-06-14T15:22:18.000Z",
+            "Id": "ef6f57a80dfb07bdefe36327a51ae1eddb308e19",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/2469783?v=4",
+              "DataSourceId": "github",
+              "Email": "lukaszgryglicki@o2.pl",
+              "Id": "16fe424acecf8d614d102fc0ece919a22200481d",
+              "Name": "Łukasz Gryglicki",
+              "Username": "lukaszgryglicki"
+            },
+            "IssueId": "920523308",
+            "IssueKey": "cec61c1b840a3d2a1fb19ec6dd054ff8e78bf52d",
+            "Key": "298"
+          }
         ],
-        "State": "closed",
-        "Title": "[feature request] Classifying contributions",
-        "UpdatedAt": "2021-01-09T20:45:56.000Z"
-      }
-    },
-    {
-      "Issue": {
-        "Activities": null,
-        "ClosedAt": "2021-05-04T08:49:38.000Z",
-        "CreatedAt": "2021-05-03T17:25:12.000Z",
-        "DataSourceId": "github",
-        "Id": "65c019c63797513c70282699f402ee6577f021ef",
-        "IsClosed": true,
-        "IssueId": "874759924",
-        "IssueNumber": 293,
-        "Labels": [
-          "blocked"
-        ],
-        "State": "closed",
-        "Title": "[feature request][Kubernetes] Adding SIG Security to dashboards",
-        "UpdatedAt": "2021-05-24T03:48:21.000Z"
-      }
-    },
-    {
-      "Issue": {
-        "Activities": null,
-        "ClosedAt": "2021-03-03T13:46:31.000Z",
-        "CreatedAt": "2021-02-24T19:35:27.000Z",
-        "DataSourceId": "github",
-        "Id": "81eca44bf9ebc5a2bc17d3c8c8c2039a235af592",
-        "IsClosed": true,
-        "IssueId": "815781270",
-        "IssueNumber": 285,
-        "Labels": [
-          "wip"
-        ],
-        "State": "closed",
-        "Title": "[BUG][Kubernetes] Missing data from pre 2021 on PR Reviews Dashboard",
-        "UpdatedAt": "2021-03-03T13:46:31.000Z"
-      }
-    },
-    {
-      "Issue": {
-        "Activities": null,
-        "ClosedAt": "2021-06-11T10:50:00.000Z",
-        "CreatedAt": "2021-06-10T18:16:34.000Z",
-        "DataSourceId": "github",
-        "Id": "6f8f3f482f9e9827c129ecefe26a2c3f56e74925",
-        "IsClosed": true,
-        "IssueId": "917664277",
-        "IssueNumber": 297,
-        "Labels": [
-          "enhancement",
-          "data"
-        ],
-        "State": "closed",
-        "Title": "[feature request] Argoproj-albs added to Argo ",
-        "UpdatedAt": "2021-06-11T10:50:01.000Z"
-      }
-    },
-    {
-      "Issue": {
-        "Activities": null,
         "ClosedAt": "2021-06-18T06:31:20.000Z",
         "CreatedAt": "2021-06-14T15:22:18.000Z",
         "DataSourceId": "github",
@@ -340,7 +658,98 @@
     },
     {
       "Issue": {
-        "Activities": null,
+        "Activities": [
+          {
+            "ActivityType": "github_issue_created",
+            "Body": "- Allow filtering https://knative.teststats.cncf.io stats by filtering\r\n  using the github orgs\r\n\r\nSigned-off-by: Sameer Vohra <vsameer@vmware.com>\r\n",
+            "CreatedAt": "2021-05-07T16:23:27.000Z",
+            "Id": "935caeb0742d66939d66cea602841971f8ac0152",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/1062564?v=4",
+              "DataSourceId": "github",
+              "Email": "vohra.sam@gmail.com",
+              "Id": "a64df5294fe4bf620367d25b508e91bdef10adf4",
+              "Name": "Sameer Vohra",
+              "Username": "xtreme-sameer-vohra"
+            },
+            "IssueId": "879304637",
+            "IssueKey": "7f489bdd445148e783dcfb94eded64977c4106f4",
+            "Key": "294",
+            "URL": "https://github.com/cncf/devstats/pull/294"
+          }
+        ],
+        "ClosedAt": "2021-05-08T06:09:34.000Z",
+        "CreatedAt": "2021-05-07T16:23:27.000Z",
+        "DataSourceId": "github",
+        "Id": "7f489bdd445148e783dcfb94eded64977c4106f4",
+        "IsClosed": true,
+        "IsPullRequest": true,
+        "IssueId": "879304637",
+        "IssueNumber": 294,
+        "Labels": null,
+        "State": "closed",
+        "Title": "Add knative & knative-sandbox repo_groups",
+        "UpdatedAt": "2021-05-10T04:49:35.000Z"
+      }
+    },
+    {
+      "Issue": {
+        "Activities": [
+          {
+            "ActivityType": "github_issue_created",
+            "Body": "Hello: While using DevStats I noticed that SIG Security is [missing from here](https://k8s.devstats.cncf.io/d/66/developer-activity-counts-by-companies?orgId=1). Could you please add this SIG to all the dashboards? Thanks much. ",
+            "CreatedAt": "2021-05-03T17:25:12.000Z",
+            "Id": "419edd7296d32d27edaa43e17bb1fe3716c163ce",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/2453640?v=4",
+              "DataSourceId": "github",
+              "Id": "2fdee1704290bb63400fd285326725081926b264",
+              "Name": "Lauri Apple",
+              "Username": "LappleApple"
+            },
+            "IssueId": "874759924",
+            "IssueKey": "65c019c63797513c70282699f402ee6577f021ef",
+            "Key": "293",
+            "URL": "https://github.com/cncf/devstats/issues/293"
+          }
+        ],
+        "ClosedAt": "2021-05-04T08:49:38.000Z",
+        "CreatedAt": "2021-05-03T17:25:12.000Z",
+        "DataSourceId": "github",
+        "Id": "65c019c63797513c70282699f402ee6577f021ef",
+        "IsClosed": true,
+        "IssueId": "874759924",
+        "IssueNumber": 293,
+        "Labels": [
+          "blocked"
+        ],
+        "State": "closed",
+        "Title": "[feature request][Kubernetes] Adding SIG Security to dashboards",
+        "UpdatedAt": "2021-05-24T03:48:21.000Z"
+      }
+    },
+    {
+      "Issue": {
+        "Activities": [
+          {
+            "ActivityType": "github_issue_created",
+            "Body": "Independent is given 6th on company ranking as per https://k8s.devstats.cncf.io/d/9/companies-table?orgId=1&var-period_name=v1.21.0%20-%20now&var-metric=prs\r\n\r\nwe can keep independent and number but can we just remove from ranking it like we do in openstack community https://www.stackalytics.io/\r\n\r\n",
+            "CreatedAt": "2021-07-06T08:45:14.000Z",
+            "Id": "f53c5493ca55f6dd2e26fc55592991778de7dfbf",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/40191615?v=4",
+              "DataSourceId": "github",
+              "Email": "rohit.anand@india.nec.com",
+              "Id": "4a99614fd1813749ad752848b67d0e49fe9d9a91",
+              "Name": "rohit.anand-MISSING-NAME",
+              "Username": "RA489"
+            },
+            "IssueId": "937662270",
+            "IssueKey": "f60eb50b4f6f2f8cc93f51f53ca02a615535e364",
+            "Key": "301",
+            "URL": "https://github.com/cncf/devstats/issues/301"
+          }
+        ],
         "ClosedAt": "2021-07-08T17:26:56.000Z",
         "CreatedAt": "2021-07-06T08:45:14.000Z",
         "DataSourceId": "github",
@@ -356,23 +765,185 @@
     },
     {
       "Issue": {
-        "Activities": null,
-        "ClosedAt": "2021-03-04T06:16:21.000Z",
-        "CreatedAt": "2021-01-18T11:21:32.000Z",
+        "Activities": [
+          {
+            "ActivityType": "github_issue_created",
+            "Body": "The [PR Reviews by Contributor Dashboard](https://k8s.devstats.cncf.io/d/46/pr-reviews-by-contributor?orgId=1) is missing data from pre-2021 for quite a few contributors.\r\n\r\nExample query:\r\nhttps://k8s.devstats.cncf.io/d/46/pr-reviews-by-contributor?orgId=1&from=1569913200000&to=1601535599000&var-period=d&var-repo_name=All&var-reviewers=All\r\n\r\nIf you scroll down in the list on the right, there will be a bunch of folk with 0's across each column. A few specific contributors that definitely should have entries there:\r\n- johnbelamaric\r\n- xmudrii\r\n- divya-mohan0209\r\n",
+            "CreatedAt": "2021-02-24T19:35:27.000Z",
+            "Id": "387ed4a0d28fb5118a476c61d7d44603d5802332",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/6500863?v=4",
+              "DataSourceId": "github",
+              "Email": "bob.killen@linux.com",
+              "Id": "28e70942cc2cbe8605f2a0dad26fcf61e2fbf711",
+              "Name": "Bob Killen",
+              "Username": "mrbobbytables"
+            },
+            "IssueId": "815781270",
+            "IssueKey": "81eca44bf9ebc5a2bc17d3c8c8c2039a235af592",
+            "Key": "285",
+            "URL": "https://github.com/cncf/devstats/issues/285"
+          },
+          {
+            "ActivityType": "github_issue_primary_assignee_added",
+            "CreatedAt": "2021-02-24T19:35:27.000Z",
+            "Id": "f190fca76cea70f136e4387a9cff8bc75305f865",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/2469783?v=4",
+              "DataSourceId": "github",
+              "Email": "lukaszgryglicki@o2.pl",
+              "Id": "16fe424acecf8d614d102fc0ece919a22200481d",
+              "Name": "Łukasz Gryglicki",
+              "Username": "lukaszgryglicki"
+            },
+            "IssueId": "815781270",
+            "IssueKey": "81eca44bf9ebc5a2bc17d3c8c8c2039a235af592",
+            "Key": "285"
+          }
+        ],
+        "ClosedAt": "2021-03-03T13:46:31.000Z",
+        "CreatedAt": "2021-02-24T19:35:27.000Z",
         "DataSourceId": "github",
-        "Id": "f346d7c570e823447fb99a665027516760154057",
+        "Id": "81eca44bf9ebc5a2bc17d3c8c8c2039a235af592",
         "IsClosed": true,
-        "IssueId": "788182876",
-        "IssueNumber": 282,
-        "Labels": null,
+        "IssueId": "815781270",
+        "IssueNumber": 285,
+        "Labels": [
+          "wip"
+        ],
         "State": "closed",
-        "Title": "[bug] KubeVirt dashboard - very long urls lead to syntax errors/empty responses",
-        "UpdatedAt": "2021-03-04T06:16:22.000Z"
+        "Title": "[BUG][Kubernetes] Missing data from pre 2021 on PR Reviews Dashboard",
+        "UpdatedAt": "2021-03-03T13:46:31.000Z"
       }
     },
     {
       "Issue": {
-        "Activities": null,
+        "Activities": [
+          {
+            "ActivityType": "github_issue_created",
+            "Body": "From @edlee2121: \r\nIs it possible to do a devstat dashboard for the https://github.com/argoproj-labs org similar the one that exists for the main argo (aroproj) org at https://argo.devstats.cncf.io/dashboards?",
+            "CreatedAt": "2021-06-10T18:16:34.000Z",
+            "Id": "b8bc79b327b57aa1dc4c2237f5b2a15110cf809e",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/107161?v=4",
+              "DataSourceId": "github",
+              "Email": "amye@linuxfoundation.org",
+              "Id": "9a30c8dfe161f6fb7e25cb3337c8257888639959",
+              "Name": "Amye Scavarda Perrin",
+              "Username": "amye"
+            },
+            "IssueId": "917664277",
+            "IssueKey": "6f8f3f482f9e9827c129ecefe26a2c3f56e74925",
+            "Key": "297",
+            "URL": "https://github.com/cncf/devstats/issues/297"
+          },
+          {
+            "ActivityType": "github_issue_primary_assignee_added",
+            "CreatedAt": "2021-06-10T18:16:34.000Z",
+            "Id": "cb41cdf8c0a9c9d162a6f796ef0dd80d368701b1",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/2469783?v=4",
+              "DataSourceId": "github",
+              "Email": "lukaszgryglicki@o2.pl",
+              "Id": "16fe424acecf8d614d102fc0ece919a22200481d",
+              "Name": "Łukasz Gryglicki",
+              "Username": "lukaszgryglicki"
+            },
+            "IssueId": "917664277",
+            "IssueKey": "6f8f3f482f9e9827c129ecefe26a2c3f56e74925",
+            "Key": "297"
+          }
+        ],
+        "ClosedAt": "2021-06-11T10:50:00.000Z",
+        "CreatedAt": "2021-06-10T18:16:34.000Z",
+        "DataSourceId": "github",
+        "Id": "6f8f3f482f9e9827c129ecefe26a2c3f56e74925",
+        "IsClosed": true,
+        "IssueId": "917664277",
+        "IssueNumber": 297,
+        "Labels": [
+          "enhancement",
+          "data"
+        ],
+        "State": "closed",
+        "Title": "[feature request] Argoproj-albs added to Argo ",
+        "UpdatedAt": "2021-06-11T10:50:01.000Z"
+      }
+    },
+    {
+      "Issue": {
+        "Activities": [
+          {
+            "ActivityType": "github_issue_created",
+            "Body": "Today the dashboard is showing contributions of people to CNCF related repos.\r\n\r\nIt would be nice to get a more fine grained understanding of where contributions are landing.\r\nAssuming a repository that has a \"core\", \"automation\", \"test\", and \"utilities\", then it would be nice if there are graphs that classify contributions on these (repo defined) classes.\r\n\r\nThis would be nice to have on a repo level, but can then probably also be scaled to a org level.\r\n\r\nThis could work by having a file with a mapping from file patterns (like i.e. gitignore) to classes.\r\n\r\nUser story: As a project owner I'd like to track which areas of my project get contributions.",
+            "CreatedAt": "2020-11-23T13:52:22.000Z",
+            "Id": "086e403a34449860fde299c9dd0f9f7ddbbfa89e",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/83456?v=4",
+              "DataSourceId": "github",
+              "Id": "b4026a21327bdcc95d4b09b78141c22c2c4a543d",
+              "Name": "Fabian Deutsch",
+              "Username": "fabiand"
+            },
+            "IssueId": "748821451",
+            "IssueKey": "ffb76a6a8a376bd6fb7e965648889acecb2f02c0",
+            "Key": "272",
+            "URL": "https://github.com/cncf/devstats/issues/272"
+          },
+          {
+            "ActivityType": "github_issue_primary_assignee_added",
+            "CreatedAt": "2020-11-23T13:52:22.000Z",
+            "Id": "2f548a611bbc7f52417afa9145d7eb5f9a8029ec",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/2469783?v=4",
+              "DataSourceId": "github",
+              "Email": "lukaszgryglicki@o2.pl",
+              "Id": "16fe424acecf8d614d102fc0ece919a22200481d",
+              "Name": "Łukasz Gryglicki",
+              "Username": "lukaszgryglicki"
+            },
+            "IssueId": "748821451",
+            "IssueKey": "ffb76a6a8a376bd6fb7e965648889acecb2f02c0",
+            "Key": "272"
+          }
+        ],
+        "ClosedAt": "2021-01-09T20:45:56.000Z",
+        "CreatedAt": "2020-11-23T13:52:22.000Z",
+        "DataSourceId": "github",
+        "Id": "ffb76a6a8a376bd6fb7e965648889acecb2f02c0",
+        "IsClosed": true,
+        "IssueId": "748821451",
+        "IssueNumber": 272,
+        "Labels": [
+          "blocked"
+        ],
+        "State": "closed",
+        "Title": "[feature request] Classifying contributions",
+        "UpdatedAt": "2021-01-09T20:45:56.000Z"
+      }
+    },
+    {
+      "Issue": {
+        "Activities": [
+          {
+            "ActivityType": "github_issue_created",
+            "Body": "Please add `[feature request]` to the issue title when requesting new features, dashboards, projects etc.\r\nPlease add `[bug]` to the issue title when reporting a bug.\r\n\r\nhttps://k8s.devstats.cncf.io/d/9/companies-table\r\n\r\nI am checking this table and I would like to know the top x contributors of my current company. Is there's a page I can find the information?",
+            "CreatedAt": "2021-07-22T05:54:55.000Z",
+            "Id": "d7cb999c4b244c2711e7b6ef8fc3f0798028c0b9",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/4739316?v=4",
+              "DataSourceId": "github",
+              "Email": "seedjeffwan@gmail.com",
+              "Id": "d7c4c91290b8755789b214b5e191a8c9bfbe78d5",
+              "Name": "Jiaxin Shan",
+              "Username": "Jeffwan"
+            },
+            "IssueId": "950324379",
+            "IssueKey": "e9bbc6ab506a5423490fe27035695acec0194621",
+            "Key": "307",
+            "URL": "https://github.com/cncf/devstats/issues/307"
+          }
+        ],
         "ClosedAt": "2021-08-03T10:38:50.000Z",
         "CreatedAt": "2021-07-22T05:54:55.000Z",
         "DataSourceId": "github",
@@ -388,23 +959,26 @@
     },
     {
       "Issue": {
-        "Activities": null,
-        "ClosedAt": "2021-07-15T17:16:06.000Z",
-        "CreatedAt": "2021-07-15T01:55:52.000Z",
-        "DataSourceId": "github",
-        "Id": "2e7d27e19d75cbab4d6af81b83a01d9090897eda",
-        "IsClosed": true,
-        "IssueId": "944923751",
-        "IssueNumber": 305,
-        "Labels": null,
-        "State": "closed",
-        "Title": "`column \"perezjasonr\" does not exist` on teststats user statistics page",
-        "UpdatedAt": "2021-07-15T17:16:06.000Z"
-      }
-    },
-    {
-      "Issue": {
-        "Activities": null,
+        "Activities": [
+          {
+            "ActivityType": "github_issue_created",
+            "Body": "[bug]\r\n\r\nSee: https://kubevirt.devstats.cncf.io/d/14/new-and-episodic-pr-contributors?orgId=1&var-period=w&var-repogroup_name=All\r\n\r\nThe chart is at least showing labels for issues and not for PRs.  Not sure what the data is.\r\n\r\nAnd the Issue chart is displaying PRs as labels:\r\n\r\nhttps://kubevirt.devstats.cncf.io/d/13/new-and-episodic-issue-creators?orgId=1\r\n",
+            "CreatedAt": "2021-07-09T18:21:22.000Z",
+            "Id": "7811caf794a8a9b6b8f75a4c8b351eed1bfd29d4",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/115146?v=4",
+              "DataSourceId": "github",
+              "Email": "jberkus@redhat.com",
+              "Id": "9d56ece2e98437f0457113c50c334f0d10382861",
+              "Name": "Josh Berkus",
+              "Username": "jberkus"
+            },
+            "IssueId": "940977537",
+            "IssueKey": "87f2cd7d327799786e16ad3aadb95af56620a228",
+            "Key": "304",
+            "URL": "https://github.com/cncf/devstats/issues/304"
+          }
+        ],
         "ClosedAt": "2021-07-14T09:08:40.000Z",
         "CreatedAt": "2021-07-09T18:21:22.000Z",
         "DataSourceId": "github",
@@ -420,7 +994,177 @@
     },
     {
       "Issue": {
-        "Activities": null,
+        "Activities": [
+          {
+            "ActivityType": "github_issue_created",
+            "Body": "After [PR for KubeVirt repogroups](https://github.com/cncf/devstats/pull/281) was merged we played around with the dashboards.\r\n\r\nIt seems that selecting lots of companies does not work somehow. What we encountered were syntax errors and even empty responses. Can someone please have a look and help us understand what is wrong here?\r\n\r\nExample URL:\r\n\r\nhttps://kubevirt.devstats.cncf.io/d/55/company-prs-in-repository-groups-table?orgId=1&var-period_name=Last%20decade&var-repogroups=All&var-companies=SAP&var-companies=CNCF&var-companies=SUSE&var-companies=Cisco&var-companies=Google&var-companies=ARM&var-companies=Inspur&var-companies=Intel&var-companies=Ericsson&var-companies=Kubermatic&var-companies=Deutsche%20Telekom&var-companies=CloudFlare&var-companies=ZTE&var-companies=Microsoft&var-companies=Huawei&var-companies=(Robots)&var-companies=Amazon&var-companies=Amdocs&var-companies=Sandvine&var-companies=StackPath&var-companies=Telef%C3%B3nica&var-companies=Apple&var-companies=NVidia&var-companies=Nokia&var-companies=Stratus&var-companies=TmaxA%26C&var-companies=Thales&var-companies=VMware&var-companies=Platform9&var-companies=Samsung&var-companies=Jetstack&var-companies=HP&var-companies=CERN&var-companies=Mellanox&var-companies=Mirantis&var-companies=Luminis&var-companies=Hays&var-companies=Intuit&var-companies=Wolters%20Kluwer&var-companies=Zalando&var-companies=Edgewise%20Networks&var-companies=SilverSky&var-companies=Storiant&var-companies=Wayfair&var-companies=PeerApp&var-companies=Wind%20River&var-companies=InQool&var-companies=42six&var-companies=Catalytic&var-companies=Synamedia&var-companies=FAYN&var-companies=SDE&var-companies=Yahoo&var-companies=Israeli%20Air%20Force&var-companies=Israeli%20Navy&var-companies=Seznam.cz&var-companies=Codewise&var-companies=UBS&var-companies=Odysii&var-companies=Akamai%20Technologies&var-companies=SolidFire&var-companies=Assured%20Information%20Security&var-companies=Citrix&var-companies=Axeos&var-companies=Mogujie&var-companies=Dell&var-companies=Teradata&var-companies=zooplus&var-companies=ContainerShip&var-companies=Canonical&var-companies=Giant%20Swarm&var-companies=Grupo%20HOLA&var-companies=Bareket&var-companies=Collective%20Sense&var-companies=Ocado&var-companies=SoftLayer&var-companies=Scytl&var-companies=DataMiner&var-companies=Neoway&var-companies=Softplan&var-companies=PubNative&var-companies=ThreatMark&var-companies=One%20Source&var-companies=Raleigh&var-companies=Tembo&var-companies=Lacoda&var-companies=Newstex&var-companies=NTT&var-companies=Infosys&var-companies=Publet&var-companies=NETA%C5%9E&var-companies=Capgemini&var-companies=Juniper%20Networks&var-companies=Istuary%20Innovation&var-companies=%E4%BA%9A%E4%BF%A1%E7%A7%91%E6%8A%80%EF%BC%88%E4%B8%AD%E5%9B%BD%EF%BC%89%E6%9C%89%E9%99%90%E5%85%AC%E5%8F%B8&var-companies=Concord%20Systems&var-companies=vectorized&var-companies=Yieldmo&var-companies=CSULB%20Alumni%20Association&var-companies=Panasonic&var-companies=Deposit&var-companies=inovex&var-companies=Silpion&var-companies=Penta&var-companies=Tiger&var-companies=ETH%20Z%C3%BCrich&var-companies=Metaswitch&var-companies=Winter%20Circle&var-companies=Uber&var-companies=PicsArt&var-companies=Sierra%20Wireless&var-companies=CS2C&var-companies=Kumina&var-companies=Aparna%20Systems&var-companies=EPAM&var-companies=Fandom&var-companies=Netskope&var-companies=Nordea&var-companies=SKOK&var-companies=Trader%20Joe%27s&var-companies=Lloyd%27s%20Register&var-companies=Nordic%20IT&var-companies=Stibo%20Systems&var-companies=AppOrbit&var-companies=KashYOO&var-companies=PNNL&var-companies=Bell&var-companies=Tucows&var-companies=Altran&var-companies=Aricent&var-companies=Baidu&var-companies=BoCloud&var-companies=Bull&var-companies=Oxyliom&var-companies=Oxyliom%20Solutions&var-companies=THALES%20COMMUNICATIONS%20%26%20SECURITY%20SA&var-companies=LogicMonitor&var-companies=Mesosphere&var-companies=Talos%20Systems&var-companies=Virtustream&var-companies=Codemancers&var-companies=Josh&var-companies=Parcelled&var-companies=Tableau%20S&var-companies=Comverse%20Technology&var-companies=Mav",
+            "CreatedAt": "2021-01-18T11:21:32.000Z",
+            "Id": "a449ec7dc215ad533313c212a1b528f5fd934f69",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/809335?v=4",
+              "DataSourceId": "github",
+              "Id": "996c90b7951ed56c2f2f3e9d0a20c2b06082ce27",
+              "Name": "Daniel Hiller",
+              "Username": "dhiller"
+            },
+            "IssueId": "788182876",
+            "IssueKey": "f346d7c570e823447fb99a665027516760154057",
+            "Key": "282",
+            "URL": "https://github.com/cncf/devstats/issues/282"
+          }
+        ],
+        "ClosedAt": "2021-03-04T06:16:21.000Z",
+        "CreatedAt": "2021-01-18T11:21:32.000Z",
+        "DataSourceId": "github",
+        "Id": "f346d7c570e823447fb99a665027516760154057",
+        "IsClosed": true,
+        "IssueId": "788182876",
+        "IssueNumber": 282,
+        "Labels": null,
+        "State": "closed",
+        "Title": "[bug] KubeVirt dashboard - very long urls lead to syntax errors/empty responses",
+        "UpdatedAt": "2021-03-04T06:16:22.000Z"
+      }
+    },
+    {
+      "Issue": {
+        "Activities": [
+          {
+            "ActivityType": "github_issue_created",
+            "Body": "Could you create an API call where we can get the metrics used at the top of [cncf.io](https://www.cncf.io/):\r\n- Number of contributors across all CNCF projects\r\n- Number of contributions across all CNCF projects\r\n- Number of lines of code in all CNCF projects",
+            "CreatedAt": "2021-04-11T00:19:44.000Z",
+            "Id": "f4ed60b1583fb0a33772a620bfa5e9378a670846",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/463160?v=4",
+              "DataSourceId": "github",
+              "Email": "cjyabraham@gmail.com",
+              "Id": "bb3d18145ddb0f1e2a4a71baf81621f6679fa3c7",
+              "Name": "Chris Abraham",
+              "Username": "cjyabraham"
+            },
+            "IssueId": "855184870",
+            "IssueKey": "c5a7acc301a04124236b7a88ee13ecbe5936f3ce",
+            "Key": "290",
+            "URL": "https://github.com/cncf/devstats/issues/290"
+          },
+          {
+            "ActivityType": "github_issue_primary_assignee_added",
+            "CreatedAt": "2021-04-11T00:19:44.000Z",
+            "Id": "8c75581f8df6de8bfbaa9f30de3df7b23337b951",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/2469783?v=4",
+              "DataSourceId": "github",
+              "Email": "lukaszgryglicki@o2.pl",
+              "Id": "16fe424acecf8d614d102fc0ece919a22200481d",
+              "Name": "Łukasz Gryglicki",
+              "Username": "lukaszgryglicki"
+            },
+            "IssueId": "855184870",
+            "IssueKey": "c5a7acc301a04124236b7a88ee13ecbe5936f3ce",
+            "Key": "290"
+          }
+        ],
+        "ClosedAt": "2021-04-16T08:23:04.000Z",
+        "CreatedAt": "2021-04-11T00:19:44.000Z",
+        "DataSourceId": "github",
+        "Id": "c5a7acc301a04124236b7a88ee13ecbe5936f3ce",
+        "IsClosed": true,
+        "IssueId": "855184870",
+        "IssueNumber": 290,
+        "Labels": null,
+        "State": "closed",
+        "Title": "[feature request] API for getting key CNCF metrics",
+        "UpdatedAt": "2021-04-16T08:23:04.000Z"
+      }
+    },
+    {
+      "Issue": {
+        "Activities": [
+          {
+            "ActivityType": "github_issue_created",
+            "Body": "Hi @lukaszgryglicki and all,\r\nI tried to access the following URL but something seemed to be wrong.\r\nhttps://tekton.devstats.cd.foundation/\r\n\r\nIt says \"503 Service Temporarily Unavailable\".\r\n\r\nN.B.\r\nAside from Tekton, k8s or any other Devstats seem to have some problems.\r\n\r\nAre there any server side problems??\r\nHope it will get well soon~\r\n\r\nPlease add `[feature request]` to the issue title when requesting new features, dashboards, projects etc.\r\nPlease add `[bug]` to the issue title when reporting a bug.\r\n",
+            "CreatedAt": "2021-02-28T01:23:23.000Z",
+            "Id": "499e6b95ee76be5b02b0c73bed2e61adbe182302",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/55963655?v=4",
+              "DataSourceId": "github",
+              "Id": "dbec725e6fe5bc0efe7e9ec07363989004c833f6",
+              "Name": "Koji Kobayashi",
+              "Username": "kobaji"
+            },
+            "IssueId": "818072361",
+            "IssueKey": "3a7f35c207f2d67a26511166e3b7f52023905300",
+            "Key": "286",
+            "URL": "https://github.com/cncf/devstats/issues/286"
+          },
+          {
+            "ActivityType": "github_issue_primary_assignee_added",
+            "CreatedAt": "2021-02-28T01:23:23.000Z",
+            "Id": "2e24ee402f9eb0d570c8c2921ae520b2c3f8a7bb",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/2469783?v=4",
+              "DataSourceId": "github",
+              "Email": "lukaszgryglicki@o2.pl",
+              "Id": "16fe424acecf8d614d102fc0ece919a22200481d",
+              "Name": "Łukasz Gryglicki",
+              "Username": "lukaszgryglicki"
+            },
+            "IssueId": "818072361",
+            "IssueKey": "3a7f35c207f2d67a26511166e3b7f52023905300",
+            "Key": "286"
+          }
+        ],
+        "ClosedAt": "2021-03-03T05:15:55.000Z",
+        "CreatedAt": "2021-02-28T01:23:23.000Z",
+        "DataSourceId": "github",
+        "Id": "3a7f35c207f2d67a26511166e3b7f52023905300",
+        "IsClosed": true,
+        "IssueId": "818072361",
+        "IssueNumber": 286,
+        "Labels": null,
+        "State": "closed",
+        "Title": "503 Service Temporarily Unavailable",
+        "UpdatedAt": "2021-03-03T05:15:55.000Z"
+      }
+    },
+    {
+      "Issue": {
+        "Activities": [
+          {
+            "ActivityType": "github_issue_created",
+            "Body": "GitHub has this info available via their builtin dashboards, e.g., https://github.com/cncf/devstats/graphs/traffic\r\n\r\nI don't know what the API looks like to pull this but since we have data for stars and forks, maybe we add that to the dashboard: https://kubevirt.devstats.cncf.io/d/3/stars-and-forks-by-repository?orgId=1\r\n\r\nMaybe we call it 'stars-forks-and-clones' ;)? or a separate one for just clones",
+            "CreatedAt": "2021-03-08T16:53:07.000Z",
+            "Id": "7d322e131350925efececfd02a96c840b8b77328",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/63777?v=4",
+              "DataSourceId": "github",
+              "Email": "caniszczyk@gmail.com",
+              "Id": "cb516154c8100a025d53fa32bf8bf9ecf62818a6",
+              "Name": "Chris Aniszczyk",
+              "Username": "caniszczyk"
+            },
+            "IssueId": "824749200",
+            "IssueKey": "31979faf82f2ce31ad888c2e91e6eefd1895b249",
+            "Key": "288",
+            "URL": "https://github.com/cncf/devstats/issues/288"
+          },
+          {
+            "ActivityType": "github_issue_primary_assignee_added",
+            "CreatedAt": "2021-03-08T16:53:07.000Z",
+            "Id": "c78dfb6ec6a733884559eafe4db2529527312bfa",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/2469783?v=4",
+              "DataSourceId": "github",
+              "Email": "lukaszgryglicki@o2.pl",
+              "Id": "16fe424acecf8d614d102fc0ece919a22200481d",
+              "Name": "Łukasz Gryglicki",
+              "Username": "lukaszgryglicki"
+            },
+            "IssueId": "824749200",
+            "IssueKey": "31979faf82f2ce31ad888c2e91e6eefd1895b249",
+            "Key": "288"
+          }
+        ],
         "CreatedAt": "2021-03-08T16:53:07.000Z",
         "DataSourceId": "github",
         "Id": "31979faf82f2ce31ad888c2e91e6eefd1895b249",
@@ -437,23 +1181,26 @@
     },
     {
       "Issue": {
-        "Activities": null,
-        "ClosedAt": "2021-04-16T08:23:04.000Z",
-        "CreatedAt": "2021-04-11T00:19:44.000Z",
-        "DataSourceId": "github",
-        "Id": "c5a7acc301a04124236b7a88ee13ecbe5936f3ce",
-        "IsClosed": true,
-        "IssueId": "855184870",
-        "IssueNumber": 290,
-        "Labels": null,
-        "State": "closed",
-        "Title": "[feature request] API for getting key CNCF metrics",
-        "UpdatedAt": "2021-04-16T08:23:04.000Z"
-      }
-    },
-    {
-      "Issue": {
-        "Activities": null,
+        "Activities": [
+          {
+            "ActivityType": "github_issue_created",
+            "Body": "Hello from @spotify and @backstage !\r\n\r\nWe noticed that Backstage's stats on https://all.devstats.cncf.io/d/53/projects-health-table?orgId=1 is not being updated since November 2020.\r\n\r\nIt's possible that this is due to us moving the project from `github.com/spotify/backstage` to `github.com/backstage/backstage`.\r\n\r\nI'm not familiar with how this project is setup, but my initial guess is that on line\r\nhttps://github.com/cncf/devstats/blob/master/backstage/psql.sh#L16\r\n\r\n`spotify/backstage` should be `backstage/backstage`.\r\n\r\nAlthough, leaving this on experts to review!\r\n\r\n<img width=\"175\" alt=\"Screenshot 2021-04-20 at 1 31 26 PM\" src=\"https://user-images.githubusercontent.com/8065913/115360847-a3a0c980-a1dd-11eb-9b0f-719681d9f122.png\">\r\n",
+            "CreatedAt": "2021-04-20T08:09:32.000Z",
+            "Id": "13d034dd5358ea1c283f9c68168a630d86e3184b",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/8065913?v=4",
+              "DataSourceId": "github",
+              "Email": "himanshu@orkohunter.net",
+              "Id": "3d9431cd76e509ce3daefc06378e63c36e9f360b",
+              "Name": "Himanshu Mishra",
+              "Username": "OrkoHunter"
+            },
+            "IssueId": "862543529",
+            "IssueKey": "1c48924a5e7341797ffe68c18f303e45b182b213",
+            "Key": "291",
+            "URL": "https://github.com/cncf/devstats/issues/291"
+          }
+        ],
         "ClosedAt": "2021-04-26T06:25:16.000Z",
         "CreatedAt": "2021-04-20T08:09:32.000Z",
         "DataSourceId": "github",
@@ -469,7 +1216,41 @@
     },
     {
       "Issue": {
-        "Activities": null,
+        "Activities": [
+          {
+            "ActivityType": "github_issue_created",
+            "Body": "Tekton folks noticed that devstat data suddenly stops at some point in May https://tekton.devstats.cd.foundation/d/48/users-statistics-by-repository-group?orgId=1 - any idea what happened or how we can fix it?",
+            "CreatedAt": "2021-07-09T17:21:59.000Z",
+            "Id": "f72b1e23b5821bbf12add36eba172af7390e9ec1",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/5173122?v=4",
+              "DataSourceId": "github",
+              "Id": "e23b292c422d2a369fbc4ff1d44cb92b58146767",
+              "Name": "Tracy Miranda",
+              "Username": "tracymiranda"
+            },
+            "IssueId": "940943814",
+            "IssueKey": "4a9c8935c56db3243a2b051481370e74eb570b05",
+            "Key": "303",
+            "URL": "https://github.com/cncf/devstats/issues/303"
+          },
+          {
+            "ActivityType": "github_issue_primary_assignee_added",
+            "CreatedAt": "2021-07-09T17:21:59.000Z",
+            "Id": "fedcceca37e4b99d9fd9dc1a3e10ad48fa7adc48",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/2469783?v=4",
+              "DataSourceId": "github",
+              "Email": "lukaszgryglicki@o2.pl",
+              "Id": "16fe424acecf8d614d102fc0ece919a22200481d",
+              "Name": "Łukasz Gryglicki",
+              "Username": "lukaszgryglicki"
+            },
+            "IssueId": "940943814",
+            "IssueKey": "4a9c8935c56db3243a2b051481370e74eb570b05",
+            "Key": "303"
+          }
+        ],
         "ClosedAt": "2021-07-13T08:02:36.000Z",
         "CreatedAt": "2021-07-09T17:21:59.000Z",
         "DataSourceId": "github",
@@ -485,39 +1266,42 @@
     },
     {
       "Issue": {
-        "Activities": null,
-        "ClosedAt": "2021-03-03T05:15:55.000Z",
-        "CreatedAt": "2021-02-28T01:23:23.000Z",
-        "DataSourceId": "github",
-        "Id": "3a7f35c207f2d67a26511166e3b7f52023905300",
-        "IsClosed": true,
-        "IssueId": "818072361",
-        "IssueNumber": 286,
-        "Labels": null,
-        "State": "closed",
-        "Title": "503 Service Temporarily Unavailable",
-        "UpdatedAt": "2021-03-03T05:15:55.000Z"
-      }
-    },
-    {
-      "Issue": {
-        "Activities": null,
-        "CreatedAt": "2021-06-15T14:21:35.000Z",
-        "DataSourceId": "github",
-        "Id": "91ce8fab6f2d416fdec1315f6d7233398657eb01",
-        "IssueId": "921453822",
-        "IssueNumber": 299,
-        "Labels": [
-          "blocked"
+        "Activities": [
+          {
+            "ActivityType": "github_issue_created",
+            "Body": "## Problem\r\n\r\nDevStats currently does not provide enough granular signal on many of the dashboards to make meaningful inferences from the data. This is largely because `repo_group` is not a good mapping to a particular SIG, and does not provide insight into the subprojects that are repo specific or reflect the work that occurs in shared repos such as [kubernetes/kubernetes], or [kubernetes/enhancements].\r\n\r\nThis issue outlines 3 problems/requests that could help resolve those problems and make the boards much more useful. It largely boils down to: where `repo_group` is present, add filters for repo, sig/wg label, and Company.\r\n\r\n \r\n---\r\n\r\n## Problem 1 - lack of per repo visibility\r\n\r\n**Feature Request:** On dashboards where `repo_group` is present, allow further filtering by individual repo.\r\n\r\nSIGs have many repos and the work is delegated to subproject owners that own those repos. The current dashboards using `repo_group` do not offer a per-repo breakdown and cannot be used to evaluate the health of a partcular subproject.\r\n\r\n**Examples:**\r\n- [Developer Activity Counts by Repository Group] - Without the possibility of a per-repo breakdown, it's difficult to see which repos activity may have dropped.\r\n- [Inactive Issues by SIG] - - While this gives a holestic view of the SIG, without further breakdown by repo it's not possible to see where the problem might actually exist.\r\n- [Awaiting PRs by SIG] - Same as the above Inactive Issue board.\r\n\r\n\r\n\r\n[Developer Activity Counts by Repository Group]: https://k8s.devstats.cncf.io/d/13/developer-activity-counts-by-repository-group?orgId=1\r\n[Inactive Issues by SIG]: https://k8s.devstats.cncf.io/d/73/inactive-issues-by-sig?orgId=1\r\n[Awaiting PRs by SIG]: https://k8s.devstats.cncf.io/d/70/awaiting-prs-by-sig?orgId=1\r\n\r\n---\r\n\r\n## Problem 2 - lack of per SIG/WG break down in shared repos\r\n\r\n**Feature Request:** on dashboards where `repo_group` is present, allow further filtering by SIG label.\r\n\r\nSome SIGs/WGs work almost exclusively out of shared repos such as [kubernetes/kubernetes] or [kubernetes/enhancement]; repo_group does not capture their work.\r\n\r\n**Examples:**\r\n- [SIG Scalability Repository Groups] - SIG Scalability is near 100% out of [kubernetes/kubernetes].\r\n- [SIG Auth Repository Groups] - The majority of SIG Auth's work occurs in [kubernetes/kubernetes] with the repos listed here being subprojects or initatives under a working group.\r\n\r\n\r\n[SIG Scalability Repository Groups]: https://k8s.devstats.cncf.io/d/68/repository-groups?orgId=1&var-repogroups=Not%20specified&var-repogroups=SIG%20Scalability\r\n[SIG Auth Repository Groups]:  https://k8s.devstats.cncf.io/d/68/repository-groups?orgId=1&var-repogroups=SIG%20Scalability&var-repogroups=SIG%20Auth\r\n\r\n\r\n---\r\n\r\n## Problem 3 - Companies cannot reasonably measure their involvement\r\n\r\n**Feature Request:** On dashboards where `repo_group` is present, allow further filtering by Company.\r\n\r\nAs a company trying to gauge our involvement within a particular SIG or subproject, we cannot establish what areas we are contributing to because `repo_group` does not provide enough detail (the previous two requests).\r\n\r\nBeing able to look at the areas, and check company investment helps highlight areas that need potential headcount, or internal re-alignment to ensure the upstream group/repo/subproject remains healthy.\r\n\r\n(No examples, please see above requests examples, but think of company metric)\r\n\r\n\r\n[kubernetes/kubernetes]: https://github.com/kubernetes/kubernetes\r\n[kubernetes/enhancements]: https://github.com/kubernetes/enhancements",
+            "CreatedAt": "2021-03-09T01:59:35.000Z",
+            "Id": "15891f554f40d14d77c3610bd4323c919c0266e3",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/6500863?v=4",
+              "DataSourceId": "github",
+              "Email": "bob.killen@linux.com",
+              "Id": "28e70942cc2cbe8605f2a0dad26fcf61e2fbf711",
+              "Name": "Bob Killen",
+              "Username": "mrbobbytables"
+            },
+            "IssueId": "825169758",
+            "IssueKey": "62bfa95b39cec5a712b21321c094a21c200af10c",
+            "Key": "289",
+            "URL": "https://github.com/cncf/devstats/issues/289"
+          },
+          {
+            "ActivityType": "github_issue_primary_assignee_added",
+            "CreatedAt": "2021-03-09T01:59:35.000Z",
+            "Id": "f54d1fea6579e1ddbc1663bc3b32aec871f06c85",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/2469783?v=4",
+              "DataSourceId": "github",
+              "Email": "lukaszgryglicki@o2.pl",
+              "Id": "16fe424acecf8d614d102fc0ece919a22200481d",
+              "Name": "Łukasz Gryglicki",
+              "Username": "lukaszgryglicki"
+            },
+            "IssueId": "825169758",
+            "IssueKey": "62bfa95b39cec5a712b21321c094a21c200af10c",
+            "Key": "289"
+          }
         ],
-        "State": "open",
-        "Title": "[feature request][kubernetes] Add wg/sig label filter to Contributions chart",
-        "UpdatedAt": "2021-06-22T13:36:49.000Z"
-      }
-    },
-    {
-      "Issue": {
-        "Activities": null,
         "ClosedAt": "2021-05-21T14:11:19.000Z",
         "CreatedAt": "2021-03-09T01:59:35.000Z",
         "DataSourceId": "github",
@@ -533,6 +1317,57 @@
         "State": "closed",
         "Title": "[Feature Request][Kubernetes] Add additional filters to dashboards",
         "UpdatedAt": "2021-05-24T03:51:30.000Z"
+      }
+    },
+    {
+      "Issue": {
+        "Activities": [
+          {
+            "ActivityType": "github_issue_created",
+            "Body": "This is a follow up from #289, #293, and #295 \r\n\r\nAdding a filter for sig/wg labels to the [Contributions chart](https://k8s.devstats.cncf.io/d/74/contributions-chart?orgId=1) will allow SIGS and WGs that work out of shared repos to look at their metrics. With that change it should resolve all our current asks and give sig leads, subproject owners and companies the info they need 👍 \r\n",
+            "CreatedAt": "2021-06-15T14:21:35.000Z",
+            "Id": "aab0d9680b790098b14506ac705fc04d32e079f3",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/6500863?v=4",
+              "DataSourceId": "github",
+              "Email": "bob.killen@linux.com",
+              "Id": "28e70942cc2cbe8605f2a0dad26fcf61e2fbf711",
+              "Name": "Bob Killen",
+              "Username": "mrbobbytables"
+            },
+            "IssueId": "921453822",
+            "IssueKey": "91ce8fab6f2d416fdec1315f6d7233398657eb01",
+            "Key": "299",
+            "URL": "https://github.com/cncf/devstats/issues/299"
+          },
+          {
+            "ActivityType": "github_issue_primary_assignee_added",
+            "CreatedAt": "2021-06-15T14:21:35.000Z",
+            "Id": "ef850628fd8409716f6975d046a8c9846210d324",
+            "Identity": {
+              "AvatarURL": "https://avatars.githubusercontent.com/u/2469783?v=4",
+              "DataSourceId": "github",
+              "Email": "lukaszgryglicki@o2.pl",
+              "Id": "16fe424acecf8d614d102fc0ece919a22200481d",
+              "Name": "Łukasz Gryglicki",
+              "Username": "lukaszgryglicki"
+            },
+            "IssueId": "921453822",
+            "IssueKey": "91ce8fab6f2d416fdec1315f6d7233398657eb01",
+            "Key": "299"
+          }
+        ],
+        "CreatedAt": "2021-06-15T14:21:35.000Z",
+        "DataSourceId": "github",
+        "Id": "91ce8fab6f2d416fdec1315f6d7233398657eb01",
+        "IssueId": "921453822",
+        "IssueNumber": 299,
+        "Labels": [
+          "blocked"
+        ],
+        "State": "open",
+        "Title": "[feature request][kubernetes] Add wg/sig label filter to Contributions chart",
+        "UpdatedAt": "2021-06-22T13:36:49.000Z"
       }
     }
   ],
