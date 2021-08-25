@@ -10,6 +10,7 @@
     "Category": "pull_request",
     "Org": "kubernetes",
     "Repo": "test-infra",
+    "RepoID": 98758976,
     "URL": "https://github.com/kubernetes/test-infra"
   },
   "Events": [

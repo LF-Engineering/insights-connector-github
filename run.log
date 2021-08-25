@@ -1,7 +1,0 @@
-2021-08-20 11:32:10: https://github.com/kubernetes/test-infra/: selected new token #6
-2021-08-20 11:32:10: configured 59 GitHub OAuth clients
-2021-08-20 11:32:10: https://github.com/kubernetes/test-infra repository fetching from 2015-01-01 00:00:00 +0000 UTC (16 threads)
-2021-08-20 11:32:10: input processing(1/0/true)
-2021-08-20 11:32:10: output processing(1/1/true)
-2021-08-20 11:32:10: {"DataSource":{"Categories":["pull_request","repository","issue"],"Name":"GitHub","Slug":"github"},"Endpoint":{"Category":"repository","Org":"kubernetes","Repo":"test-infra","URL":"https://github.com/kubernetes/test-infra"},"Events":[{"Repository":{"CalculatedAt":"2021-08-20T11:32:10.880Z","Forks":1945,"ID":57333709,"Stargazers":2852,"Subscribers":128,"URL":"https://github.com/kubernetes/test-infra"}}],"MetaData":{"BackendName":"github","BackendVersion":"0.1.0","Tags":null}}
-2021-08-20 11:32:11: https://github.com/kubernetes/test-infra issue fetching from 2015-01-01 00:00:00 +0000 UTC (16 threads)

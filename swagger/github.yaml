@@ -277,7 +277,7 @@ definitions:
       CodeChangeRequestNumber:
         type: integer
         example: 123
-        description: GitHub internal PR number (for issue that is a PR CodeChangeRequest.Number = Issue.Number withing the same repo)
+        description: GitHub internal PR number (for issue that is a PR CodeChangeRequest.Number = Issue.Number within the same repo)
       CreatedAt:
         type: string
         format: date-time
@@ -381,6 +381,10 @@ definitions:
             type: string
             description: GitHub repo
             example: devstats
+          RepoID:
+            type: integer
+            example: 1011
+            description: GitHub internal repository ID
           URL:
             type: string
             description: GitHub path/url

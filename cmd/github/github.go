@@ -136,6 +136,7 @@ type DSGitHub struct {
 	FlagTokens    *string
 	FlagCachePath *string
 	// Others (calculated)
+	RepoID                          int64
 	URL                             string
 	Categories                      []string
 	CurrentCategory                 string
@@ -2596,6 +2597,7 @@ func (j *DSGitHub) AddMetadata(ctx *shared.Ctx, item interface{}) (mItem map[str
 
 // ProcessIssue - add issues sub items
 func (j *DSGitHub) ProcessIssue(ctx *shared.Ctx, inIssue map[string]interface{}) (issue map[string]interface{}, err error) {
+	// shared.Printf("%s\n", shared.PrettyPrint(inIssue))
 	issue = inIssue
 	issue["user_data"] = map[string]interface{}{}
 	issue["assignee_data"] = map[string]interface{}{}
@@ -2657,6 +2659,7 @@ func (j *DSGitHub) ProcessIssue(ctx *shared.Ctx, inIssue map[string]interface{})
 
 // ProcessPull - add PRs sub items
 func (j *DSGitHub) ProcessPull(ctx *shared.Ctx, inPull map[string]interface{}) (pull map[string]interface{}, err error) {
+	// shared.Printf("%s\n", shared.PrettyPrint(inPull))
 	pull = inPull
 	pull["user_data"] = map[string]interface{}{}
 	pull["assignee_data"] = map[string]interface{}{}
@@ -2738,6 +2741,8 @@ func (j *DSGitHub) FetchItemsRepository(ctx *shared.Ctx) (err error) {
 		shared.Fatalf("there is no such repo %s/%s", j.Org, j.Repo)
 		return
 	}
+	fid, _ := item["id"].(float64)
+	j.RepoID = int64(fid)
 	item["fetched_on"] = fmt.Sprintf("%.6f", float64(time.Now().UnixNano())/1.0e9)
 	esItem := j.AddMetadata(ctx, item)
 	if ctx.Project != "" {
@@ -5192,6 +5197,16 @@ func (j *DSGitHub) GitHubEnrichItems(ctx *shared.Ctx, items []interface{}, docs 
 
 // SyncCurrentCategory - sync GitHub data source for current category
 func (j *DSGitHub) SyncCurrentCategory(ctx *shared.Ctx) (err error) {
+	if j.CurrentCategory != "repository" {
+		repo, e := j.githubRepo(ctx, j.Org, j.Repo)
+		shared.FatalOnError(e)
+		if repo == nil {
+			shared.Fatalf("there is no such repo %s/%s", j.Org, j.Repo)
+			return
+		}
+		fid, _ := repo["id"].(float64)
+		j.RepoID = int64(fid)
+	}
 	switch j.CurrentCategory {
 	case "repository":
 		return j.FetchItemsRepository(ctx)
@@ -5242,6 +5257,7 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 		Org:      j.Org,
 		Repo:     j.Repo,
 		URL:      j.URL,
+		RepoID:   j.RepoID,
 		Category: j.CurrentCategory,
 	}
 	data = &models.Data{

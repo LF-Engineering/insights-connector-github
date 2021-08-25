@@ -38,3 +38,4 @@ gen/models/*
 *.dump
 *.token
 *.secret
+*.log
