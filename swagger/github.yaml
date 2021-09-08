@@ -21,6 +21,9 @@ definitions:
       Name:
         type: string
         example: GitHub
+      Model:
+        type: string
+        example: changerequest, issues, repositories
       Categories:
         type: array
         items:

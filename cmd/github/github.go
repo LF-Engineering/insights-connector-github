@@ -5268,6 +5268,7 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 	source := data.DataSource.Slug
 	switch j.CurrentCategory {
 	case "repository":
+		data.DataSource.Model = "repositories"
 		for _, iDoc := range docs {
 			doc, _ := iDoc.(map[string]interface{})
 			//shared.Printf("%s: %+v\n", source, doc)
@@ -5297,6 +5298,7 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 			gMaxUpstreamDtMtx.Unlock()
 		}
 	case "issue":
+		data.DataSource.Model = "issues"
 		for _, iDoc := range docs {
 			var issueBody *string
 			doc, _ := iDoc.(map[string]interface{})
@@ -5635,6 +5637,7 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 			gMaxUpstreamDtMtx.Unlock()
 		}
 	case "pull_request":
+		data.DataSource.Model = "changerequest"
 		for _, iDoc := range docs {
 			var prBody *string
 			doc, _ := iDoc.(map[string]interface{})
