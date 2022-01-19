@@ -46,6 +46,10 @@ func HandleRequest(ctx context.Context) {
               Value: aws.String(os.Getenv("ES_URL")),
             },
           },
+            &ecs.KeyValuePair{
+              Name: aws.String("STAGE"),
+              Value: aws.String(os.Getenv("STAGE")),
+            },
 			},
 		}},
 		TaskDefinition: aws.String(os.Getenv("TASK_DEFINITION")),
