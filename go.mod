@@ -8,7 +8,6 @@ require (
 	github.com/LF-Engineering/lfx-event-schema v0.1.1
 	github.com/aws/aws-lambda-go v1.28.0
 	github.com/aws/aws-sdk-go v1.42.37
-	github.com/go-openapi/strfmt v0.21.1
 	github.com/google/go-github/v38 v38.1.0
 	github.com/json-iterator/go v1.1.12
 	golang.org/x/oauth2 v0.0.0-20211104180415-d3ed0bb246c8
