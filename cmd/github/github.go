@@ -14,11 +14,23 @@ import (
 	"sync"
 	"time"
 
+  "github.com/LF-Engineering/lfx-event-schema/service/itx/repository"
+  "github.com/LF-Engineering/lfx-event-schema/utils/datalake"
+  "github.com/LF-Engineering/lfx-event-schema/service/insights"
+  "github.com/LF-Engineering/lfx-event-schema/service/user"
+
+  igh "github.com/LF-Engineering/lfx-event-schema/service/insights/github"
+
 	"github.com/LF-Engineering/dev-analytics-libraries/emoji"
-	"github.com/LF-Engineering/insights-datasource-github/gen/models"
+
 	shared "github.com/LF-Engineering/insights-datasource-shared"
-	"github.com/go-openapi/strfmt"
+  logger "github.com/LF-Engineering/insights-datasource-shared/ingestjob"
+  elastic "github.com/LF-Engineering/insights-datasource-shared/elastic"
+
 	"github.com/google/go-github/v38/github"
+  "github.com/aws/aws-sdk-go/aws/session"
+  "github.com/aws/aws-sdk-go/service/s3"
+
 	jsoniter "github.com/json-iterator/go"
 	"golang.org/x/oauth2"
 )
@@ -91,6 +103,32 @@ const (
 	WantEnrichPullRequestRequestedReviewers = true
 	// WantEnrichPullRequestCommits - do we want to create rich documents for pull request commits (it contains identity data too).
 	WantEnrichPullRequestCommits = true
+  // V2 added:
+	// GitHubDataSource - constant for github source
+	GitHubDataSource = "github"
+  // GitHubRepositoryDefaultStream - Stream To Publish repo stats
+  GitHubRepositoryDefaultStream = "PUT-S3-github-repository-stats"
+  // GitHubIssueDefaultStream - Stream To Publish issues
+  GitHubIssueDefaultStream = "PUT-S3-github-issues"
+  // GitHubPullRequestDefaultStream - Stream To Publish pull requests
+  GitHubPullRequestDefaultStream = "PUT-S3-github-pull-requests"
+  // RepositoryUpdated - repository updated event (new stats calculated)
+  // FIXME? - shouldn't be something like github-repository.stats-calculated ?
+  RepositoryUpdated = "repository.updated"
+  // IssueCreated - issue created event
+  IssueCreated = "github-issue.created"
+  // IssueUpdated - issue updated event
+  IssueUpdated = "github-issue.updated"
+  // PullRequestCreated - pull request created event
+  PullRequestCreated = "github-pullrequest.created"
+  // PullRequestUpdated - pull request updated event
+  PullRequestUpdated = "github-pullrequest.updated"
+  // InProgress status
+  InProgress = "in_progress"
+  // Failed status
+  Failed = "failed"
+  // Success status
+  Success = "success"
 )
 
 var (
@@ -118,11 +156,14 @@ var (
 	GitHubPullRequestReviewRoles = []string{"user_data"}
 	// GitHubPullRequestCommitRoles - roles to fetch affiliation data for github pull request commit
 	GitHubPullRequestCommitRoles = []string{"author_data", "committer_data"}
-	gGitHubDataSource            = &models.DataSource{Name: "GitHub", Slug: "github", Categories: []string{}}
-	gGitHubMetaData              = &models.MetaData{BackendName: "github", BackendVersion: GitHubBackendVersion}
 	gMaxUpstreamDt               time.Time
 	gMaxUpstreamDtMtx            = &sync.Mutex{}
 )
+
+// Publisher - for streaming data to Kinesis
+type Publisher interface {
+  PushEvents(action, source, eventType, subEventType, env string, data []interface{}) error
+}
 
 // DSGitHub - DS implementation for GitHub
 type DSGitHub struct {
@@ -135,6 +176,7 @@ type DSGitHub struct {
 	FlagRepo      *string
 	FlagTokens    *string
 	FlagCachePath *string
+  FlagStream    *string
 	// Others (calculated)
 	RepoID                          int64
 	URL                             string
@@ -179,6 +221,44 @@ type DSGitHub struct {
 	GitHubUserOrgs                  map[string][]map[string]interface{}
 	EmojisMtx                       *sync.RWMutex
 	Emojis                          map[string]string
+  // Publisher & stream
+  Publisher
+  Stream          string // stream to publish the data
+  Logger          logger.Logger
+}
+
+// AddPublisher - sets Kinesis publisher
+func (j *DSGitHub) AddPublisher(publisher Publisher) {
+  j.Publisher = publisher
+}
+
+func (j *DSGitHub) AddLogger(ctx *shared.Ctx) {
+  client, err := elastic.NewClientProvider(&elastic.Params{
+    URL:      ctx.ESURL,
+  })
+  if err != nil {
+    shared.Printf("AddLogger error: %+v", err)
+    return
+  }
+  logProvider, err := logger.NewLogger(client, os.Getenv("ENV"))
+  if err != nil {
+    shared.Printf("AddLogger error: %+v", err)
+    return
+  }
+  j.Logger = *logProvider
+}
+
+func (j *DSGitHub) WriteLog(ctx *shared.Ctx, status, message string) {
+  _ = j.Logger.Write(&logger.Log{
+    Connector:     GitHubDataSource,
+    Configuration: []map[string]string{{"REPO_URL": j.URL, "ES_URL": ctx.ESURL}},
+    Status:        status,
+    CreatedAt:     time.Now(),
+    UpdatedAt:     time.Now(),
+    // FIXME: was removed from logger
+    // ProjectSlug:   ctx.Project,
+    Message:       message,
+  })
 }
 
 // AddFlags - add GitHub specific flags
@@ -187,6 +267,7 @@ func (j *DSGitHub) AddFlags() {
 	j.FlagRepo = flag.String("github-repo", "", "GitHub repo, example devstats")
 	j.FlagTokens = flag.String("github-tokens", "", "\",\" separated list of OAuth tokens")
 	j.FlagCachePath = flag.String("github-cache-path", GitHubDefaultCachePath, "path to store github users cache, defaults to"+GitHubDefaultCachePath)
+  j.FlagStream = flag.String("github-stream", GitHubIssueDefaultStream, "github kinesis stream name, for example PUT-S3-github-issues")
 }
 
 // ParseArgs - parse GitHub specific environment variables
@@ -218,7 +299,7 @@ func (j *DSGitHub) ParseArgs(ctx *shared.Ctx) (err error) {
 		shared.AddRedacted(j.Tokens, false)
 	}
 
-	// git cache path
+	// github cache path
 	j.CacheDir = GitHubDefaultCachePath
 	if shared.FlagPassed(ctx, "cache-path") && *j.FlagCachePath != "" {
 		j.CacheDir = *j.FlagCachePath
@@ -231,9 +312,30 @@ func (j *DSGitHub) ParseArgs(ctx *shared.Ctx) (err error) {
 	for cat := range ctx.Categories {
 		j.Categories = append(j.Categories, cat)
 	}
-	gGitHubDataSource.Categories = j.Categories
-	gGitHubMetaData.Project = ctx.Project
-	gGitHubMetaData.Tags = ctx.Tags
+
+  // github Kinesis stream
+  j.Stream = GitHubIssueDefaultStream
+  if len(j.Categories) == 1 {
+    _, ok := ctx.Categories["pull_request"]
+    if ok {
+      j.Stream = GitHubPullRequestDefaultStream
+    } else {
+      _, ok := ctx.Categories["repository"]
+      if ok {
+        j.Stream = GitHubRepositoryDefaultStream
+      }
+    }
+  }
+  if shared.FlagPassed(ctx, "stream") {
+    j.Stream = *j.FlagStream
+  }
+  if ctx.EnvSet("STREAM") {
+    j.Stream = ctx.Env("STREAM")
+  }
+  // FIXME
+	// gGitHubDataSource.Categories = j.Categories
+	// gGitHubMetaData.Project = ctx.Project
+	// gGitHubMetaData.Tags = ctx.Tags
 	return
 }
 
@@ -412,8 +514,21 @@ func (j *DSGitHub) Init(ctx *shared.Ctx) (err error) {
 		return
 	}
 	if ctx.Debug > 1 {
-		shared.Printf("GitHub: %+v\nshared context: %s\n", j, ctx.Info())
+    r := &repository.RepositoryObjectBase{}
+    i := &igh.Issue{}
+    p := &igh.PullRequest{}
+    shared.Printf("GitHub: %+v\nshared context: %s\nModels: [%+v, %+v, %+v]", j, ctx.Info(), r, i, p)
 	}
+  if j.Stream != "" {
+    sess, err := session.NewSession()
+    if err != nil {
+      return err
+    }
+    s3Client := s3.New(sess)
+    objectStore := datalake.NewS3ObjectStore(s3Client)
+    datalakeClient := datalake.NewStoreClient(&objectStore)
+    j.AddPublisher(&datalakeClient)
+  }
 	return
 }
 
@@ -2545,26 +2660,6 @@ func (j *DSGitHub) ItemUpdatedOn(item interface{}) time.Time {
 	return when
 }
 
-// ItemNullableDate - return date value for a given field name, can be null
-func (j *DSGitHub) ItemNullableDate(item interface{}, field string) *strfmt.DateTime {
-	iWhen, ok := shared.Dig(item, []string{field}, false, true)
-	if !ok || iWhen == nil {
-		return nil
-	}
-	sWhen, ok := iWhen.(string)
-	if !ok {
-		// shared.Printf("ItemNullableDate: incorrect date (non string): %v,%T\n", iWhen, iWhen)
-		return nil
-	}
-	when, err := shared.TimeParseES(sWhen)
-	if err != nil {
-		// shared.Printf("ItemNullableDate: incorrect date (cannot parse): %s,%v\n", sWhen, err)
-		return nil
-	}
-	dt := strfmt.DateTime(when)
-	return &dt
-}
-
 // AddMetadata - add metadata to the item
 func (j *DSGitHub) AddMetadata(ctx *shared.Ctx, item interface{}) (mItem map[string]interface{}) {
 	mItem = make(map[string]interface{})
@@ -3126,9 +3221,9 @@ func (j *DSGitHub) GetRoles(ctx *shared.Ctx, item map[string]interface{}, roles 
 
 // GetRoleIdentity - return identity data for a given role
 func (j *DSGitHub) GetRoleIdentity(ctx *shared.Ctx, item map[string]interface{}, role string) (identity map[string]interface{}) {
-	user, ok := item[role]
-	if ok && user != nil && len(user.(map[string]interface{})) > 0 {
-		ident := j.IdentityForObject(ctx, user.(map[string]interface{}))
+	usr, ok := item[role]
+	if ok && user != nil && len(usr.(map[string]interface{})) > 0 {
+		ident := j.IdentityForObject(ctx, usr.(map[string]interface{}))
 		identity = map[string]interface{}{
 			"name":       ident[0],
 			"username":   ident[1],
@@ -5158,14 +5253,60 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 	if len(*docs) > 0 {
 		// actual output
 		shared.Printf("output processing(%d/%d/%v)\n", len(items), len(*docs), final)
-		data := j.GetModelData(ctx, *docs)
+    var(
+      repoStats repository.RepositoryObjectBase
+      issues    []igh.Issue
+      pulls     []igh.PullRequest
+      jsonBytes []byte
+      err       error
+    )
 		// FIXME: actual output to some consumer...
-		jsonBytes, err := jsoniter.Marshal(data)
+	  switch j.CurrentCategory {
+	  case "repository":
+		  repoStats = j.GetModelDataRepository(ctx, *docs)
+      if j.Publisher != nil {
+        formattedData := []interface{}{repoStats}
+        // FIXME: shouldn't it be something like RepositoryStatsCreated ?
+        err := j.Publisher.PushEvents(RepositoryUpdated, "insights", GitHubDataSource, "repository", os.Getenv("ENV"), formattedData)
+      } else {
+		    jsonBytes, err = jsoniter.Marshal(repoStats)
+      }
+	  case "issue":
+		  issues = j.GetModelDataIssue(ctx, *docs)
+      if j.Publisher != nil {
+        formattedData := make([]interface{}, 0)
+        for _, d := range issues {
+          // FIXME we should send two events arrays - issues created & issues updated
+          formattedData = append(formattedData, d)
+        }
+        err := j.Publisher.PushEvents(IssueCreated, "insights", GitHubDataSource, "issues", os.Getenv("ENV"), formattedData)
+        // handle err
+        // err = j.Publisher.PushEvents(IssueUpdated, "insights", GitHubDataSource, "issues", os.Getenv("ENV"), formattedData)
+      } else {
+		    jsonBytes, err = jsoniter.Marshal(issues)
+      }
+	  case "pull_request":
+		  pulls = j.GetModelDataPullRequest(ctx, *docs)
+      if j.Publisher != nil {
+        formattedData := make([]interface{}, 0)
+        for _, d := range pulls {
+          // FIXME we should send two events arrays - PRs created & PRs updated
+          formattedData = append(formattedData, d)
+        }
+        err := j.Publisher.PushEvents(PullRequestCreated, "insights", GitHubDataSource, "pull_requests", os.Getenv("ENV"), formattedData)
+        // handle err
+        // err = j.Publisher.PushEvents(PullRequestUpdated, "insights", GitHubDataSource, "pull_requests", os.Getenv("ENV"), formattedData)
+      } else {
+		    jsonBytes, err = jsoniter.Marshal(pulls)
+      }
+    }
 		if err != nil {
 			shared.Printf("Error: %+v\n", err)
 			return
 		}
-		shared.Printf("%s\n", string(jsonBytes))
+    if j.Publisher == nil {
+		  shared.Printf("%s\n", string(jsonBytes))
+    }
 		*docs = []interface{}{}
 		gMaxUpstreamDtMtx.Lock()
 		defer gMaxUpstreamDtMtx.Unlock()
@@ -5251,8 +5392,20 @@ func (j *DSGitHub) Sync(ctx *shared.Ctx, category string) (err error) {
 	return
 }
 
-// GetModelData - return data in swagger format
-func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *models.Data) {
+// GetModelDataIssue - return issues data in lfx-event-schema format
+func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (issues []igh.Issue) {
+  return
+}
+
+// GetModelDataPullRequest - return pull requests data in lfx-event-schema format
+func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) (pulls []igh.PullRequest) {
+  return
+}
+
+// GetModelDataRepository - return repository data in lfx-event-schema format
+func (j *DSGitHub) GetModelDataRepository(ctx *shared.Ctx, docs []interface{}) (stats repository.RepositoryObjectBase) {
+  return
+  /*
 	endpoint := &models.DataEndpoint{
 		Org:      j.Org,
 		Repo:     j.Repo,
@@ -6120,6 +6273,7 @@ func (j *DSGitHub) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *mode
 		}
 	}
 	return
+  */
 }
 
 func main() {
@@ -6133,10 +6287,13 @@ func main() {
 		return
 	}
 	for cat := range ctx.Categories {
+    github.WriteLog(&ctx, InProgress, cat)
 		err = github.Sync(&ctx, cat)
 		if err != nil {
 			shared.Printf("Error: %+v\n", err)
+      github.WriteLog(&ctx, Failed, cat + ": " + err.Error())
 			return
 		}
+    github.WriteLog(&ctx, Success, cat)
 	}
 }
