@@ -116,14 +116,6 @@ const (
 	// RepositoryUpdated - repository updated event (new stats calculated)
 	// FIXME? - shouldn't be something like github-repository.stats-calculated ?
 	RepositoryUpdated = "repository.updated"
-	// IssueCreated - issue created event
-	IssueCreated = "github-issue.created"
-	// IssueUpdated - issue updated event
-	IssueUpdated = "github-issue.updated"
-	// PullRequestCreated - pull request created event
-	PullRequestCreated = "github-pullrequest.created"
-	// PullRequestUpdated - pull request updated event
-	PullRequestUpdated = "github-pullrequest.updated"
 	// GitHubConnector ...
 	GitHubConnector = "github-connector"
 )
@@ -3690,7 +3682,7 @@ func (j *DSGitHub) EnrichPullRequestAssignees(ctx *shared.Ctx, pull map[string]i
 
 // EnrichPullRequestReactions - return rich reactions from raw pull request comment
 func (j *DSGitHub) EnrichPullRequestReactions(ctx *shared.Ctx, pull map[string]interface{}, reactions []map[string]interface{}) (richItems []interface{}, err error) {
-	// type: category, type(_), item_type( ), pull_request_comment_reaction=true
+	// type: category, type(_), item_type( ), Pull_request_comment_reaction=true
 	// copy pull request: github_repo, repo_name, repository
 	// copy reaction: content
 	// identify: id, id_in_repo, pull_request_comment_reaction_id, url_id
@@ -5280,7 +5272,7 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 						formattedData = append(formattedData, d)
 					}
 					// FIXME: shouldn't it be something like RepositoryStatsCreated ?
-					err = j.Publisher.PushEvents(RepositoryUpdated, "insights", GitHubDataSource, "repository", os.Getenv("ENV"), formattedData)
+					err = j.Publisher.PushEvents(RepositoryUpdated, "insights", GitHubDataSource, "repository", os.Getenv("STAGE"), formattedData)
 				} else {
 					jsonBytes, err = jsoniter.Marshal(repos)
 				}
@@ -5291,13 +5283,36 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 				if j.Publisher != nil {
 					insightsStr := "insights"
 					issuesStr := "issues"
-					envStr := os.Getenv("ENV")
+					envStr := os.Getenv("STAGE")
 					for k, v := range issuesData {
 						switch k {
 						case "created":
-							err = j.Publisher.PushEvents(IssueCreated, insightsStr, GitHubDataSource, issuesStr, envStr, v)
+							ev, _ := v[0].(igh.IssueCreatedEvent)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
 						case "updated":
-							err = j.Publisher.PushEvents(IssueUpdated, insightsStr, GitHubDataSource, issuesStr, envStr, v)
+							ev, _ := v[0].(igh.IssueUpdatedEvent)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+						case "assignee_added":
+							ev, _ := v[0].(igh.IssueAssigneeAddedEvent)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+						case "assignee_removed":
+							ev, _ := v[0].(igh.IssueAssigneeRemovedEvent)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+						case "comment_added":
+							ev, _ := v[0].(igh.IssueCommentAddedEvent)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+						case "comment_edited":
+							ev, _ := v[0].(igh.IssueCommentEditedEvent)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+						case "comment_deleted":
+							ev, _ := v[0].(igh.IssueCommentDeletedEvent)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+						case "comment_reaction_added":
+							ev, _ := v[0].(igh.IssueReactionAddedEvent)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+						case "comment_reaction_removed":
+							ev, _ := v[0].(igh.IssueReactionRemovedEvent)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
 						default:
 							err = fmt.Errorf("unknown issue event type '%s'", k)
 						}
@@ -5315,13 +5330,15 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 				if j.Publisher != nil {
 					insightsStr := "insights"
 					pullsStr := "pull_requests"
-					envStr := os.Getenv("ENV")
+					envStr := os.Getenv("STAGE")
 					for k, v := range pullsData {
 						switch k {
 						case "created":
-							err = j.Publisher.PushEvents(PullRequestCreated, insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							ev, _ := v[0].(igh.PullRequestCreatedEvent)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						case "updated":
-							err = j.Publisher.PushEvents(PullRequestUpdated, insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							ev, _ := v[0].(igh.PullRequestUpdatedEvent)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						default:
 							err = fmt.Errorf("unknown pull request event type '%s'", k)
 						}
@@ -5460,7 +5477,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 			switch k {
 			case "created":
 				baseEvent := service.BaseEvent{
-					Type: PullRequestCreated,
+					Type: service.EventType(igh.PullRequestCreatedEvent{}.Event()),
 					CRUDInfo: service.CRUDInfo{
 						CreatedBy: GitHubConnector,
 						UpdatedBy: GitHubConnector,
@@ -5480,7 +5497,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 				data[k] = ary
 			case "updated":
 				baseEvent := service.BaseEvent{
-					Type: PullRequestUpdated,
+					Type: service.EventType(igh.PullRequestUpdatedEvent{}.Event()),
 					CRUDInfo: service.CRUDInfo{
 						CreatedBy: GitHubConnector,
 						UpdatedBy: GitHubConnector,
@@ -6094,7 +6111,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 			switch k {
 			case "created":
 				baseEvent := service.BaseEvent{
-					Type: IssueCreated,
+					Type: service.EventType(igh.IssueCreatedEvent{}.Event()),
 					CRUDInfo: service.CRUDInfo{
 						CreatedBy: GitHubConnector,
 						UpdatedBy: GitHubConnector,
@@ -6114,7 +6131,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 				data[k] = ary
 			case "updated":
 				baseEvent := service.BaseEvent{
-					Type: IssueUpdated,
+					Type: service.EventType(igh.IssueUpdatedEvent{}.Event()),
 					CRUDInfo: service.CRUDInfo{
 						CreatedBy: GitHubConnector,
 						UpdatedBy: GitHubConnector,
