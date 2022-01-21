@@ -6086,23 +6086,27 @@ func (j *DSGitHub) GetModelDataRepository(ctx *shared.Ctx, docs []interface{}) (
 
 // GetModelDataIssue - return issues data in lfx-event-schema format
 func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data map[string][]interface{}, err error) {
-	/*
-	   github.IssueCreatedEvent{},
-	   github.IssueUpdatedEvent{},
-	   github.IssueAssigneeAddedEvent{},
-	   github.IssueAssigneeRemovedEvent{},
-	   github.IssueCommentAddedEvent{},
-	   github.IssueCommentEditedEvent{},
-	   github.IssueCommentDeletedEvent{},
-	   github.IssueCommentReactionAddedEvent{},
-	   github.IssueCommentReactionRemovedEvent{},
-	*/
 	data = make(map[string][]interface{})
 	defer func() {
 		if err != nil {
 			return
 		}
 		issueBaseEvent := igh.IssueBaseEvent{
+			Connector:        insights.GithubConnector,
+			ConnectorVersion: GitHubBackendVersion,
+			Source:           insights.GithubSource,
+		}
+		issueAssigneeBaseEvent := igh.IssueAssigneeBaseEvent{
+			Connector:        insights.GithubConnector,
+			ConnectorVersion: GitHubBackendVersion,
+			Source:           insights.GithubSource,
+		}
+		issueCommentBaseEvent := igh.IssueCommentBaseEvent{
+			Connector:        insights.GithubConnector,
+			ConnectorVersion: GitHubBackendVersion,
+			Source:           insights.GithubSource,
+		}
+		issueCommentReactionBaseEvent := igh.IssueCommentReactionBaseEvent{
 			Connector:        insights.GithubConnector,
 			ConnectorVersion: GitHubBackendVersion,
 			Source:           insights.GithubSource,
@@ -6119,7 +6123,6 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 						UpdatedAt: time.Now().Unix(),
 					},
 				}
-				// ary := []igh.IssueCreatedEvent{}
 				ary := []interface{}{}
 				for _, issue := range v {
 					ary = append(ary, igh.IssueCreatedEvent{
@@ -6139,13 +6142,69 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 						UpdatedAt: time.Now().Unix(),
 					},
 				}
-				// ary := []igh.IssueUpdatedEvent{}
 				ary := []interface{}{}
 				for _, issue := range v {
 					ary = append(ary, igh.IssueUpdatedEvent{
 						IssueBaseEvent: issueBaseEvent,
 						BaseEvent:      baseEvent,
 						Payload:        issue.(igh.Issue),
+					})
+				}
+				data[k] = ary
+			case "assignee_added":
+				baseEvent := service.BaseEvent{
+					Type: service.EventType(igh.IssueAssigneeAddedEvent{}.Event()),
+					CRUDInfo: service.CRUDInfo{
+						CreatedBy: GitHubConnector,
+						UpdatedBy: GitHubConnector,
+						CreatedAt: time.Now().Unix(),
+						UpdatedAt: time.Now().Unix(),
+					},
+				}
+				ary := []interface{}{}
+				for _, issueAssignee := range v {
+					ary = append(ary, igh.IssueAssigneeAddedEvent{
+						IssueAssigneeBaseEvent: issueAssigneeBaseEvent,
+						BaseEvent:              baseEvent,
+						Payload:                issueAssignee.(igh.IssueAssignee),
+					})
+				}
+				data[k] = ary
+			case "comment_added":
+				baseEvent := service.BaseEvent{
+					Type: service.EventType(igh.IssueCommentAddedEvent{}.Event()),
+					CRUDInfo: service.CRUDInfo{
+						CreatedBy: GitHubConnector,
+						UpdatedBy: GitHubConnector,
+						CreatedAt: time.Now().Unix(),
+						UpdatedAt: time.Now().Unix(),
+					},
+				}
+				ary := []interface{}{}
+				for _, issueComment := range v {
+					ary = append(ary, igh.IssueCommentAddedEvent{
+						IssueCommentBaseEvent: issueCommentBaseEvent,
+						BaseEvent:             baseEvent,
+						Payload:               issueComment.(igh.IssueComment),
+					})
+				}
+				data[k] = ary
+			case "comment_reaction_added":
+				baseEvent := service.BaseEvent{
+					Type: service.EventType(igh.IssueCommentReactionAddedEvent{}.Event()),
+					CRUDInfo: service.CRUDInfo{
+						CreatedBy: GitHubConnector,
+						UpdatedBy: GitHubConnector,
+						CreatedAt: time.Now().Unix(),
+						UpdatedAt: time.Now().Unix(),
+					},
+				}
+				ary := []interface{}{}
+				for _, issueCommentReaction := range v {
+					ary = append(ary, igh.IssueCommentReactionAddedEvent{
+						IssueCommentReactionBaseEvent: issueCommentReactionBaseEvent,
+						BaseEvent:                     baseEvent,
+						Payload:                       issueCommentReaction.(igh.IssueCommentReaction),
 					})
 				}
 				data[k] = ary
