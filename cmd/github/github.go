@@ -5260,13 +5260,11 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 		// actual output
 		shared.Printf("output processing(%d/%d/%v)\n", len(items), len(*docs), final)
 		var (
-			repos         []repository.RepositoryUpdatedEvent
-			issuesCreated []igh.IssueCreatedEvent
-			issuesUpdated []igh.IssueUpdatedEvent
-			pullsCreated  []igh.PullRequestCreatedEvent
-			pullsUpdated  []igh.PullRequestUpdatedEvent
-			jsonBytes     []byte
-			err           error
+			repos      []repository.RepositoryUpdatedEvent
+			issuesData map[string][]interface{}
+			pullsData  map[string][]interface{}
+			jsonBytes  []byte
+			err        error
 		)
 		switch j.CurrentCategory {
 		case "repository":
@@ -5284,43 +5282,51 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 				}
 			}
 		case "issue":
-			issuesCreated, issuesUpdated, err = j.GetModelDataIssue(ctx, *docs)
+			issuesData, err = j.GetModelDataIssue(ctx, *docs)
 			if err == nil {
 				if j.Publisher != nil {
-					formattedData := make([]interface{}, 0)
-					for _, d := range issuesCreated {
-						formattedData = append(formattedData, d)
-					}
-					err = j.Publisher.PushEvents(IssueCreated, "insights", GitHubDataSource, "issues", os.Getenv("ENV"), formattedData)
-					if err == nil {
-						formattedData = make([]interface{}, 0)
-						for _, d := range issuesUpdated {
-							formattedData = append(formattedData, d)
+					insightsStr := "insights"
+					issuesStr := "issues"
+					envStr := os.Getenv("ENV")
+					for k, v := range issuesData {
+						switch k {
+						case "created":
+							err = j.Publisher.PushEvents(IssueCreated, insightsStr, GitHubDataSource, issuesStr, envStr, v)
+						case "updated":
+							err = j.Publisher.PushEvents(IssueUpdated, insightsStr, GitHubDataSource, issuesStr, envStr, v)
+						default:
+							err = fmt.Errorf("unknown issue event type '%s'", k)
 						}
-						err = j.Publisher.PushEvents(IssueUpdated, "insights", GitHubDataSource, "issues", os.Getenv("ENV"), formattedData)
+						if err != nil {
+							break
+						}
 					}
 				} else {
-					jsonBytes, err = jsoniter.Marshal([]interface{}{issuesCreated, issuesUpdated})
+					jsonBytes, err = jsoniter.Marshal(issuesData)
 				}
 			}
 		case "pull_request":
-			pullsCreated, pullsUpdated, err = j.GetModelDataPullRequest(ctx, *docs)
+			pullsData, err = j.GetModelDataPullRequest(ctx, *docs)
 			if err == nil {
 				if j.Publisher != nil {
-					formattedData := make([]interface{}, 0)
-					for _, d := range pullsCreated {
-						formattedData = append(formattedData, d)
-					}
-					err = j.Publisher.PushEvents(PullRequestCreated, "insights", GitHubDataSource, "pull_requests", os.Getenv("ENV"), formattedData)
-					if err == nil {
-						formattedData := make([]interface{}, 0)
-						for _, d := range pullsUpdated {
-							formattedData = append(formattedData, d)
+					insightsStr := "insights"
+					pullsStr := "pull_requests"
+					envStr := os.Getenv("ENV")
+					for k, v := range pullsData {
+						switch k {
+						case "created":
+							err = j.Publisher.PushEvents(PullRequestCreated, insightsStr, GitHubDataSource, pullsStr, envStr, v)
+						case "updated":
+							err = j.Publisher.PushEvents(PullRequestUpdated, insightsStr, GitHubDataSource, pullsStr, envStr, v)
+						default:
+							err = fmt.Errorf("unknown pull request event type '%s'", k)
 						}
-						err = j.Publisher.PushEvents(PullRequestUpdated, "insights", GitHubDataSource, "pull_requests", os.Getenv("ENV"), formattedData)
+						if err != nil {
+							break
+						}
 					}
 				} else {
-					jsonBytes, err = jsoniter.Marshal([]interface{}{pullsCreated, pullsUpdated})
+					jsonBytes, err = jsoniter.Marshal(pullsData)
 				}
 			}
 		default:
@@ -5419,44 +5425,81 @@ func (j *DSGitHub) Sync(ctx *shared.Ctx, category string) (err error) {
 }
 
 // GetModelDataPullRequest - return pull requests data in lfx-event-schema format
-func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) (created []igh.PullRequestCreatedEvent, updated []igh.PullRequestUpdatedEvent, err error) {
+func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) (data map[string][]interface{}, err error) {
 	/*
-		created = append(data, igh.PullRequestCreatedEvent{
-			PullRequestBaseEvent: pullRequestBaseEvent,
-			BaseEvent:      createdBaseEvent,
-			Payload:        pullRequest,
-		})
-		updated = append(data, igh.PullRequestUpdatedEvent{
-			PullRequestBaseEvent: pullRequestBaseEvent,
-			BaseEvent:      updatedBaseEvent,
-			Payload:        pullRequest,
-		})
+	   github.PullRequestUpdatedEvent{},
+	   github.PullRequestCreatedEvent{},
+	   github.PullRequestAssigneeAddedEvent{},
+	   github.PullRequestAssigneeRemovedEvent{},
+	   github.PullRequestCommentAddedEvent{},
+	   github.PullRequestCommentEditedEvent{},
+	   github.PullRequestCommentDeletedEvent{},
+	   github.PullRequestCommentReactionAddedEvent{},
+	   github.PullRequestCommentReactionRemovedEvent{},
+	   github.PullRequestReactionAddedEvent{},
+	   github.PullRequestReactionRemovedEvent{},
+	   github.PullRequestReviewAddedEvent{},
+	   github.PullRequestReviewerAddedEvent{},
+	   github.PullRequestReviewerRemovedEvent{},
 	*/
-	pullRequestBaseEvent := igh.PullRequestBaseEvent{
-		Connector:        insights.GithubConnector,
-		ConnectorVersion: GitHubBackendVersion,
-		Source:           insights.GithubSource,
-	}
-	createdBaseEvent := service.BaseEvent{
-		Type: PullRequestCreated,
-		CRUDInfo: service.CRUDInfo{
-			CreatedBy: GitHubConnector,
-			UpdatedBy: GitHubConnector,
-			CreatedAt: time.Now().Unix(),
-			UpdatedAt: time.Now().Unix(),
-		},
-	}
-	updatedBaseEvent := service.BaseEvent{
-		Type: PullRequestUpdated,
-		CRUDInfo: service.CRUDInfo{
-			CreatedBy: GitHubConnector,
-			UpdatedBy: GitHubConnector,
-			CreatedAt: time.Now().Unix(),
-			UpdatedAt: time.Now().Unix(),
-		},
-	}
-	// FIXME
-	shared.Printf("(%+v,%+v)\n", pullRequestBaseEvent, createdBaseEvent, updatedBaseEvent)
+	data = make(map[string][]interface{})
+	defer func() {
+		if err != nil {
+			return
+		}
+		pullRequestBaseEvent := igh.PullRequestBaseEvent{
+			Connector:        insights.GithubConnector,
+			ConnectorVersion: GitHubBackendVersion,
+			Source:           insights.GithubSource,
+		}
+		for k, v := range data {
+			switch k {
+			case "created":
+				baseEvent := service.BaseEvent{
+					Type: PullRequestCreated,
+					CRUDInfo: service.CRUDInfo{
+						CreatedBy: GitHubConnector,
+						UpdatedBy: GitHubConnector,
+						CreatedAt: time.Now().Unix(),
+						UpdatedAt: time.Now().Unix(),
+					},
+				}
+				// ary := []igh.PullRequestCreatedEvent{}
+				ary := []interface{}{}
+				for _, pullRequest := range v {
+					ary = append(ary, igh.PullRequestCreatedEvent{
+						PullRequestBaseEvent: pullRequestBaseEvent,
+						BaseEvent:            baseEvent,
+						Payload:              pullRequest.(igh.PullRequest),
+					})
+				}
+				data[k] = ary
+			case "updated":
+				baseEvent := service.BaseEvent{
+					Type: PullRequestUpdated,
+					CRUDInfo: service.CRUDInfo{
+						CreatedBy: GitHubConnector,
+						UpdatedBy: GitHubConnector,
+						CreatedAt: time.Now().Unix(),
+						UpdatedAt: time.Now().Unix(),
+					},
+				}
+				// ary := []igh.PullRequestUpdatedEvent{}
+				ary := []interface{}{}
+				for _, pullRequest := range v {
+					ary = append(ary, igh.PullRequestUpdatedEvent{
+						PullRequestBaseEvent: pullRequestBaseEvent,
+						BaseEvent:            baseEvent,
+						Payload:              pullRequest.(igh.PullRequest),
+					})
+				}
+				data[k] = ary
+			default:
+				err = fmt.Errorf("unknown pull request '%s' event", k)
+				return
+			}
+		}
+	}()
 	return
 	/*
 		endpoint := &models.DataEndpoint{
@@ -6021,44 +6064,76 @@ func (j *DSGitHub) GetModelDataRepository(ctx *shared.Ctx, docs []interface{}) (
 }
 
 // GetModelDataIssue - return issues data in lfx-event-schema format
-func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (created []igh.IssueCreatedEvent, updated []igh.IssueUpdatedEvent, err error) {
+func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data map[string][]interface{}, err error) {
 	/*
-		created = append(data, igh.IssueCreatedEvent{
-			IssueBaseEvent: issueBaseEvent,
-			BaseEvent:      createdBaseEvent,
-			Payload:        issue,
-		})
-		updated = append(data, igh.IssueUpdatedEvent{
-			IssueBaseEvent: issueBaseEvent,
-			BaseEvent:      updatedBaseEvent,
-			Payload:        issue,
-		})
+	   github.IssueCreatedEvent{},
+	   github.IssueUpdatedEvent{},
+	   github.IssueAssigneeAddedEvent{},
+	   github.IssueAssigneeRemovedEvent{},
+	   github.IssueCommentAddedEvent{},
+	   github.IssueCommentEditedEvent{},
+	   github.IssueCommentDeletedEvent{},
+	   github.IssueCommentReactionAddedEvent{},
+	   github.IssueCommentReactionRemovedEvent{},
 	*/
-	issueBaseEvent := igh.IssueBaseEvent{
-		Connector:        insights.GithubConnector,
-		ConnectorVersion: GitHubBackendVersion,
-		Source:           insights.GithubSource,
-	}
-	createdBaseEvent := service.BaseEvent{
-		Type: IssueCreated,
-		CRUDInfo: service.CRUDInfo{
-			CreatedBy: GitHubConnector,
-			UpdatedBy: GitHubConnector,
-			CreatedAt: time.Now().Unix(),
-			UpdatedAt: time.Now().Unix(),
-		},
-	}
-	updatedBaseEvent := service.BaseEvent{
-		Type: IssueUpdated,
-		CRUDInfo: service.CRUDInfo{
-			CreatedBy: GitHubConnector,
-			UpdatedBy: GitHubConnector,
-			CreatedAt: time.Now().Unix(),
-			UpdatedAt: time.Now().Unix(),
-		},
-	}
-	// FIXME
-	shared.Printf("(%+v,%+v)\n", issueBaseEvent, createdBaseEvent, updatedBaseEvent)
+	data = make(map[string][]interface{})
+	defer func() {
+		if err != nil {
+			return
+		}
+		issueBaseEvent := igh.IssueBaseEvent{
+			Connector:        insights.GithubConnector,
+			ConnectorVersion: GitHubBackendVersion,
+			Source:           insights.GithubSource,
+		}
+		for k, v := range data {
+			switch k {
+			case "created":
+				baseEvent := service.BaseEvent{
+					Type: IssueCreated,
+					CRUDInfo: service.CRUDInfo{
+						CreatedBy: GitHubConnector,
+						UpdatedBy: GitHubConnector,
+						CreatedAt: time.Now().Unix(),
+						UpdatedAt: time.Now().Unix(),
+					},
+				}
+				// ary := []igh.IssueCreatedEvent{}
+				ary := []interface{}{}
+				for _, issue := range v {
+					ary = append(ary, igh.IssueCreatedEvent{
+						IssueBaseEvent: issueBaseEvent,
+						BaseEvent:      baseEvent,
+						Payload:        issue.(igh.Issue),
+					})
+				}
+				data[k] = ary
+			case "updated":
+				baseEvent := service.BaseEvent{
+					Type: IssueUpdated,
+					CRUDInfo: service.CRUDInfo{
+						CreatedBy: GitHubConnector,
+						UpdatedBy: GitHubConnector,
+						CreatedAt: time.Now().Unix(),
+						UpdatedAt: time.Now().Unix(),
+					},
+				}
+				// ary := []igh.IssueUpdatedEvent{}
+				ary := []interface{}{}
+				for _, issue := range v {
+					ary = append(ary, igh.IssueUpdatedEvent{
+						IssueBaseEvent: issueBaseEvent,
+						BaseEvent:      baseEvent,
+						Payload:        issue.(igh.Issue),
+					})
+				}
+				data[k] = ary
+			default:
+				err = fmt.Errorf("unknown issue '%s' event", k)
+				return
+			}
+		}
+	}()
 	return
 	/*
 		endpoint := &models.DataEndpoint{
