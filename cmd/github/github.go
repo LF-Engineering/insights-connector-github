@@ -3679,7 +3679,7 @@ func (j *DSGitHub) EnrichPullRequestAssignees(ctx *shared.Ctx, pull map[string]i
 
 // EnrichPullRequestReactions - return rich reactions from raw pull request comment
 func (j *DSGitHub) EnrichPullRequestReactions(ctx *shared.Ctx, pull map[string]interface{}, reactions []map[string]interface{}) (richItems []interface{}, err error) {
-	// type: category, type(_), item_type( ), Pull_request_comment_reaction=true
+	// type: category, type(_), item_type( ), pull_request_comment_reaction=true
 	// copy pull request: github_repo, repo_name, repository
 	// copy reaction: content
 	// identify: id, id_in_repo, pull_request_comment_reaction_id, url_id
@@ -5335,6 +5335,56 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						case "updated":
 							ev, _ := v[0].(igh.PullRequestUpdatedEvent)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							/*
+							   github.PullRequestAssigneeAddedEvent{},
+							   github.PullRequestAssigneeRemovedEvent{},
+							   github.PullRequestCommentAddedEvent{},
+							   github.PullRequestCommentEditedEvent{},
+							   github.PullRequestCommentDeletedEvent{},
+							   github.PullRequestCommentReactionAddedEvent{},
+							   github.PullRequestCommentReactionRemovedEvent{},
+							   github.PullRequestReactionAddedEvent{},
+							   github.PullRequestReactionRemovedEvent{},
+							   github.PullRequestReviewAddedEvent{},
+							   github.PullRequestReviewerAddedEvent{},
+							   github.PullRequestReviewerRemovedEvent{},
+							*/
+						case "assignee_added":
+							ev, _ := v[0].(igh.PullRequestAssigneeAddedEvent)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+						case "assignee_removed":
+							ev, _ := v[0].(igh.PullRequestAssigneeRemovedEvent)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+						case "comment_added":
+							ev, _ := v[0].(igh.PullRequestCommentAddedEvent)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+						case "comment_edited":
+							ev, _ := v[0].(igh.PullRequestCommentEditedEvent)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+						case "comment_deleted":
+							ev, _ := v[0].(igh.PullRequestCommentDeletedEvent)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+						case "comment_reaction_added":
+							ev, _ := v[0].(igh.PullRequestCommentReactionAddedEvent)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+						case "comment_reaction_removed":
+							ev, _ := v[0].(igh.PullRequestCommentReactionRemovedEvent)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+						case "reaction_added":
+							ev, _ := v[0].(igh.PullRequestReactionAddedEvent)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+						case "reaction_removed":
+							ev, _ := v[0].(igh.PullRequestReactionRemovedEvent)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+						case "review_added":
+							ev, _ := v[0].(igh.PullRequestReviewAddedEvent)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+						case "reviewer_added":
+							ev, _ := v[0].(igh.PullRequestReviewerAddedEvent)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+						case "reviewer_removed":
+							ev, _ := v[0].(igh.PullRequestReviewerRemovedEvent)
 							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						default:
 							err = fmt.Errorf("unknown pull request event type '%s'", k)
