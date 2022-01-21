@@ -124,12 +124,6 @@ const (
 	PullRequestCreated = "github-pullrequest.created"
 	// PullRequestUpdated - pull request updated event
 	PullRequestUpdated = "github-pullrequest.updated"
-	// InProgress status
-	InProgress = "in_progress"
-	// Failed status
-	Failed = "failed"
-	// Success status
-	Success = "success"
 	// GitHubConnector ...
 	GitHubConnector = "github-connector"
 )
@@ -238,13 +232,15 @@ func (j *DSGitHub) AddPublisher(publisher Publisher) {
 // AddLogger - adds logger
 func (j *DSGitHub) AddLogger(ctx *shared.Ctx) {
 	client, err := elastic.NewClientProvider(&elastic.Params{
-		URL: ctx.ESURL,
+		URL:      os.Getenv("ELASTIC_LOG_URL"),
+		Password: os.Getenv("ELASTIC_LOG_PASSWORD"),
+		Username: os.Getenv("ELASTIC_LOG_USER"),
 	})
 	if err != nil {
 		shared.Printf("AddLogger error: %+v", err)
 		return
 	}
-	logProvider, err := logger.NewLogger(client, os.Getenv("ENV"))
+	logProvider, err := logger.NewLogger(client, os.Getenv("STAGE"))
 	if err != nil {
 		shared.Printf("AddLogger error: %+v", err)
 		return
@@ -255,12 +251,19 @@ func (j *DSGitHub) AddLogger(ctx *shared.Ctx) {
 // WriteLog - writes to log
 func (j *DSGitHub) WriteLog(ctx *shared.Ctx, status, message string) {
 	_ = j.Logger.Write(&logger.Log{
-		Connector:     GitHubDataSource,
-		Configuration: []map[string]string{{"PROJECT_SLUG": ctx.Project, "GITHUB_ORG": j.Org, "GITHUB_REPO": j.Repo, "GITHUB_REPO_URL": j.URL, "ES_URL": ctx.ESURL}},
-		Status:        status,
-		CreatedAt:     time.Now(),
-		UpdatedAt:     time.Now(),
-		Message:       message,
+		Connector: GitHubDataSource,
+		Configuration: []map[string]string{
+			{
+				"GITHUB_ORG":  j.Org,
+				"GITHUB_REPO": j.Repo,
+				"REPO_URL":    j.URL,
+				"ES_URL":      ctx.ESURL,
+				"ProjectSlug": ctx.Project,
+			}},
+		Status:    status,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		Message:   message,
 	})
 }
 
@@ -535,6 +538,7 @@ func (j *DSGitHub) Init(ctx *shared.Ctx) (err error) {
 		datalakeClient := datalake.NewStoreClient(&objectStore)
 		j.AddPublisher(&datalakeClient)
 	}
+	j.AddLogger(ctx)
 	return
 }
 
@@ -6495,13 +6499,13 @@ func main() {
 		return
 	}
 	for cat := range ctx.Categories {
-		github.WriteLog(&ctx, InProgress, cat)
+		github.WriteLog(&ctx, logger.InProgress, cat)
 		err = github.Sync(&ctx, cat)
 		if err != nil {
 			shared.Printf("Error: %+v\n", err)
-			github.WriteLog(&ctx, Failed, cat+": "+err.Error())
+			github.WriteLog(&ctx, logger.Failed, cat+": "+err.Error())
 			return
 		}
-		github.WriteLog(&ctx, Success, cat)
+		github.WriteLog(&ctx, logger.Done, cat)
 	}
 }
