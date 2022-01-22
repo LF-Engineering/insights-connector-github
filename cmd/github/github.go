@@ -5289,8 +5289,6 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 					issuesStr := "issues"
 					envStr := os.Getenv("STAGE")
 					for k, v := range issuesData {
-						// FIXME
-						shared.Printf("(k,len(v)) = ('%s',%d)\n", k, len(v))
 						switch k {
 						case "created":
 							ev, _ := v[0].(igh.IssueCreatedEvent)
@@ -5344,6 +5342,8 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 					pullsStr := "pull_requests"
 					envStr := os.Getenv("STAGE")
 					for k, v := range pullsData {
+						// FIXME
+						shared.Printf("(k,len(v)) = ('%s',%d)\n", k, len(v))
 						switch k {
 						case "created":
 							ev, _ := v[0].(igh.PullRequestCreatedEvent)
@@ -5351,20 +5351,6 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 						case "updated":
 							ev, _ := v[0].(igh.PullRequestUpdatedEvent)
 							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
-							/*
-							   github.PullRequestAssigneeAddedEvent{},
-							   github.PullRequestAssigneeRemovedEvent{},
-							   github.PullRequestCommentAddedEvent{},
-							   github.PullRequestCommentEditedEvent{},
-							   github.PullRequestCommentDeletedEvent{},
-							   github.PullRequestCommentReactionAddedEvent{},
-							   github.PullRequestCommentReactionRemovedEvent{},
-							   github.PullRequestReactionAddedEvent{},
-							   github.PullRequestReactionRemovedEvent{},
-							   github.PullRequestReviewAddedEvent{},
-							   github.PullRequestReviewerAddedEvent{},
-							   github.PullRequestReviewerRemovedEvent{},
-							*/
 						case "assignee_added":
 							ev, _ := v[0].(igh.PullRequestAssigneeAddedEvent)
 							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
@@ -5380,12 +5366,14 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 						case "comment_deleted":
 							ev, _ := v[0].(igh.PullRequestCommentDeletedEvent)
 							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
-						case "comment_reaction_added":
-							ev, _ := v[0].(igh.PullRequestCommentReactionAddedEvent)
-							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
-						case "comment_reaction_removed":
-							ev, _ := v[0].(igh.PullRequestCommentReactionRemovedEvent)
-							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							/* there are no such events
+							case "comment_reaction_added":
+								ev, _ := v[0].(igh.PullRequestCommentReactionAddedEvent)
+								err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							case "comment_reaction_removed":
+								ev, _ := v[0].(igh.PullRequestCommentReactionRemovedEvent)
+								err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							*/
 						case "reaction_added":
 							ev, _ := v[0].(igh.PullRequestReactionAddedEvent)
 							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
@@ -5401,6 +5389,14 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 						case "reviewer_removed":
 							ev, _ := v[0].(igh.PullRequestReviewerRemovedEvent)
 							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							/* FIXME: we miss those events in lfx-event-schema
+							case "requested_reviewer_added":
+								ev, _ := v[0].(igh.PullRequestRequestedReviewerAddedEvent)
+								err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							case "requested_reviewer_removed":
+								ev, _ := v[0].(igh.PullRequestRequestedReviewerRemovedEvent)
+								err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							*/
 						default:
 							err = fmt.Errorf("unknown pull request event type '%s'", k)
 						}
@@ -5507,28 +5503,32 @@ func (j *DSGitHub) Sync(ctx *shared.Ctx, category string) (err error) {
 
 // GetModelDataPullRequest - return pull requests data in lfx-event-schema format
 func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) (data map[string][]interface{}, err error) {
-	/*
-	   github.PullRequestUpdatedEvent{},
-	   github.PullRequestCreatedEvent{},
-	   github.PullRequestAssigneeAddedEvent{},
-	   github.PullRequestAssigneeRemovedEvent{},
-	   github.PullRequestCommentAddedEvent{},
-	   github.PullRequestCommentEditedEvent{},
-	   github.PullRequestCommentDeletedEvent{},
-	   github.PullRequestCommentReactionAddedEvent{},
-	   github.PullRequestCommentReactionRemovedEvent{},
-	   github.PullRequestReactionAddedEvent{},
-	   github.PullRequestReactionRemovedEvent{},
-	   github.PullRequestReviewAddedEvent{},
-	   github.PullRequestReviewerAddedEvent{},
-	   github.PullRequestReviewerRemovedEvent{},
-	*/
 	data = make(map[string][]interface{})
 	defer func() {
 		if err != nil {
 			return
 		}
 		pullRequestBaseEvent := igh.PullRequestBaseEvent{
+			Connector:        insights.GithubConnector,
+			ConnectorVersion: GitHubBackendVersion,
+			Source:           insights.GithubSource,
+		}
+		pullRequestAssigneeBaseEvent := igh.PullRequestAssigneeBaseEvent{
+			Connector:        insights.GithubConnector,
+			ConnectorVersion: GitHubBackendVersion,
+			Source:           insights.GithubSource,
+		}
+		pullRequestCommentBaseEvent := igh.PullRequestCommentBaseEvent{
+			Connector:        insights.GithubConnector,
+			ConnectorVersion: GitHubBackendVersion,
+			Source:           insights.GithubSource,
+		}
+		pullRequestCommentReactionBaseEvent := igh.PullRequestCommentReactionBaseEvent{
+			Connector:        insights.GithubConnector,
+			ConnectorVersion: GitHubBackendVersion,
+			Source:           insights.GithubSource,
+		}
+		pullRequestReviewBaseEvent := igh.PullRequestReviewBaseEvent{
 			Connector:        insights.GithubConnector,
 			ConnectorVersion: GitHubBackendVersion,
 			Source:           insights.GithubSource,
@@ -5575,12 +5575,174 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					})
 				}
 				data[k] = ary
+			case "assignee_added":
+				baseEvent := service.BaseEvent{
+					Type: service.EventType(igh.PullRequestAssigneeAddedEvent{}.Event()),
+					CRUDInfo: service.CRUDInfo{
+						CreatedBy: GitHubConnector,
+						UpdatedBy: GitHubConnector,
+						CreatedAt: time.Now().Unix(),
+						UpdatedAt: time.Now().Unix(),
+					},
+				}
+				ary := []interface{}{}
+				for _, pullRequestAssignee := range v {
+					ary = append(ary, igh.PullRequestAssigneeAddedEvent{
+						PullRequestAssigneeBaseEvent: pullRequestAssigneeBaseEvent,
+						BaseEvent:                    baseEvent,
+						Payload:                      pullRequestAssignee.(igh.PullRequestAssignee),
+					})
+				}
+				data[k] = ary
+			case "comment_added":
+				baseEvent := service.BaseEvent{
+					Type: service.EventType(igh.PullRequestCommentAddedEvent{}.Event()),
+					CRUDInfo: service.CRUDInfo{
+						CreatedBy: GitHubConnector,
+						UpdatedBy: GitHubConnector,
+						CreatedAt: time.Now().Unix(),
+						UpdatedAt: time.Now().Unix(),
+					},
+				}
+				ary := []interface{}{}
+				for _, pullRequestComment := range v {
+					ary = append(ary, igh.PullRequestCommentAddedEvent{
+						PullRequestCommentBaseEvent: pullRequestCommentBaseEvent,
+						BaseEvent:                   baseEvent,
+						Payload:                     pullRequestComment.(igh.PullRequestComment),
+					})
+				}
+				data[k] = ary
+			case "comment_reaction_added":
+				baseEvent := service.BaseEvent{
+					Type: service.EventType(igh.PullRequestCommentReactionAddedEvent{}.Event()),
+					CRUDInfo: service.CRUDInfo{
+						CreatedBy: GitHubConnector,
+						UpdatedBy: GitHubConnector,
+						CreatedAt: time.Now().Unix(),
+						UpdatedAt: time.Now().Unix(),
+					},
+				}
+				ary := []interface{}{}
+				for _, pullRequestCommentReaction := range v {
+					ary = append(ary, igh.PullRequestCommentReactionAddedEvent{
+						PullRequestCommentReactionBaseEvent: pullRequestCommentReactionBaseEvent,
+						BaseEvent:                           baseEvent,
+						Payload:                             pullRequestCommentReaction.(igh.PullRequestCommentReaction),
+					})
+				}
+				data[k] = ary
+			case "review_added":
+				baseEvent := service.BaseEvent{
+					Type: service.EventType(igh.PullRequestReviewAddedEvent{}.Event()),
+					CRUDInfo: service.CRUDInfo{
+						CreatedBy: GitHubConnector,
+						UpdatedBy: GitHubConnector,
+						CreatedAt: time.Now().Unix(),
+						UpdatedAt: time.Now().Unix(),
+					},
+				}
+				ary := []interface{}{}
+				for _, pullRequestReview := range v {
+					ary = append(ary, igh.PullRequestReviewAddedEvent{
+						PullRequestReviewBaseEvent: pullRequestReviewBaseEvent,
+						BaseEvent:                  baseEvent,
+						Payload:                    pullRequestReview.(igh.PullRequestReview),
+					})
+				}
+				data[k] = ary
 			default:
 				err = fmt.Errorf("unknown pull request '%s' event", k)
 				return
 			}
 		}
 	}()
+	// pullRequestID, repoID, userID, pullRequestAssigneeID, pullRequestReactionID, pullRequestCommentID, pullRequestCommentReactionID := "", "", "", "", "", "", ""
+	pullRequestID, repoID := "", ""
+	// source := GitHubDataSource
+	for _, iDoc := range docs {
+		nReactions := 0
+		nComments := 0
+		nReviews := 0
+		doc, _ := iDoc.(map[string]interface{})
+		createdOn, _ := doc["created_at"].(time.Time)
+		updatedOn := j.ItemUpdatedOn(doc)
+		githubRepoName, _ := doc["github_repo"].(string)
+		repoID, err = repository.GenerateRepositoryID(githubRepoName, j.URL, GitHubDataSource)
+		// shared.Printf("repository.GenerateRepositoryID(%s, %s, %s) -> %s,%v\n", githubRepoName, j.URL, GitHubDataSource, repoID, err)
+		if err != nil {
+			shared.Printf("GenerateRepositoryID(%s,%s,%s): %+v for %+v", githubRepoName, j.URL, GitHubDataSource, err, doc)
+			return
+		}
+		fIID, _ := doc["pull_request_id"].(float64)
+		sIID := fmt.Sprintf("%.0f", fIID)
+		pullRequestID, err = igh.GenerateGithubPullRequestID(repoID, sIID)
+		// shared.Printf("igh.GenerateGithubPullRequestID(%s, %s) -> %s,%v\n", repoID, sIID, pullRequestID, err)
+		if err != nil {
+			shared.Printf("GenerateGithubPullRequestID(%s,%s): %+v for %+v", repoID, sIID, err, doc)
+			return
+		}
+		splitted := strings.Split(githubRepoName, "/")
+		org := splitted[0]
+		labels, _ := doc["labels"].([]string)
+		title, _ := doc["title"].(string)
+		body, _ := doc["body"].(string)
+		url, _ := doc["url"].(string)
+		state, _ := doc["state"].(string)
+		//closedOn := j.ItemNullableDate(doc, "closed_at")
+		//isClosed := closedOn != nil
+		//mergedOn := j.ItemNullableDate(doc, "merged_at")
+		//isMerged := mergedOn != nil
+		// primaryAssignee := ""
+		pullRequestContributors := []insights.Contributor{}
+		// Final PullRequest object
+		nCommits := 0
+		commitsAry, okCommits := doc["commits_array"].([]interface{})
+		if okCommits {
+			nCommits = len(commitsAry)
+		}
+		pullRequest := igh.PullRequest{
+			// FIXME: don't we need pullRequest creation, close & merge dates on the pullRequest object?
+			ID:            pullRequestID,
+			RepositoryID:  repoID,
+			RepositoryURL: j.URL,
+			Repository:    githubRepoName,
+			Organization:  org,
+			Labels:        labels,
+			CommitCount:   nCommits,
+			Contributors:  pullRequestContributors,
+			ChangeRequest: insights.ChangeRequest{
+				Title:            title,
+				Body:             body,
+				ChangeRequestID:  sIID,
+				ChangeRequestURL: url,
+				State:            insights.ChangeRequestState(state),
+				SyncTimestamp:    time.Now(),
+				SourceTimeStamp:  updatedOn,
+				Orphaned:         false,
+			},
+		}
+		isNew := false
+		if !updatedOn.After(createdOn) || (nComments == 0 && nReactions == 0 && nReviews == 0) {
+			isNew = true
+		}
+		key := "updated"
+		if isNew {
+			key = "created"
+		}
+		ary, ok := data[key]
+		if !ok {
+			ary = []interface{}{pullRequest}
+		} else {
+			ary = append(ary, pullRequest)
+		}
+		data[key] = ary
+		gMaxUpstreamDtMtx.Lock()
+		if updatedOn.After(gMaxUpstreamDt) {
+			gMaxUpstreamDt = updatedOn
+		}
+		gMaxUpstreamDtMtx.Unlock()
+	}
 	return
 	/*
 		endpoint := &models.DataEndpoint{
@@ -5591,30 +5753,6 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 		case "pull_request":
 			data.DataSource.Model = "changerequest"
 			for _, iDoc := range docs {
-				var prBody *string
-				doc, _ := iDoc.(map[string]interface{})
-				//shared.Printf("%s: %+v\n", source, doc)
-				updatedOn := j.ItemUpdatedOn(doc)
-				docUUID, _ := doc["uuid"].(string)
-				fPRID, _ := doc["pull_request_id"].(float64)
-				prID := fmt.Sprintf("%.0f", fPRID)
-				prNumber32, _ := doc["id_in_repo"].(int)
-				prNumber := int64(prNumber32)
-				sPRNumber := fmt.Sprintf("%d", prNumber)
-				title, _ := doc["title"].(string)
-				sPRBody, _ := doc["body"].(string)
-				if sPRBody != "" {
-					prBody = &sPRBody
-				}
-				prURL, _ := doc["url"].(string)
-				state, _ := doc["state"].(string)
-				labels, _ := doc["labels"].([]string)
-				createdOn, _ := doc["created_at"].(time.Time)
-				closedOn := j.ItemNullableDate(doc, "closed_at")
-				isClosed := closedOn != nil
-				mergedOn := j.ItemNullableDate(doc, "merged_at")
-				isMerged := mergedOn != nil
-				primaryAssignee := ""
 				activities := []*models.CodeChangeRequestActivity{}
 				roles, okRoles := doc["roles"].([]map[string]interface{})
 				if okRoles {
@@ -6702,8 +6840,9 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 			}
 		}
 		// Comment reactions end
+		// Final Issue object
 		issue := igh.Issue{
-			// FIXME: don't we need issue creation date on the issue object?
+			// FIXME: don't we need issue creation & close date on the issue object?
 			ID:            issueID,
 			RepositoryID:  repoID,
 			RepositoryURL: j.URL,
@@ -6744,18 +6883,6 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 		gMaxUpstreamDtMtx.Unlock()
 	}
 	return
-	/*
-							for _, iDoc := range docs {
-								issueNumber32, _ := doc["id_in_repo"].(int)
-								issueNumber := int64(issueNumber32)
-								sIssueNumber := fmt.Sprintf("%d", issueNumber)
-								createdOn, _ := doc["created_at"].(time.Time)
-								closedOn := j.ItemNullableDate(doc, "closed_at")
-								isClosed := closedOn != nil
-		            xxx
-				        // xyz
-							}
-	*/
 }
 
 func main() {
