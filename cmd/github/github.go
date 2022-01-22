@@ -5658,7 +5658,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 		}
 	}()
 	// pullRequestID, repoID, userID, pullRequestAssigneeID, pullRequestReactionID, pullRequestCommentID, pullRequestCommentReactionID := "", "", "", "", "", "", ""
-	pullRequestID, repoID, userID, pullRequestAssigneeID, pullRequestCommentID, pullRequestCommentReactionID := "", "", "", "", "", ""
+	pullRequestID, repoID, userID, pullRequestAssigneeID, pullRequestCommentID, pullRequestCommentReactionID, pullRequestReviewID := "", "", "", "", "", "", ""
 	source := GitHubDataSource
 	for _, iDoc := range docs {
 		nReactions := 0
@@ -5739,7 +5739,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					ID:            pullRequestAssigneeID,
 					PullRequestID: pullRequestID,
 					Assignee: insights.Assignee{
-						AssigneeID:  assigneeSID,
+						AssigneeID:  username,
 						Contributor: contributor,
 					},
 				}
@@ -5809,7 +5809,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						ID:            pullRequestAssigneeID,
 						PullRequestID: pullRequestID,
 						Assignee: insights.Assignee{
-							AssigneeID:  assigneeSID,
+							AssigneeID:  username,
 							Contributor: contributor,
 						},
 					}
@@ -5986,6 +5986,100 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 			}
 		}
 		// Comments reactions end
+		// Reviews start
+		reviewsAry, okReviews := doc["reviews_array"].([]interface{})
+		if okReviews {
+			for _, iReview := range reviewsAry {
+				review, okReview := iReview.(map[string]interface{})
+				if !okReview || review == nil {
+					continue
+				}
+				roles, okRoles := review["roles"].([]map[string]interface{})
+				if !okRoles || len(roles) == 0 {
+					continue
+				}
+				sReviewState, _ := review["state"].(string)
+				reviewCreatedOn, _ := review["metadata__updated_on"].(time.Time)
+				reviewID, _ := review["pull_request_review_id"].(int64)
+				sReviewID := fmt.Sprintf("%d", reviewID)
+				if reviewCreatedOn.After(updatedOn) {
+					updatedOn = reviewCreatedOn
+				}
+				var state igh.ReviewState
+				switch sReviewState {
+				case "APPROVED":
+					state = igh.ApprovedReviewState
+				case "CHANGES_REQUESTED":
+					state = igh.ChangeRequestedReviewState
+				case "DISMISSED":
+					state = igh.DismissedReviewState
+				case "COMMENTED":
+					state = igh.CommentedReviewState
+				default:
+					shared.Printf("WARNING: unknown review state '%s', skipping\n", sReviewState)
+					continue
+				}
+				for _, role := range roles {
+					roleType, _ := role["role"].(string)
+					if roleType != "user_data" {
+						continue
+					}
+					name, _ := role["name"].(string)
+					username, _ := role["username"].(string)
+					email, _ := role["email"].(string)
+					avatarURL, _ := role["avatar_url"].(string)
+					name, username = shared.PostprocessNameUsername(name, username, email)
+					userID, err = user.GenerateIdentity(&source, &email, &name, &username)
+					if err != nil {
+						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
+						return
+					}
+					contributor := insights.Contributor{
+						Role:   insights.ReviewerRole,
+						Weight: 1.0,
+						Identity: user.UserIdentityObjectBase{
+							ID:         userID,
+							Avatar:     avatarURL,
+							Email:      email,
+							IsVerified: false,
+							Name:       name,
+							Username:   username,
+							Source:     GitHubDataSource,
+						},
+					}
+					pullRequestContributors = append(pullRequestContributors, contributor)
+					reviewSID := sReviewID
+					pullRequestReviewID, err = igh.GenerateGithubReviewID(repoID, reviewSID)
+					if err != nil {
+						shared.Printf("GenerateGithubReviewID(%s,%s): %+v for %+v", repoID, reviewSID, err, doc)
+						return
+					}
+					// FIXME: review object misses review body and review creation date
+					pullRequestReview := igh.PullRequestReview{
+						ID:            pullRequestReviewID,
+						PullRequestID: pullRequestID,
+						Review: igh.Review{
+							ReviewID: reviewSID,
+							State:    state,
+							Reviewer: insights.Reviewer{
+								ReviewerID:  username,
+								Contributor: contributor,
+							},
+						},
+					}
+					key := "review_added"
+					ary, ok := data[key]
+					if !ok {
+						ary = []interface{}{pullRequestReview}
+					} else {
+						ary = append(ary, pullRequestReview)
+					}
+					data[key] = ary
+					nReviews++
+				}
+			}
+		}
+		// Reviews end
 		// Final PullRequest object
 		nCommits := 0
 		commitsAry, okCommits := doc["commits_array"].([]interface{})
@@ -6036,93 +6130,6 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 	}
 	return
 	/*
-				reviewsAry, okReviews := doc["reviews_array"].([]interface{})
-				if okReviews {
-					actType := "github_pull_request_review_added"
-					for _, iReview := range reviewsAry {
-						review, okReview := iReview.(map[string]interface{})
-						if !okReview || review == nil {
-							continue
-						}
-						roles, okRoles := review["roles"].([]map[string]interface{})
-						if !okRoles || len(roles) == 0 {
-							continue
-						}
-						var (
-							reviewBody  *string
-							reviewURL   *string
-							authorAssoc *string
-							commitID    *string
-							reviewState *string
-						)
-						sReviewBody, _ := review["body"].(string)
-						if sReviewBody != "" {
-							reviewBody = &sReviewBody
-						}
-						sReviewURL, _ := review["html_url"].(string)
-						if sReviewURL != "" {
-							reviewURL = &sReviewURL
-						}
-						sAuthorAssoc, _ := review["author_association"].(string)
-						if sAuthorAssoc != "" {
-							authorAssoc = &sAuthorAssoc
-						}
-						sCommitID, _ := review["commit_id"].(string)
-						if sCommitID != "" {
-							commitID = &sCommitID
-						}
-						sReviewState, _ := review["state"].(string)
-						if sReviewState != "" {
-							reviewState = &sReviewState
-						}
-						reviewCreatedOn, _ := review["metadata__updated_on"].(time.Time)
-						reviewID, _ := review["pull_request_review_id"].(int64)
-						sReviewID := fmt.Sprintf("%d", reviewID)
-						if reviewCreatedOn.After(updatedOn) {
-							updatedOn = reviewCreatedOn
-						}
-						// NOTE: if review state is "COMMENTED" that means it is also returned in "github_pull_request_review_comment_added"
-						// And API is not returning comment body in this object in such cases. I could skip such reviews here (to avoid duplication)
-						// but this object contains some extra data not present in the another like commit sha, review ID etc. So let's keep it
-						isApproval := sReviewState == "APPROVED"
-						for _, role := range roles {
-							roleType, _ := role["role"].(string)
-							if roleType != "user_data" {
-								continue
-							}
-							name, _ := role["name"].(string)
-							username, _ := role["username"].(string)
-							email, _ := role["email"].(string)
-							avatarURL, _ := role["avatar_url"].(string)
-							name, username = shared.PostprocessNameUsername(name, username, email)
-							userUUID := shared.UUIDAffs(ctx, source, email, name, username)
-							identity := &models.Identity{
-								ID:           userUUID,
-								DataSourceID: source,
-								Name:         name,
-								Username:     username,
-								Email:        email,
-								AvatarURL:    avatarURL,
-							}
-							actUUID := shared.UUIDNonEmpty(ctx, docUUID, actType, sReviewID)
-							activities = append(activities, &models.CodeChangeRequestActivity{
-								ID:                   actUUID,
-								CodeChangeRequestKey: docUUID,
-								CodeChangeRequestID:  prID,
-								ActivityType:         actType,
-								Identity:             identity,
-								CreatedAt:            strfmt.DateTime(reviewCreatedOn),
-								Key:                  &sReviewID,
-								Body:                 reviewBody,
-								URL:                  reviewURL,
-								IdentityAssociaction: authorAssoc,
-								CommitSHA:            commitID,
-								IsApproval:           &isApproval,
-								State:                reviewState,
-							})
-						}
-					}
-				}
 				commits := []*models.CodeChangeRequestCommit{}
 				commitsAry, okCommits := doc["commits_array"].([]interface{})
 				if okCommits {
@@ -6552,7 +6559,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 					ID:      issueAssigneeID,
 					IssueID: issueID,
 					Assignee: insights.Assignee{
-						AssigneeID:  assigneeSID,
+						AssigneeID:  username,
 						Contributor: contributor,
 					},
 				}
@@ -6622,7 +6629,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 						ID:      issueAssigneeID,
 						IssueID: issueID,
 						Assignee: insights.Assignee{
-							AssigneeID:  assigneeSID,
+							AssigneeID:  username,
 							Contributor: contributor,
 						},
 					}
