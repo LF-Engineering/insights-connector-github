@@ -6104,6 +6104,7 @@ func (j *DSGitHub) GetModelDataRepository(ctx *shared.Ctx, docs []interface{}) (
 			URL:             j.URL,
 			Description:     description,
 			ReportingSource: repository.InsightsService,
+			EnabledServices: []string{string(repository.InsightsService)},
 			Source:          GitHubDataSource,
 			Stats: []repository.RepositoryStats{
 				{
