@@ -6301,7 +6301,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 			}
 		}
 	}()
-	issueID, repoID, userID, issueAssigneeID, issueReactionID := "", "", "", "", ""
+	issueID, repoID, userID, issueAssigneeID, issueReactionID, issueCommentID, issueCommentReactionID := "", "", "", "", "", "", ""
 	source := GitHubDataSource
 	for _, iDoc := range docs {
 		nReactions := 0
@@ -6479,6 +6479,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 				}
 				content, _ := reaction["content"].(string)
 				emojiContent := j.emojiForContent(content)
+				reactionCreatedOn, _ := reaction["metadata__updated_on"].(time.Time)
 				for _, role := range roles {
 					roleType, _ := role["role"].(string)
 					if roleType != "user_data" {
@@ -6523,9 +6524,8 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 								ID:      content,
 								Unicode: emojiContent,
 							},
-							ReactionID: reactionSID,
-							// FIXME: just like with swagger approach, we don't have reaction datetime from GitHub API.
-							SourceTimeStamp: createdOn,
+							ReactionID:      reactionSID,
+							SourceTimeStamp: reactionCreatedOn,
 							Contributor:     contributor,
 						},
 					}
@@ -6537,10 +6537,171 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 						ary = append(ary, issueReaction)
 					}
 					data[key] = ary
+					nReactions++
 				}
 			}
 		}
 		// Issue reactions end
+		// Comments start
+		commentsAry, okComments := doc["comments_array"].([]interface{})
+		if okComments {
+			for _, iComment := range commentsAry {
+				comment, okComment := iComment.(map[string]interface{})
+				if !okComment || comment == nil {
+					continue
+				}
+				roles, okRoles := comment["roles"].([]map[string]interface{})
+				if !okRoles || len(roles) == 0 {
+					continue
+				}
+				sCommentBody, _ := comment["body"].(string)
+				sCommentURL, _ := comment["html_url"].(string)
+				commentCreatedOn, _ := comment["metadata__updated_on"].(time.Time)
+				commentID, _ := comment["issue_comment_id"].(int64)
+				sCommentID := fmt.Sprintf("%d", commentID)
+				if commentCreatedOn.After(updatedOn) {
+					updatedOn = commentCreatedOn
+				}
+				for _, role := range roles {
+					roleType, _ := role["role"].(string)
+					if roleType != "user_data" {
+						continue
+					}
+					name, _ := role["name"].(string)
+					username, _ := role["username"].(string)
+					email, _ := role["email"].(string)
+					avatarURL, _ := role["avatar_url"].(string)
+					name, username = shared.PostprocessNameUsername(name, username, email)
+					userID, err = user.GenerateIdentity(&source, &email, &name, &username)
+					if err != nil {
+						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
+						return
+					}
+					contributor := insights.Contributor{
+						// FIXME: we miss "commenter" role in lfx-event-schema/service/insights/contributor.go
+						Role:   insights.ParticipantRole,
+						Weight: 1.0,
+						Identity: user.UserIdentityObjectBase{
+							ID:         userID,
+							Avatar:     avatarURL,
+							Email:      email,
+							IsVerified: false,
+							Name:       name,
+							Username:   username,
+							Source:     GitHubDataSource,
+						},
+					}
+					issueContributors = append(issueContributors, contributor)
+					commentSID := sCommentID
+					issueCommentID, err = igh.GenerateGithubCommentID(repoID, commentSID)
+					if err != nil {
+						shared.Printf("GenerateGithubCommentID(%s,%s): %+v for %+v", repoID, commentSID, err, doc)
+						return
+					}
+					issueComment := igh.IssueComment{
+						ID:      issueCommentID,
+						IssueID: issueID,
+						Comment: insights.Comment{
+							Body:            sCommentBody,
+							CommentURL:      sCommentURL,
+							SourceTimeStamp: commentCreatedOn,
+							CommentID:       commentSID,
+							Contributor:     contributor,
+						},
+					}
+					key := "comment_added"
+					ary, ok := data[key]
+					if !ok {
+						ary = []interface{}{issueComment}
+					} else {
+						ary = append(ary, issueComment)
+					}
+					data[key] = ary
+					nComments++
+				}
+			}
+		}
+		// Comments end
+		// Comment reactions start
+		reactionsAry, okReactions = doc["comments_reactions_array"].([]interface{})
+		if okReactions {
+			for _, iReaction := range reactionsAry {
+				reaction, okReaction := iReaction.(map[string]interface{})
+				if !okReaction || reaction == nil {
+					continue
+				}
+				commentID, _ := reaction["issue_comment_id"].(int64)
+				sCommentID := fmt.Sprintf("%d", commentID)
+				reactionCreatedOn, _ := reaction["metadata__updated_on"].(time.Time)
+				roles, okRoles := reaction["roles"].([]map[string]interface{})
+				if !okRoles || len(roles) == 0 {
+					continue
+				}
+				content, _ := reaction["content"].(string)
+				emojiContent := j.emojiForContent(content)
+				for _, role := range roles {
+					roleType, _ := role["role"].(string)
+					if roleType != "user_data" {
+						continue
+					}
+					name, _ := role["name"].(string)
+					username, _ := role["username"].(string)
+					email, _ := role["email"].(string)
+					avatarURL, _ := role["avatar_url"].(string)
+					name, username = shared.PostprocessNameUsername(name, username, email)
+					userID, err = user.GenerateIdentity(&source, &email, &name, &username)
+					if err != nil {
+						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
+						return
+					}
+					contributor := insights.Contributor{
+						// FIXME: we miss "comment reactioner/somebody who reacted to a comment/comment reactor :P?" role in lfx-event-schema/service/insights/contributor.go
+						Role:   insights.ParticipantRole,
+						Weight: 1.0,
+						Identity: user.UserIdentityObjectBase{
+							ID:         userID,
+							Avatar:     avatarURL,
+							Email:      email,
+							IsVerified: false,
+							Name:       name,
+							Username:   username,
+							Source:     GitHubDataSource,
+						},
+					}
+					issueContributors = append(issueContributors, contributor)
+					reactionSID := sCommentID + ":" + content
+					issueCommentReactionID, err = igh.GenerateGithubReactionID(repoID, reactionSID)
+					if err != nil {
+						shared.Printf("GenerateGithubReactionID(%s,%s): %+v for %+v", repoID, reactionSID, err, doc)
+						return
+					}
+					issueCommentReaction := igh.IssueCommentReaction{
+						ID:        issueCommentReactionID,
+						IssueID:   issueID,
+						CommentID: sCommentID,
+						Reaction: insights.Reaction{
+							Emoji: service.Emoji{
+								ID:      content,
+								Unicode: emojiContent,
+							},
+							ReactionID:      reactionSID,
+							SourceTimeStamp: reactionCreatedOn,
+							Contributor:     contributor,
+						},
+					}
+					key := "comment_reaction_added"
+					ary, ok := data[key]
+					if !ok {
+						ary = []interface{}{issueCommentReaction}
+					} else {
+						ary = append(ary, issueCommentReaction)
+					}
+					data[key] = ary
+					nReactions++
+				}
+			}
+		}
+		// Comment reactions end
 		issue := igh.Issue{
 			// FIXME: don't we need issue creation date on the issue object?
 			ID:            issueID,
@@ -6553,7 +6714,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 			Issue: insights.Issue{
 				Title:           title,
 				Body:            body,
-				IssueID:         issueID,
+				IssueID:         sIID,
 				IssueURL:        url,
 				State:           insights.IssueState(state),
 				SyncTimestamp:   time.Now(),
@@ -6592,146 +6753,6 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 								closedOn := j.ItemNullableDate(doc, "closed_at")
 								isClosed := closedOn != nil
 		            xxx
-								commentsAry, okComments := doc["comments_array"].([]interface{})
-								if okComments {
-									actType := "github_issue_comment_added"
-									for _, iComment := range commentsAry {
-										comment, okComment := iComment.(map[string]interface{})
-										if !okComment || comment == nil {
-											continue
-										}
-										roles, okRoles := comment["roles"].([]map[string]interface{})
-										if !okRoles || len(roles) == 0 {
-											continue
-										}
-										var (
-											commentBody *string
-											commentURL  *string
-											authorAssoc *string
-										)
-										sCommentBody, _ := comment["body"].(string)
-										if sCommentBody != "" {
-											commentBody = &sCommentBody
-										}
-										sCommentURL, _ := comment["html_url"].(string)
-										if sCommentURL != "" {
-											commentURL = &sCommentURL
-										}
-										sAuthorAssoc, _ := comment["author_association"].(string)
-										if sAuthorAssoc != "" {
-											authorAssoc = &sAuthorAssoc
-										}
-										commentCreatedOn, _ := comment["metadata__updated_on"].(time.Time)
-										commentID, _ := comment["issue_comment_id"].(int64)
-										sCommentID := fmt.Sprintf("%d", commentID)
-										if commentCreatedOn.After(updatedOn) {
-											updatedOn = commentCreatedOn
-										}
-										for _, role := range roles {
-											roleType, _ := role["role"].(string)
-											if roleType != "user_data" {
-												continue
-											}
-											name, _ := role["name"].(string)
-											username, _ := role["username"].(string)
-											email, _ := role["email"].(string)
-											avatarURL, _ := role["avatar_url"].(string)
-											name, username = shared.PostprocessNameUsername(name, username, email)
-											userUUID := shared.UUIDAffs(ctx, source, email, name, username)
-											identity := &models.Identity{
-												ID:           userUUID,
-												DataSourceID: source,
-												Name:         name,
-												Username:     username,
-												Email:        email,
-												AvatarURL:    avatarURL,
-											}
-											actUUID := shared.UUIDNonEmpty(ctx, docUUID, actType, sCommentID)
-											activities = append(activities, &models.IssueActivity{
-												ID:                   actUUID,
-												IssueKey:             docUUID,
-												IssueID:              issueID,
-												ActivityType:         actType,
-												Identity:             identity,
-												CreatedAt:            strfmt.DateTime(commentCreatedOn),
-												Key:                  &sCommentID,
-												Body:                 commentBody,
-												URL:                  commentURL,
-												IdentityAssociaction: authorAssoc,
-											})
-										}
-									}
-								}
-								reactionsAry, okReactions = doc["comments_reactions_array"].([]interface{})
-								if okReactions {
-									actType := "github_issue_comment_reaction"
-									for _, iReaction := range reactionsAry {
-										reaction, okReaction := iReaction.(map[string]interface{})
-										if !okReaction || reaction == nil {
-											continue
-										}
-										var (
-											commentAuthorAssoc *string
-											commentURL         *string
-										)
-										commentID, _ := reaction["issue_comment_id"].(int64)
-										sCommentID := fmt.Sprintf("%d", commentID)
-										reactionCreatedOn, _ := reaction["metadata__updated_on"].(time.Time)
-										sCommentAuthorAssoc, _ := reaction["issue_comment_author_association"].(string)
-										sCommentURL, _ := reaction["issue_comment_html_url"].(string)
-										if sCommentAuthorAssoc != "" {
-											commentAuthorAssoc = &sCommentAuthorAssoc
-										}
-										if sCommentURL != "" {
-											commentURL = &sCommentURL
-										}
-										roles, okRoles := reaction["roles"].([]map[string]interface{})
-										if !okRoles || len(roles) == 0 {
-											continue
-										}
-										content, _ := reaction["content"].(string)
-										emojiContent := j.emojiForContent(content)
-										for _, role := range roles {
-											roleType, _ := role["role"].(string)
-											if roleType != "user_data" {
-												continue
-											}
-											name, _ := role["name"].(string)
-											username, _ := role["username"].(string)
-											email, _ := role["email"].(string)
-											avatarURL, _ := role["avatar_url"].(string)
-											name, username = shared.PostprocessNameUsername(name, username, email)
-											userUUID := shared.UUIDAffs(ctx, source, email, name, username)
-											identity := &models.Identity{
-												ID:           userUUID,
-												DataSourceID: source,
-												Name:         name,
-												Username:     username,
-												Email:        email,
-												AvatarURL:    avatarURL,
-											}
-											actUUID := shared.UUIDNonEmpty(ctx, docUUID, actType, sCommentID, userUUID, content)
-											activities = append(activities, &models.IssueActivity{
-												ID:                   actUUID,
-												IssueKey:             docUUID,
-												IssueID:              issueID,
-												ActivityType:         actType,
-												Identity:             identity,
-												CreatedAt:            strfmt.DateTime(reactionCreatedOn),
-												Key:                  &sCommentID,
-												Body:                 &content,
-												URL:                  commentURL,
-												IdentityAssociaction: commentAuthorAssoc,
-												Reaction: &models.Reaction{
-													Author:   identity,
-													Type:     content,
-													Emoji:    emojiContent,
-													ObjectID: sIssueNumber,
-												},
-											})
-										}
-									}
-								}
 				        // xyz
 							}
 	*/
