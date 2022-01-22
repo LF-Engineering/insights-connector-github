@@ -5389,14 +5389,6 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 						case "reviewer_removed":
 							ev, _ := v[0].(igh.PullRequestReviewerRemovedEvent)
 							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
-							/* FIXME: we miss those events in lfx-event-schema
-							case "requested_reviewer_added":
-								ev, _ := v[0].(igh.PullRequestRequestedReviewerAddedEvent)
-								err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
-							case "requested_reviewer_removed":
-								ev, _ := v[0].(igh.PullRequestRequestedReviewerRemovedEvent)
-								err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
-							*/
 						default:
 							err = fmt.Errorf("unknown pull request event type '%s'", k)
 						}
@@ -5533,6 +5525,11 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 			ConnectorVersion: GitHubBackendVersion,
 			Source:           insights.GithubSource,
 		}
+		pullRequestReviewerBaseEvent := igh.PullRequestReviewerBaseEvent{
+			Connector:        insights.GithubConnector,
+			ConnectorVersion: GitHubBackendVersion,
+			Source:           insights.GithubSource,
+		}
 		for k, v := range data {
 			switch k {
 			case "created":
@@ -5651,6 +5648,25 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					})
 				}
 				data[k] = ary
+			case "reviewer_added":
+				baseEvent := service.BaseEvent{
+					Type: service.EventType(igh.PullRequestReviewerAddedEvent{}.Event()),
+					CRUDInfo: service.CRUDInfo{
+						CreatedBy: GitHubConnector,
+						UpdatedBy: GitHubConnector,
+						CreatedAt: time.Now().Unix(),
+						UpdatedAt: time.Now().Unix(),
+					},
+				}
+				ary := []interface{}{}
+				for _, pullRequestReviewer := range v {
+					ary = append(ary, igh.PullRequestReviewerAddedEvent{
+						PullRequestReviewerBaseEvent: pullRequestReviewerBaseEvent,
+						BaseEvent:                    baseEvent,
+						Payload:                      pullRequestReviewer.(igh.PullRequestReviewer),
+					})
+				}
+				data[k] = ary
 			default:
 				err = fmt.Errorf("unknown pull request '%s' event", k)
 				return
@@ -5658,7 +5674,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 		}
 	}()
 	// pullRequestID, repoID, userID, pullRequestAssigneeID, pullRequestReactionID, pullRequestCommentID, pullRequestCommentReactionID := "", "", "", "", "", "", ""
-	pullRequestID, repoID, userID, pullRequestAssigneeID, pullRequestCommentID, pullRequestCommentReactionID, pullRequestReviewID := "", "", "", "", "", "", ""
+	pullRequestID, repoID, userID, pullRequestAssigneeID, pullRequestCommentID, pullRequestCommentReactionID, pullRequestReviewID, pullRequestReviewerID := "", "", "", "", "", "", "", ""
 	source := GitHubDataSource
 	for _, iDoc := range docs {
 		nReactions := 0
@@ -5700,7 +5716,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 		if okRoles {
 			for _, role := range roles {
 				roleType, _ := role["role"].(string)
-				if roleType != "assignee_data" {
+				if roleType != "assignee_data" && roleType != "user_data" && roleType != "merged_by_data" {
 					continue
 				}
 				username, _ := role["username"].(string)
@@ -5714,9 +5730,14 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 					return
 				}
+				roleValue := insights.AuthorRole
+				if roleType == "assignee_data" {
+					roleValue = insights.AssigneeRole
+				} else if roleType == "merged_by_data" {
+					roleValue = insights.MergeAuthorRole
+				}
 				contributor := insights.Contributor{
-					// FIXME: we miss "assignee" role in lfx-event-schema/service/insights/contributor.go
-					Role:   insights.ParticipantRole,
+					Role:   roleValue,
 					Weight: 1.0,
 					Identity: user.UserIdentityObjectBase{
 						ID:         userID,
@@ -5729,6 +5750,9 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					},
 				}
 				pullRequestContributors = append(pullRequestContributors, contributor)
+				if roleType != "assignee_data" {
+					continue
+				}
 				assigneeSID := sIID + ":" + username
 				pullRequestAssigneeID, err = igh.GenerateGithubAssigneeID(repoID, assigneeSID)
 				if err != nil {
@@ -5785,8 +5809,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						return
 					}
 					contributor := insights.Contributor{
-						// FIXME: we miss "assignee" role in lfx-event-schema/service/insights/contributor.go
-						Role:   insights.ParticipantRole,
+						Role:   insights.AssigneeRole,
 						Weight: 1.0,
 						Identity: user.UserIdentityObjectBase{
 							ID:         userID,
@@ -5861,8 +5884,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						return
 					}
 					contributor := insights.Contributor{
-						// FIXME: we miss "commenter" role in lfx-event-schema/service/insights/contributor.go
-						Role:   insights.ParticipantRole,
+						Role:   insights.CommenterRole,
 						Weight: 1.0,
 						Identity: user.UserIdentityObjectBase{
 							ID:         userID,
@@ -5939,8 +5961,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						return
 					}
 					contributor := insights.Contributor{
-						// FIXME: we miss "comment reactioner/somebody who reacted to a comment/comment reactor :P?" role in lfx-event-schema/service/insights/contributor.go
-						Role:   insights.ParticipantRole,
+						Role:   insights.ReactionAuthorRole,
 						Weight: 1.0,
 						Identity: user.UserIdentityObjectBase{
 							ID:         userID,
@@ -6080,11 +6101,130 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 			}
 		}
 		// Reviews end
+		// Requested reviewers start
+		requestedReviewersAry, okRequestedReviewers := doc["requested_reviewers_array"].([]interface{})
+		if okRequestedReviewers {
+			for _, iRequestedReviewer := range requestedReviewersAry {
+				requestedReviewer, okRequestedReviewer := iRequestedReviewer.(map[string]interface{})
+				if !okRequestedReviewer || requestedReviewer == nil {
+					continue
+				}
+				roles, okRoles := requestedReviewer["roles"].([]map[string]interface{})
+				if !okRoles || len(roles) == 0 {
+					continue
+				}
+				for _, role := range roles {
+					roleType, _ := role["role"].(string)
+					if roleType != "requested_reviewer" {
+						continue
+					}
+					name, _ := role["name"].(string)
+					username, _ := role["username"].(string)
+					email, _ := role["email"].(string)
+					avatarURL, _ := role["avatar_url"].(string)
+					name, username = shared.PostprocessNameUsername(name, username, email)
+					/*
+						userUUID := shared.UUIDAffs(ctx, source, email, name, username)
+						identity := &models.Identity{
+							ID:           userUUID,
+							DataSourceID: source,
+							Name:         name,
+							Username:     username,
+							Email:        email,
+							AvatarURL:    avatarURL,
+						}
+						actUUID := shared.UUIDNonEmpty(ctx, docUUID, actType, userUUID)
+						activities = append(activities, &models.CodeChangeRequestActivity{
+							ID:                   actUUID,
+							CodeChangeRequestKey: docUUID,
+							CodeChangeRequestID:  prID,
+							ActivityType:         actType,
+							Identity:             identity,
+							CreatedAt:            strfmt.DateTime(createdOn),
+							Key:                  &sPRNumber,
+						})
+					*/
+					userID, err = user.GenerateIdentity(&source, &email, &name, &username)
+					if err != nil {
+						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
+						return
+					}
+					contributor := insights.Contributor{
+						Role:   insights.ReviewerRole,
+						Weight: 1.0,
+						Identity: user.UserIdentityObjectBase{
+							ID:         userID,
+							Avatar:     avatarURL,
+							Email:      email,
+							IsVerified: false,
+							Name:       name,
+							Username:   username,
+							Source:     GitHubDataSource,
+						},
+					}
+					pullRequestContributors = append(pullRequestContributors, contributor)
+					reviewerSID := sIID + ":" + username
+					pullRequestReviewerID, err = igh.GenerateGithubReviewerID(repoID, reviewerSID)
+					if err != nil {
+						shared.Printf("GenerateGithubReviewerID(%s,%s): %+v for %+v", repoID, reviewerSID, err, doc)
+						return
+					}
+					pullRequestReviewer := igh.PullRequestReviewer{
+						ID:            pullRequestReviewerID,
+						PullRequestID: pullRequestID,
+						Reviewer: insights.Reviewer{
+							ReviewerID:  username,
+							Contributor: contributor,
+						},
+					}
+					key := "reviewer_added"
+					ary, ok := data[key]
+					if !ok {
+						ary = []interface{}{pullRequestReviewer}
+					} else {
+						ary = append(ary, pullRequestReviewer)
+					}
+					data[key] = ary
+				}
+			}
+		}
+		// Requested reviewers end
 		// Final PullRequest object
 		nCommits := 0
 		commitsAry, okCommits := doc["commits_array"].([]interface{})
 		if okCommits {
 			nCommits = len(commitsAry)
+			// FIXME: we do nothing with commits data
+			/*
+				for _, iCommit := range commitsAry {
+					commit, okCommit := iCommit.(map[string]interface{})
+					if !okCommit || commit == nil {
+						continue
+					}
+					roles, okRoles := commit["roles"].([]map[string]interface{})
+					sha, _ := commit["sha"].(string)
+					if !okRoles || sha == "" || len(roles) == 0 {
+						continue
+					}
+					var (
+						author    *models.Identity
+						committer *models.Identity
+					)
+					for _, role := range roles {
+						roleType, _ := role["role"].(string)
+						name, _ := role["name"].(string)
+						username, _ := role["username"].(string)
+						email, _ := role["email"].(string)
+						avatarURL, _ := role["avatar_url"].(string)
+						name, username = shared.PostprocessNameUsername(name, username, email)
+					}
+					commits = append(commits, &models.CodeChangeRequestCommit{
+						SHA:       sha,
+						Author:    author,
+						Committer: committer,
+					})
+				}
+			*/
 		}
 		pullRequest := igh.PullRequest{
 			// FIXME: don't we need pullRequest creation, close & merge dates on the pullRequest object?
@@ -6129,130 +6269,6 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 		gMaxUpstreamDtMtx.Unlock()
 	}
 	return
-	/*
-				commits := []*models.CodeChangeRequestCommit{}
-				commitsAry, okCommits := doc["commits_array"].([]interface{})
-				if okCommits {
-					for _, iCommit := range commitsAry {
-						commit, okCommit := iCommit.(map[string]interface{})
-						if !okCommit || commit == nil {
-							continue
-						}
-						roles, okRoles := commit["roles"].([]map[string]interface{})
-						sha, _ := commit["sha"].(string)
-						if !okRoles || sha == "" || len(roles) == 0 {
-							continue
-						}
-						var (
-							author    *models.Identity
-							committer *models.Identity
-						)
-						for _, role := range roles {
-							roleType, _ := role["role"].(string)
-							name, _ := role["name"].(string)
-							username, _ := role["username"].(string)
-							email, _ := role["email"].(string)
-							avatarURL, _ := role["avatar_url"].(string)
-							name, username = shared.PostprocessNameUsername(name, username, email)
-							userUUID := shared.UUIDAffs(ctx, source, email, name, username)
-							identity := &models.Identity{
-								ID:           userUUID,
-								DataSourceID: source,
-								Name:         name,
-								Username:     username,
-								Email:        email,
-								AvatarURL:    avatarURL,
-							}
-							if roleType == "author_data" {
-								author = identity
-							} else if roleType == "committer_data" {
-								committer = identity
-							}
-						}
-						commits = append(commits, &models.CodeChangeRequestCommit{
-							SHA:       sha,
-							Author:    author,
-							Committer: committer,
-						})
-					}
-				}
-				requestedReviewersAry, okRequestedReviewers := doc["requested_reviewers_array"].([]interface{})
-				if okRequestedReviewers {
-					actType := "github_pull_request_requested_reviewer_added"
-					for _, iRequestedReviewer := range requestedReviewersAry {
-						requestedReviewer, okRequestedReviewer := iRequestedReviewer.(map[string]interface{})
-						if !okRequestedReviewer || requestedReviewer == nil {
-							continue
-						}
-						roles, okRoles := requestedReviewer["roles"].([]map[string]interface{})
-						if !okRoles || len(roles) == 0 {
-							continue
-						}
-						for _, role := range roles {
-							roleType, _ := role["role"].(string)
-							if roleType != "requested_reviewer" {
-								continue
-							}
-							name, _ := role["name"].(string)
-							username, _ := role["username"].(string)
-							email, _ := role["email"].(string)
-							avatarURL, _ := role["avatar_url"].(string)
-							name, username = shared.PostprocessNameUsername(name, username, email)
-							userUUID := shared.UUIDAffs(ctx, source, email, name, username)
-							identity := &models.Identity{
-								ID:           userUUID,
-								DataSourceID: source,
-								Name:         name,
-								Username:     username,
-								Email:        email,
-								AvatarURL:    avatarURL,
-							}
-							actUUID := shared.UUIDNonEmpty(ctx, docUUID, actType, userUUID)
-							activities = append(activities, &models.CodeChangeRequestActivity{
-								ID:                   actUUID,
-								CodeChangeRequestKey: docUUID,
-								CodeChangeRequestID:  prID,
-								ActivityType:         actType,
-								Identity:             identity,
-								CreatedAt:            strfmt.DateTime(createdOn),
-								Key:                  &sPRNumber,
-							})
-						}
-					}
-				}
-				// updatedOn can be dynamically updated when any activity is after the current value
-				// Event
-				event := &models.Event{
-					Issue:      nil,
-					Repository: nil,
-					CodeChangeRequest: &models.CodeChangeRequest{
-						ID:                      docUUID,
-						CodeChangeRequestID:     prID,
-						CodeChangeRequestNumber: prNumber,
-						DataSourceID:            source,
-						CreatedAt:               strfmt.DateTime(createdOn),
-						UpdatedAt:               strfmt.DateTime(updatedOn),
-						ClosedAt:                closedOn,
-						IsClosed:                isClosed,
-						MergedAt:                mergedOn,
-						IsMerged:                isMerged,
-						Title:                   title,
-						State:                   state,
-						Labels:                  labels,
-						Commits:                 commits,
-						Activities:              activities,
-					},
-				}
-				data.Events = append(data.Events, event)
-				gMaxUpstreamDtMtx.Lock()
-				if updatedOn.After(gMaxUpstreamDt) {
-					gMaxUpstreamDt = updatedOn
-				}
-				gMaxUpstreamDtMtx.Unlock()
-			}
-		}
-		return
-	*/
 }
 
 // GetModelDataRepository - return repository data in lfx-event-schema format
@@ -6520,7 +6536,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 		if okRoles {
 			for _, role := range roles {
 				roleType, _ := role["role"].(string)
-				if roleType != "assignee_data" {
+				if roleType != "assignee_data" && roleType != "user_data" {
 					continue
 				}
 				name, _ := role["name"].(string)
@@ -6534,9 +6550,12 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 					shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 					return
 				}
+				roleValue := insights.AuthorRole
+				if roleType == "assignee_data" {
+					roleValue = insights.AssigneeRole
+				}
 				contributor := insights.Contributor{
-					// FIXME: we miss "assignee" role in lfx-event-schema/service/insights/contributor.go
-					Role:   insights.ParticipantRole,
+					Role:   roleValue,
 					Weight: 1.0,
 					Identity: user.UserIdentityObjectBase{
 						ID:         userID,
@@ -6549,6 +6568,9 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 					},
 				}
 				issueContributors = append(issueContributors, contributor)
+				if roleType != "assignee_data" {
+					continue
+				}
 				assigneeSID := sIID + ":" + username
 				issueAssigneeID, err = igh.GenerateGithubAssigneeID(repoID, assigneeSID)
 				if err != nil {
@@ -6605,8 +6627,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 						return
 					}
 					contributor := insights.Contributor{
-						// FIXME: we miss "assignee" role in lfx-event-schema/service/insights/contributor.go
-						Role:   insights.ParticipantRole,
+						Role:   insights.AssigneeRole,
 						Weight: 1.0,
 						Identity: user.UserIdentityObjectBase{
 							ID:         userID,
@@ -6676,8 +6697,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 						return
 					}
 					contributor := insights.Contributor{
-						// FIXME: we miss "reactioner/somebody who reacted/reactor :P?" role in lfx-event-schema/service/insights/contributor.go
-						Role:   insights.ParticipantRole,
+						Role:   insights.ReactionAuthorRole,
 						Weight: 1.0,
 						Identity: user.UserIdentityObjectBase{
 							ID:         userID,
@@ -6758,8 +6778,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 						return
 					}
 					contributor := insights.Contributor{
-						// FIXME: we miss "commenter" role in lfx-event-schema/service/insights/contributor.go
-						Role:   insights.ParticipantRole,
+						Role:   insights.CommenterRole,
 						Weight: 1.0,
 						Identity: user.UserIdentityObjectBase{
 							ID:         userID,
@@ -6835,8 +6854,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 						return
 					}
 					contributor := insights.Contributor{
-						// FIXME: we miss "comment reactioner/somebody who reacted to a comment/comment reactor :P?" role in lfx-event-schema/service/insights/contributor.go
-						Role:   insights.ParticipantRole,
+						Role:   insights.ReactionAuthorRole,
 						Weight: 1.0,
 						Identity: user.UserIdentityObjectBase{
 							ID:         userID,
