@@ -5366,20 +5366,20 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 						case "comment_deleted":
 							ev, _ := v[0].(igh.PullRequestCommentDeletedEvent)
 							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
-							/* there are no such events
-							case "comment_reaction_added":
-								ev, _ := v[0].(igh.PullRequestCommentReactionAddedEvent)
-								err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
-							case "comment_reaction_removed":
-								ev, _ := v[0].(igh.PullRequestCommentReactionRemovedEvent)
-								err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
-							*/
+						case "comment_reaction_added":
+							ev, _ := v[0].(igh.PullRequestCommentReactionAddedEvent)
+							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+						case "comment_reaction_removed":
+							ev, _ := v[0].(igh.PullRequestCommentReactionRemovedEvent)
+							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+						/* there are no such events
 						case "reaction_added":
 							ev, _ := v[0].(igh.PullRequestReactionAddedEvent)
 							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						case "reaction_removed":
 							ev, _ := v[0].(igh.PullRequestReactionRemovedEvent)
 							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+						*/
 						case "review_added":
 							ev, _ := v[0].(igh.PullRequestReviewAddedEvent)
 							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
@@ -5658,7 +5658,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 		}
 	}()
 	// pullRequestID, repoID, userID, pullRequestAssigneeID, pullRequestReactionID, pullRequestCommentID, pullRequestCommentReactionID := "", "", "", "", "", "", ""
-	pullRequestID, repoID, userID, pullRequestAssigneeID, pullRequestCommentID := "", "", "", "", ""
+	pullRequestID, repoID, userID, pullRequestAssigneeID, pullRequestCommentID, pullRequestCommentReactionID := "", "", "", "", "", ""
 	source := GitHubDataSource
 	for _, iDoc := range docs {
 		nReactions := 0
@@ -5906,6 +5906,86 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 			}
 		}
 		// Comments end
+		// Comments reactions start
+		reactionsAry, okReactions := doc["review_comments_reactions_array"].([]interface{})
+		if okReactions {
+			for _, iReaction := range reactionsAry {
+				reaction, okReaction := iReaction.(map[string]interface{})
+				if !okReaction || reaction == nil {
+					continue
+				}
+				commentID, _ := reaction["pull_request_comment_id"].(int64)
+				sCommentID := fmt.Sprintf("%d", commentID)
+				reactionCreatedOn, _ := reaction["metadata__updated_on"].(time.Time)
+				roles, okRoles := reaction["roles"].([]map[string]interface{})
+				if !okRoles || len(roles) == 0 {
+					continue
+				}
+				content, _ := reaction["content"].(string)
+				emojiContent := j.emojiForContent(content)
+				for _, role := range roles {
+					roleType, _ := role["role"].(string)
+					if roleType != "user_data" {
+						continue
+					}
+					name, _ := role["name"].(string)
+					username, _ := role["username"].(string)
+					email, _ := role["email"].(string)
+					avatarURL, _ := role["avatar_url"].(string)
+					name, username = shared.PostprocessNameUsername(name, username, email)
+					userID, err = user.GenerateIdentity(&source, &email, &name, &username)
+					if err != nil {
+						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
+						return
+					}
+					contributor := insights.Contributor{
+						// FIXME: we miss "comment reactioner/somebody who reacted to a comment/comment reactor :P?" role in lfx-event-schema/service/insights/contributor.go
+						Role:   insights.ParticipantRole,
+						Weight: 1.0,
+						Identity: user.UserIdentityObjectBase{
+							ID:         userID,
+							Avatar:     avatarURL,
+							Email:      email,
+							IsVerified: false,
+							Name:       name,
+							Username:   username,
+							Source:     GitHubDataSource,
+						},
+					}
+					pullRequestContributors = append(pullRequestContributors, contributor)
+					reactionSID := sCommentID + ":" + content
+					pullRequestCommentReactionID, err = igh.GenerateGithubReactionID(repoID, reactionSID)
+					if err != nil {
+						shared.Printf("GenerateGithubReactionID(%s,%s): %+v for %+v", repoID, reactionSID, err, doc)
+						return
+					}
+					pullRequestCommentReaction := igh.PullRequestCommentReaction{
+						ID:            pullRequestCommentReactionID,
+						PullRequestID: pullRequestID,
+						CommentID:     sCommentID,
+						Reaction: insights.Reaction{
+							Emoji: service.Emoji{
+								ID:      content,
+								Unicode: emojiContent,
+							},
+							ReactionID:      reactionSID,
+							SourceTimeStamp: reactionCreatedOn,
+							Contributor:     contributor,
+						},
+					}
+					key := "comment_reaction_added"
+					ary, ok := data[key]
+					if !ok {
+						ary = []interface{}{pullRequestCommentReaction}
+					} else {
+						ary = append(ary, pullRequestCommentReaction)
+					}
+					data[key] = ary
+					nReactions++
+				}
+			}
+		}
+		// Comments reactions end
 		// Final PullRequest object
 		nCommits := 0
 		commitsAry, okCommits := doc["commits_array"].([]interface{})
@@ -5956,76 +6036,6 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 	}
 	return
 	/*
-				reactionsAry, okReactions := doc["review_comments_reactions_array"].([]interface{})
-				if okReactions {
-					actType := "github_pull_request_review_comment_reaction"
-					for _, iReaction := range reactionsAry {
-						reaction, okReaction := iReaction.(map[string]interface{})
-						if !okReaction || reaction == nil {
-							continue
-						}
-						var (
-							commentAuthorAssoc *string
-							commentURL         *string
-						)
-						commentID, _ := reaction["pull_request_comment_id"].(int64)
-						sCommentID := fmt.Sprintf("%d", commentID)
-						reactionCreatedOn, _ := reaction["metadata__updated_on"].(time.Time)
-						sCommentAuthorAssoc, _ := reaction["pull_request_comment_author_association"].(string)
-						sCommentURL, _ := reaction["pull_request_comment_html_url"].(string)
-						if sCommentAuthorAssoc != "" {
-							commentAuthorAssoc = &sCommentAuthorAssoc
-						}
-						if sCommentURL != "" {
-							commentURL = &sCommentURL
-						}
-						roles, okRoles := reaction["roles"].([]map[string]interface{})
-						if !okRoles || len(roles) == 0 {
-							continue
-						}
-						content, _ := reaction["content"].(string)
-						emojiContent := j.emojiForContent(content)
-						for _, role := range roles {
-							roleType, _ := role["role"].(string)
-							if roleType != "user_data" {
-								continue
-							}
-							name, _ := role["name"].(string)
-							username, _ := role["username"].(string)
-							email, _ := role["email"].(string)
-							avatarURL, _ := role["avatar_url"].(string)
-							name, username = shared.PostprocessNameUsername(name, username, email)
-							userUUID := shared.UUIDAffs(ctx, source, email, name, username)
-							identity := &models.Identity{
-								ID:           userUUID,
-								DataSourceID: source,
-								Name:         name,
-								Username:     username,
-								Email:        email,
-								AvatarURL:    avatarURL,
-							}
-							actUUID := shared.UUIDNonEmpty(ctx, docUUID, actType, sCommentID, userUUID, content)
-							activities = append(activities, &models.CodeChangeRequestActivity{
-								ID:                   actUUID,
-								CodeChangeRequestKey: docUUID,
-								CodeChangeRequestID:  prID,
-								ActivityType:         actType,
-								Identity:             identity,
-								CreatedAt:            strfmt.DateTime(reactionCreatedOn),
-								Key:                  &sCommentID,
-								Body:                 &content,
-								URL:                  commentURL,
-								IdentityAssociaction: commentAuthorAssoc,
-								Reaction: &models.Reaction{
-									Author:   identity,
-									Type:     content,
-									Emoji:    emojiContent,
-									ObjectID: sPRNumber,
-								},
-							})
-						}
-					}
-				}
 				reviewsAry, okReviews := doc["reviews_array"].([]interface{})
 				if okReviews {
 					actType := "github_pull_request_review_added"
