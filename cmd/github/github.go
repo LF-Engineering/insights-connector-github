@@ -5658,8 +5658,8 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 		}
 	}()
 	// pullRequestID, repoID, userID, pullRequestAssigneeID, pullRequestReactionID, pullRequestCommentID, pullRequestCommentReactionID := "", "", "", "", "", "", ""
-	pullRequestID, repoID := "", ""
-	// source := GitHubDataSource
+	pullRequestID, repoID, userID, pullRequestAssigneeID := "", "", "", ""
+	source := GitHubDataSource
 	for _, iDoc := range docs {
 		nReactions := 0
 		nComments := 0
@@ -5693,8 +5693,138 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 		//isClosed := closedOn != nil
 		//mergedOn := j.ItemNullableDate(doc, "merged_at")
 		//isMerged := mergedOn != nil
-		// primaryAssignee := ""
 		pullRequestContributors := []insights.Contributor{}
+		// Primary assignee start
+		primaryAssignee := ""
+		roles, okRoles := doc["roles"].([]map[string]interface{})
+		if okRoles {
+			for _, role := range roles {
+				roleType, _ := role["role"].(string)
+				if roleType != "assignee_data" {
+					continue
+				}
+				username, _ := role["username"].(string)
+				primaryAssignee = username
+				name, _ := role["name"].(string)
+				email, _ := role["email"].(string)
+				avatarURL, _ := role["avatar_url"].(string)
+				name, username = shared.PostprocessNameUsername(name, username, email)
+				userID, err = user.GenerateIdentity(&source, &email, &name, &username)
+				if err != nil {
+					shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
+					return
+				}
+				contributor := insights.Contributor{
+					// FIXME: we miss "assignee" role in lfx-event-schema/service/insights/contributor.go
+					Role:   insights.ParticipantRole,
+					Weight: 1.0,
+					Identity: user.UserIdentityObjectBase{
+						ID:         userID,
+						Avatar:     avatarURL,
+						Email:      email,
+						IsVerified: false,
+						Name:       name,
+						Username:   username,
+						Source:     GitHubDataSource,
+					},
+				}
+				pullRequestContributors = append(pullRequestContributors, contributor)
+				assigneeSID := sIID + ":" + username
+				pullRequestAssigneeID, err = igh.GenerateGithubAssigneeID(repoID, assigneeSID)
+				if err != nil {
+					shared.Printf("GenerateGithubAssigneeID(%s,%s): %+v for %+v", repoID, assigneeSID, err, doc)
+					return
+				}
+				pullRequestAssignee := igh.PullRequestAssignee{
+					ID:            pullRequestAssigneeID,
+					PullRequestID: pullRequestID,
+					Assignee: insights.Assignee{
+						AssigneeID:  assigneeSID,
+						Contributor: contributor,
+					},
+				}
+				key := "assignee_added"
+				ary, ok := data[key]
+				if !ok {
+					ary = []interface{}{pullRequestAssignee}
+				} else {
+					ary = append(ary, pullRequestAssignee)
+				}
+				data[key] = ary
+			}
+		}
+		// Primary assignee end
+		// Other assignees start
+		assigneesAry, okAssignees := doc["assignees_array"].([]interface{})
+		if okAssignees {
+			for _, iAssignee := range assigneesAry {
+				assignee, okAssignee := iAssignee.(map[string]interface{})
+				if !okAssignee || assignee == nil {
+					continue
+				}
+				roles, okRoles := assignee["roles"].([]map[string]interface{})
+				if !okRoles || len(roles) == 0 {
+					continue
+				}
+				for _, role := range roles {
+					roleType, _ := role["role"].(string)
+					if roleType != "assignee" {
+						continue
+					}
+					name, _ := role["name"].(string)
+					username, _ := role["username"].(string)
+					if username == primaryAssignee {
+						continue
+					}
+					email, _ := role["email"].(string)
+					avatarURL, _ := role["avatar_url"].(string)
+					name, username = shared.PostprocessNameUsername(name, username, email)
+					userID, err = user.GenerateIdentity(&source, &email, &name, &username)
+					if err != nil {
+						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
+						return
+					}
+					contributor := insights.Contributor{
+						// FIXME: we miss "assignee" role in lfx-event-schema/service/insights/contributor.go
+						Role:   insights.ParticipantRole,
+						Weight: 1.0,
+						Identity: user.UserIdentityObjectBase{
+							ID:         userID,
+							Avatar:     avatarURL,
+							Email:      email,
+							IsVerified: false,
+							Name:       name,
+							Username:   username,
+							Source:     GitHubDataSource,
+						},
+					}
+					pullRequestContributors = append(pullRequestContributors, contributor)
+					assigneeSID := sIID + ":" + username
+					pullRequestAssigneeID, err = igh.GenerateGithubAssigneeID(repoID, assigneeSID)
+					if err != nil {
+						shared.Printf("GenerateGithubAssigneeID(%s,%s): %+v for %+v", repoID, assigneeSID, err, doc)
+						return
+					}
+					pullRequestAssignee := igh.PullRequestAssignee{
+						ID:            pullRequestAssigneeID,
+						PullRequestID: pullRequestID,
+						Assignee: insights.Assignee{
+							AssigneeID:  assigneeSID,
+							Contributor: contributor,
+						},
+					}
+					key := "assignee_added"
+					ary, ok := data[key]
+					if !ok {
+						ary = []interface{}{pullRequestAssignee}
+					} else {
+						ary = append(ary, pullRequestAssignee)
+					}
+					data[key] = ary
+				}
+			}
+		}
+		// Other assignees end
 		// Final PullRequest object
 		nCommits := 0
 		commitsAry, okCommits := doc["commits_array"].([]interface{})
@@ -5745,117 +5875,6 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 	}
 	return
 	/*
-		endpoint := &models.DataEndpoint{
-			Org:      j.Org,
-			Repo:     j.Repo,
-			URL:      j.URL,
-			Category: j.CurrentCategory,
-		case "pull_request":
-			data.DataSource.Model = "changerequest"
-			for _, iDoc := range docs {
-				activities := []*models.CodeChangeRequestActivity{}
-				roles, okRoles := doc["roles"].([]map[string]interface{})
-				if okRoles {
-					for _, role := range roles {
-						var (
-							body       *string
-							url        *string
-							actType    string
-							activityOn strfmt.DateTime
-						)
-						roleType, _ := role["role"].(string)
-						username, _ := role["username"].(string)
-						switch roleType {
-						case "assignee_data":
-							primaryAssignee = username
-							actType = "github_pull_request_primary_assignee_added"
-							activityOn = strfmt.DateTime(createdOn)
-						case "merged_by_data":
-							if mergedOn == nil {
-								continue
-							}
-							activityOn = *mergedOn
-							actType = "github_pull_request_merged"
-						case "user_data":
-							actType = "github_pull_request_created"
-							body = prBody
-							url = &prURL
-							activityOn = strfmt.DateTime(createdOn)
-						}
-						name, _ := role["name"].(string)
-						email, _ := role["email"].(string)
-						avatarURL, _ := role["avatar_url"].(string)
-						name, username = shared.PostprocessNameUsername(name, username, email)
-						userUUID := shared.UUIDAffs(ctx, source, email, name, username)
-						identity := &models.Identity{
-							ID:           userUUID,
-							DataSourceID: source,
-							Name:         name,
-							Username:     username,
-							Email:        email,
-							AvatarURL:    avatarURL,
-						}
-						actUUID := shared.UUIDNonEmpty(ctx, docUUID, actType)
-						activities = append(activities, &models.CodeChangeRequestActivity{
-							ID:                   actUUID,
-							CodeChangeRequestKey: docUUID,
-							CodeChangeRequestID:  prID,
-							ActivityType:         actType,
-							Body:                 body,
-							Identity:             identity,
-							CreatedAt:            activityOn,
-							Key:                  &sPRNumber,
-							URL:                  url,
-						})
-					}
-				}
-				assigneesAry, okAssignees := doc["assignees_array"].([]interface{})
-				if okAssignees {
-					actType := "github_pull_request_assignee_added"
-					for _, iAssignee := range assigneesAry {
-						assignee, okAssignee := iAssignee.(map[string]interface{})
-						if !okAssignee || assignee == nil {
-							continue
-						}
-						roles, okRoles := assignee["roles"].([]map[string]interface{})
-						if !okRoles || len(roles) == 0 {
-							continue
-						}
-						for _, role := range roles {
-							roleType, _ := role["role"].(string)
-							if roleType != "assignee" {
-								continue
-							}
-							name, _ := role["name"].(string)
-							username, _ := role["username"].(string)
-							email, _ := role["email"].(string)
-							avatarURL, _ := role["avatar_url"].(string)
-							if username == primaryAssignee {
-								continue
-							}
-							name, username = shared.PostprocessNameUsername(name, username, email)
-							userUUID := shared.UUIDAffs(ctx, source, email, name, username)
-							identity := &models.Identity{
-								ID:           userUUID,
-								DataSourceID: source,
-								Name:         name,
-								Username:     username,
-								Email:        email,
-								AvatarURL:    avatarURL,
-							}
-							actUUID := shared.UUIDNonEmpty(ctx, docUUID, actType, userUUID)
-							activities = append(activities, &models.CodeChangeRequestActivity{
-								ID:                   actUUID,
-								CodeChangeRequestKey: docUUID,
-								CodeChangeRequestID:  prID,
-								ActivityType:         actType,
-								Identity:             identity,
-								CreatedAt:            strfmt.DateTime(createdOn),
-								Key:                  &sPRNumber,
-							})
-						}
-					}
-				}
 				requestedReviewersAry, okRequestedReviewers := doc["requested_reviewers_array"].([]interface{})
 				if okRequestedReviewers {
 					actType := "github_pull_request_requested_reviewer_added"
