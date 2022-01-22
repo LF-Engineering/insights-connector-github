@@ -17,6 +17,7 @@ import (
 	"github.com/LF-Engineering/lfx-event-schema/service"
 	"github.com/LF-Engineering/lfx-event-schema/service/insights"
 	"github.com/LF-Engineering/lfx-event-schema/service/repository"
+	"github.com/LF-Engineering/lfx-event-schema/service/user"
 
 	// "github.com/LF-Engineering/lfx-event-schema/service/user"
 	"github.com/LF-Engineering/lfx-event-schema/utils/datalake"
@@ -114,7 +115,6 @@ const (
 	// GitHubPullRequestDefaultStream - Stream To Publish pull requests
 	GitHubPullRequestDefaultStream = "PUT-S3-github-pull-requests"
 	// RepositoryUpdated - repository updated event (new stats calculated)
-	// FIXME? - shouldn't be something like github-repository.stats-calculated ?
 	RepositoryUpdated = "repository.updated"
 	// GitHubConnector ...
 	GitHubConnector = "github-connector"
@@ -218,6 +218,14 @@ type DSGitHub struct {
 // AddPublisher - sets Kinesis publisher
 func (j *DSGitHub) AddPublisher(publisher Publisher) {
 	j.Publisher = publisher
+}
+
+// PublisherPushEvents - this is a fake function to test publisher locally
+// FIXME: don't use when done implementing
+func (j *DSGitHub) PublisherPushEvents(ev, ori, src, cat, env string, v []interface{}) error {
+	data, _ := jsoniter.Marshal(v)
+	shared.Printf("publish[ev=%s ori=%s src=%s cat=%s env=%s]: %+v\n", ev, ori, src, cat, env, string(data))
+	return nil
 }
 
 // AddLogger - adds logger
@@ -5268,8 +5276,7 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 					for _, d := range repos {
 						formattedData = append(formattedData, d)
 					}
-					// FIXME: shouldn't it be something like RepositoryStatsCreated ?
-					err = j.Publisher.PushEvents(RepositoryUpdated, "insights", GitHubDataSource, "repository", os.Getenv("STAGE"), formattedData)
+					err = j.PublisherPushEvents(RepositoryUpdated, "insights", GitHubDataSource, "repository", os.Getenv("STAGE"), formattedData)
 				} else {
 					jsonBytes, err = jsoniter.Marshal(repos)
 				}
@@ -5282,34 +5289,36 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 					issuesStr := "issues"
 					envStr := os.Getenv("STAGE")
 					for k, v := range issuesData {
+						// FIXME
+						shared.Printf("(k,len(v)) = ('%s',%d)\n", k, len(v))
 						switch k {
 						case "created":
 							ev, _ := v[0].(igh.IssueCreatedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
 						case "updated":
 							ev, _ := v[0].(igh.IssueUpdatedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
 						case "assignee_added":
 							ev, _ := v[0].(igh.IssueAssigneeAddedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
 						case "assignee_removed":
 							ev, _ := v[0].(igh.IssueAssigneeRemovedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
 						case "comment_added":
 							ev, _ := v[0].(igh.IssueCommentAddedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
 						case "comment_edited":
 							ev, _ := v[0].(igh.IssueCommentEditedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
 						case "comment_deleted":
 							ev, _ := v[0].(igh.IssueCommentDeletedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
 						case "comment_reaction_added":
 							ev, _ := v[0].(igh.IssueReactionAddedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
 						case "comment_reaction_removed":
 							ev, _ := v[0].(igh.IssueReactionRemovedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
 						default:
 							err = fmt.Errorf("unknown issue event type '%s'", k)
 						}
@@ -5332,10 +5341,10 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 						switch k {
 						case "created":
 							ev, _ := v[0].(igh.PullRequestCreatedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						case "updated":
 							ev, _ := v[0].(igh.PullRequestUpdatedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 							/*
 							   github.PullRequestAssigneeAddedEvent{},
 							   github.PullRequestAssigneeRemovedEvent{},
@@ -5352,40 +5361,40 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 							*/
 						case "assignee_added":
 							ev, _ := v[0].(igh.PullRequestAssigneeAddedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						case "assignee_removed":
 							ev, _ := v[0].(igh.PullRequestAssigneeRemovedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						case "comment_added":
 							ev, _ := v[0].(igh.PullRequestCommentAddedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						case "comment_edited":
 							ev, _ := v[0].(igh.PullRequestCommentEditedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						case "comment_deleted":
 							ev, _ := v[0].(igh.PullRequestCommentDeletedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						case "comment_reaction_added":
 							ev, _ := v[0].(igh.PullRequestCommentReactionAddedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						case "comment_reaction_removed":
 							ev, _ := v[0].(igh.PullRequestCommentReactionRemovedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						case "reaction_added":
 							ev, _ := v[0].(igh.PullRequestReactionAddedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						case "reaction_removed":
 							ev, _ := v[0].(igh.PullRequestReactionRemovedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						case "review_added":
 							ev, _ := v[0].(igh.PullRequestReviewAddedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						case "reviewer_added":
 							ev, _ := v[0].(igh.PullRequestReviewerAddedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						case "reviewer_removed":
 							ev, _ := v[0].(igh.PullRequestReviewerRemovedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						default:
 							err = fmt.Errorf("unknown pull request event type '%s'", k)
 						}
@@ -6088,13 +6097,14 @@ func (j *DSGitHub) GetModelDataRepository(ctx *shared.Ctx, docs []interface{}) (
 		description, _ := doc["description"].(string)
 		sCreatedAt, _ := doc["created_at"].(string)
 		createdAt, _ := shared.TimeParseES(sCreatedAt)
+		// id is github repository id
 		id, _ := doc["id"].(float64)
 		sid := fmt.Sprintf("%.0f", id)
 		// repoName, _ := doc["repo_name"].(string)
 		repoID, err = repository.GenerateRepositoryID(sid, j.URL, GitHubDataSource)
 		// shared.Printf("repository.GenerateRepositoryID(%s, %s, %s) -> %s,%v (%s)\n", sid, j.URL, GitHubDataSource, repoID, err, sid)
 		if err != nil {
-			shared.Printf("GenerateRepositoryID: %+v for %+v", err, doc)
+			shared.Printf("GenerateRepositoryID(%s,%s,%s): %+v for %+v", sid, j.URL, GitHubDataSource, err, doc)
 			return
 		}
 		// Event
@@ -6261,8 +6271,8 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 			}
 		}
 	}()
-	id := ""
-	repoID := ""
+	issueID, repoID, userID, issueAssigneeID := "", "", "", ""
+	source := GitHubDataSource
 	for _, iDoc := range docs {
 		doc, _ := iDoc.(map[string]interface{})
 		createdOn, _ := doc["created_at"].(time.Time)
@@ -6275,15 +6285,15 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 		repoID, err = repository.GenerateRepositoryID(githubRepoName, j.URL, GitHubDataSource)
 		// shared.Printf("repository.GenerateRepositoryID(%s, %s, %s) -> %s,%v\n", githubRepoName, j.URL, GitHubDataSource, repoID, err)
 		if err != nil {
-			shared.Printf("GenerateRepositoryID: %+v for %+v", err, doc)
+			shared.Printf("GenerateRepositoryID(%s,%s,%s): %+v for %+v", githubRepoName, j.URL, GitHubDataSource, err, doc)
 			return
 		}
-		fIssueID, _ := doc["issue_id"].(float64)
-		issueID := fmt.Sprintf("%.0f", fIssueID)
-		id, err = igh.GenerateGithubIssueID(repoID, issueID)
-		// shared.Printf("igh.GenerateGithubIssueID(%s, %s) -> %s,%v\n", repoID, issueID, id, err)
+		fIID, _ := doc["issue_id"].(float64)
+		sIID := fmt.Sprintf("%.0f", fIID)
+		issueID, err = igh.GenerateGithubIssueID(repoID, sIID)
+		// shared.Printf("igh.GenerateGithubIssueID(%s, %s) -> %s,%v\n", repoID, sIID, issueID, err)
 		if err != nil {
-			shared.Printf("GenerateGithubIssueID: %+v for %+v", err, doc)
+			shared.Printf("GenerateGithubIssueID(%s,%s): %+v for %+v", repoID, sIID, err, doc)
 			return
 		}
 		splitted := strings.Split(githubRepoName, "/")
@@ -6293,13 +6303,80 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 		body, _ := doc["body"].(string)
 		url, _ := doc["url"].(string)
 		state, _ := doc["state"].(string)
+		// FIXME: don't we need an information that issue is a PR (GitHub specific), or maybe should we skip such issues?
+		// isPullRequest, _ := doc["pull_request"].(bool)
+		issueContributors := []insights.Contributor{}
+		// Primary assignee start
+		primaryAssignee := ""
+		roles, okRoles := doc["roles"].([]map[string]interface{})
+		if okRoles {
+			for _, role := range roles {
+				roleType, _ := role["role"].(string)
+				if roleType != "assignee_data" {
+					continue
+				}
+				name, _ := role["name"].(string)
+				username, _ := role["username"].(string)
+				primaryAssignee = username
+				email, _ := role["email"].(string)
+				avatarURL, _ := role["avatar_url"].(string)
+				name, username = shared.PostprocessNameUsername(name, username, email)
+				userID, err = user.GenerateIdentity(&source, &email, &name, &username)
+				if err != nil {
+					shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
+					return
+				}
+				contributor := insights.Contributor{
+					// FIXME: we miss "assignee" role in lfx-event-schema/service/insights/contributor.go
+					Role:   insights.ParticipantRole,
+					Weight: 1.0,
+					Identity: user.UserIdentityObjectBase{
+						ID:         userID,
+						Avatar:     avatarURL,
+						Email:      email,
+						IsVerified: false,
+						Name:       name,
+						Username:   username,
+						Source:     GitHubDataSource,
+					},
+				}
+				issueContributors = append(issueContributors, contributor)
+				assigneeSID := username
+				issueAssigneeID, err = igh.GenerateGithubAssigneeID(repoID, assigneeSID)
+				if err != nil {
+					shared.Printf("GenerateGithubAssigneeID(%s,%s): %+v for %+v", repoID, assigneeSID, err, doc)
+					return
+				}
+				issueAssignee := igh.IssueAssignee{
+					ID:      issueAssigneeID,
+					IssueID: issueID,
+					Assignee: insights.Assignee{
+						AssigneeID:  assigneeSID,
+						Contributor: contributor,
+					},
+				}
+				key := "assignee_added"
+				ary, ok := data[key]
+				if !ok {
+					ary = []interface{}{issueAssignee}
+				} else {
+					ary = append(ary, issueAssignee)
+				}
+				data[key] = ary
+			}
+		}
+		// FIXME
+		shared.Printf("primaryAssignee = '%s'\n", primaryAssignee)
+		// Primary assignee end
 		issue := igh.Issue{
-			ID:            id,
+			// FIXME: don't we need issue creation date on the issue object?
+			ID:            issueID,
 			RepositoryID:  repoID,
 			RepositoryURL: j.URL,
 			Repository:    githubRepoName,
 			Organization:  org,
 			Labels:        labels,
+			Contributors:  issueContributors,
 			Issue: insights.Issue{
 				Title:           title,
 				Body:            body,
@@ -6310,8 +6387,6 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 				SourceTimeStamp: updatedOn,
 				Orphaned:        false,
 			},
-			// TODO: continue from here
-			// Contributors  []insights.Contributor `json:"contributors,omitempty" jsonschema:"contributors"`
 		}
 		key := "updated"
 		if isNew {
@@ -6324,29 +6399,6 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 			ary = append(ary, issue)
 		}
 		data[key] = ary
-		// updatedOn can be dynamically updated when any activity is after the current value
-		/*
-			event := &models.Event{
-				CodeChangeRequest: nil,
-				Repository:        nil,
-				Issue: &models.Issue{
-					ID:            docUUID,
-					IssueID:       issueID,
-					IssueNumber:   issueNumber,
-					DataSourceID:  source,
-					CreatedAt:     strfmt.DateTime(createdOn),
-					UpdatedAt:     strfmt.DateTime(updatedOn),
-					ClosedAt:      closedOn,
-					IsClosed:      isClosed,
-					IsPullRequest: isPullRequest,
-					Title:         title,
-					State:         state,
-					Labels:        labels,
-					Activities:    activities,
-				},
-			}
-			data.Events = append(data.Events, event)
-		*/
 		gMaxUpstreamDtMtx.Lock()
 		if updatedOn.After(gMaxUpstreamDt) {
 			gMaxUpstreamDt = updatedOn
@@ -6355,11 +6407,6 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 	}
 	return
 	/*
-				endpoint := &models.DataEndpoint{
-					Org:      j.Org,
-					Repo:     j.Repo,
-					URL:      j.URL,
-					Category: j.CurrentCategory,
 					for _, iDoc := range docs {
 						var issueBody *string
 						doc, _ := iDoc.(map[string]interface{})
