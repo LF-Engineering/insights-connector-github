@@ -5276,7 +5276,7 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 					for _, d := range repos {
 						formattedData = append(formattedData, d)
 					}
-					err = j.PublisherPushEvents(RepositoryUpdated, "insights", GitHubDataSource, "repository", os.Getenv("STAGE"), formattedData)
+					err = j.Publisher.PushEvents(RepositoryUpdated, "insights", GitHubDataSource, "repository", os.Getenv("STAGE"), formattedData)
 				} else {
 					jsonBytes, err = jsoniter.Marshal(repos)
 				}
@@ -5292,37 +5292,37 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 						switch k {
 						case "created":
 							ev, _ := v[0].(igh.IssueCreatedEvent)
-							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
 						case "updated":
 							ev, _ := v[0].(igh.IssueUpdatedEvent)
-							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
 						case "assignee_added":
 							ev, _ := v[0].(igh.IssueAssigneeAddedEvent)
-							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
 						case "assignee_removed":
 							ev, _ := v[0].(igh.IssueAssigneeRemovedEvent)
-							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
 						case "comment_added":
 							ev, _ := v[0].(igh.IssueCommentAddedEvent)
-							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
 						case "comment_edited":
 							ev, _ := v[0].(igh.IssueCommentEditedEvent)
-							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
 						case "comment_deleted":
 							ev, _ := v[0].(igh.IssueCommentDeletedEvent)
-							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
 						case "reaction_added":
 							ev, _ := v[0].(igh.IssueReactionAddedEvent)
-							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
 						case "reaction_removed":
 							ev, _ := v[0].(igh.IssueReactionRemovedEvent)
-							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
 						case "comment_reaction_added":
 							ev, _ := v[0].(igh.IssueCommentReactionAddedEvent)
-							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
 						case "comment_reaction_removed":
 							ev, _ := v[0].(igh.IssueCommentReactionRemovedEvent)
-							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
 						default:
 							err = fmt.Errorf("unknown issue event type '%s'", k)
 						}
@@ -5342,53 +5342,52 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 					pullsStr := "pull_requests"
 					envStr := os.Getenv("STAGE")
 					for k, v := range pullsData {
-						// FIXME
-						shared.Printf("(k,len(v)) = ('%s',%d)\n", k, len(v))
+						// shared.Printf("(k,len(v)) = ('%s',%d)\n", k, len(v))
 						switch k {
 						case "created":
 							ev, _ := v[0].(igh.PullRequestCreatedEvent)
-							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						case "updated":
 							ev, _ := v[0].(igh.PullRequestUpdatedEvent)
-							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						case "assignee_added":
 							ev, _ := v[0].(igh.PullRequestAssigneeAddedEvent)
-							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						case "assignee_removed":
 							ev, _ := v[0].(igh.PullRequestAssigneeRemovedEvent)
-							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						case "comment_added":
 							ev, _ := v[0].(igh.PullRequestCommentAddedEvent)
-							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						case "comment_edited":
 							ev, _ := v[0].(igh.PullRequestCommentEditedEvent)
-							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						case "comment_deleted":
 							ev, _ := v[0].(igh.PullRequestCommentDeletedEvent)
-							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						case "comment_reaction_added":
 							ev, _ := v[0].(igh.PullRequestCommentReactionAddedEvent)
-							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						case "comment_reaction_removed":
 							ev, _ := v[0].(igh.PullRequestCommentReactionRemovedEvent)
-							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						/* there are no such events
 						case "reaction_added":
 							ev, _ := v[0].(igh.PullRequestReactionAddedEvent)
-							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						case "reaction_removed":
 							ev, _ := v[0].(igh.PullRequestReactionRemovedEvent)
-							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						*/
 						case "review_added":
 							ev, _ := v[0].(igh.PullRequestReviewAddedEvent)
-							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						case "reviewer_added":
 							ev, _ := v[0].(igh.PullRequestReviewerAddedEvent)
-							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						case "reviewer_removed":
 							ev, _ := v[0].(igh.PullRequestReviewerRemovedEvent)
-							err = j.PublisherPushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						default:
 							err = fmt.Errorf("unknown pull request event type '%s'", k)
 						}
