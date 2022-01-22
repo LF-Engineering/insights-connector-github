@@ -5658,7 +5658,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 		}
 	}()
 	// pullRequestID, repoID, userID, pullRequestAssigneeID, pullRequestReactionID, pullRequestCommentID, pullRequestCommentReactionID := "", "", "", "", "", "", ""
-	pullRequestID, repoID, userID, pullRequestAssigneeID := "", "", "", ""
+	pullRequestID, repoID, userID, pullRequestAssigneeID, pullRequestCommentID := "", "", "", "", ""
 	source := GitHubDataSource
 	for _, iDoc := range docs {
 		nReactions := 0
@@ -5825,6 +5825,87 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 			}
 		}
 		// Other assignees end
+		// Comments start
+		commentsAry, okComments := doc["review_comments_array"].([]interface{})
+		if okComments {
+			for _, iComment := range commentsAry {
+				comment, okComment := iComment.(map[string]interface{})
+				if !okComment || comment == nil {
+					continue
+				}
+				roles, okRoles := comment["roles"].([]map[string]interface{})
+				if !okRoles || len(roles) == 0 {
+					continue
+				}
+				sCommentBody, _ := comment["body"].(string)
+				sCommentURL, _ := comment["html_url"].(string)
+				commentCreatedOn, _ := comment["metadata__updated_on"].(time.Time)
+				commentID, _ := comment["pull_request_comment_id"].(int64)
+				sCommentID := fmt.Sprintf("%d", commentID)
+				if commentCreatedOn.After(updatedOn) {
+					updatedOn = commentCreatedOn
+				}
+				for _, role := range roles {
+					roleType, _ := role["role"].(string)
+					if roleType != "user_data" {
+						continue
+					}
+					name, _ := role["name"].(string)
+					username, _ := role["username"].(string)
+					email, _ := role["email"].(string)
+					avatarURL, _ := role["avatar_url"].(string)
+					name, username = shared.PostprocessNameUsername(name, username, email)
+					userID, err = user.GenerateIdentity(&source, &email, &name, &username)
+					if err != nil {
+						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
+						return
+					}
+					contributor := insights.Contributor{
+						// FIXME: we miss "commenter" role in lfx-event-schema/service/insights/contributor.go
+						Role:   insights.ParticipantRole,
+						Weight: 1.0,
+						Identity: user.UserIdentityObjectBase{
+							ID:         userID,
+							Avatar:     avatarURL,
+							Email:      email,
+							IsVerified: false,
+							Name:       name,
+							Username:   username,
+							Source:     GitHubDataSource,
+						},
+					}
+					pullRequestContributors = append(pullRequestContributors, contributor)
+					commentSID := sCommentID
+					pullRequestCommentID, err = igh.GenerateGithubCommentID(repoID, commentSID)
+					if err != nil {
+						shared.Printf("GenerateGithubCommentID(%s,%s): %+v for %+v", repoID, commentSID, err, doc)
+						return
+					}
+					pullRequestComment := igh.PullRequestComment{
+						ID:              pullRequestCommentID,
+						PullRequestID:   pullRequestID,
+						IsReviewComment: false,
+						Comment: insights.Comment{
+							Body:            sCommentBody,
+							CommentURL:      sCommentURL,
+							SourceTimeStamp: commentCreatedOn,
+							CommentID:       commentSID,
+							Contributor:     contributor,
+						},
+					}
+					key := "comment_added"
+					ary, ok := data[key]
+					if !ok {
+						ary = []interface{}{pullRequestComment}
+					} else {
+						ary = append(ary, pullRequestComment)
+					}
+					data[key] = ary
+					nComments++
+				}
+			}
+		}
+		// Comments end
 		// Final PullRequest object
 		nCommits := 0
 		commitsAry, okCommits := doc["commits_array"].([]interface{})
@@ -5875,125 +5956,6 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 	}
 	return
 	/*
-				requestedReviewersAry, okRequestedReviewers := doc["requested_reviewers_array"].([]interface{})
-				if okRequestedReviewers {
-					actType := "github_pull_request_requested_reviewer_added"
-					for _, iRequestedReviewer := range requestedReviewersAry {
-						requestedReviewer, okRequestedReviewer := iRequestedReviewer.(map[string]interface{})
-						if !okRequestedReviewer || requestedReviewer == nil {
-							continue
-						}
-						roles, okRoles := requestedReviewer["roles"].([]map[string]interface{})
-						if !okRoles || len(roles) == 0 {
-							continue
-						}
-						for _, role := range roles {
-							roleType, _ := role["role"].(string)
-							if roleType != "requested_reviewer" {
-								continue
-							}
-							name, _ := role["name"].(string)
-							username, _ := role["username"].(string)
-							email, _ := role["email"].(string)
-							avatarURL, _ := role["avatar_url"].(string)
-							name, username = shared.PostprocessNameUsername(name, username, email)
-							userUUID := shared.UUIDAffs(ctx, source, email, name, username)
-							identity := &models.Identity{
-								ID:           userUUID,
-								DataSourceID: source,
-								Name:         name,
-								Username:     username,
-								Email:        email,
-								AvatarURL:    avatarURL,
-							}
-							actUUID := shared.UUIDNonEmpty(ctx, docUUID, actType, userUUID)
-							activities = append(activities, &models.CodeChangeRequestActivity{
-								ID:                   actUUID,
-								CodeChangeRequestKey: docUUID,
-								CodeChangeRequestID:  prID,
-								ActivityType:         actType,
-								Identity:             identity,
-								CreatedAt:            strfmt.DateTime(createdOn),
-								Key:                  &sPRNumber,
-							})
-						}
-					}
-				}
-				commentsAry, okComments := doc["review_comments_array"].([]interface{})
-				if okComments {
-					actType := "github_pull_request_review_comment_added"
-					// Those comments are duplicated in "github_pull_request_review_added" type, with reviewState=COMMENTED
-					// NOTE: if review state is "COMMENTED" that means it is also returned in "github_pull_request_review_comment_added"
-					// But the reviews API is not returning comment body in those objects.
-					// I could skip such reviews (to avoid duplication) but they contain some extra data not present here like review ID etc.
-					// Also the comment body is stored here.
-					for _, iComment := range commentsAry {
-						comment, okComment := iComment.(map[string]interface{})
-						if !okComment || comment == nil {
-							continue
-						}
-						roles, okRoles := comment["roles"].([]map[string]interface{})
-						if !okRoles || len(roles) == 0 {
-							continue
-						}
-						var (
-							commentBody *string
-							commentURL  *string
-							authorAssoc *string
-						)
-						sCommentBody, _ := comment["body"].(string)
-						if sCommentBody != "" {
-							commentBody = &sCommentBody
-						}
-						sCommentURL, _ := comment["html_url"].(string)
-						if sCommentURL != "" {
-							commentURL = &sCommentURL
-						}
-						sAuthorAssoc, _ := comment["author_association"].(string)
-						if sAuthorAssoc != "" {
-							authorAssoc = &sAuthorAssoc
-						}
-						commentCreatedOn, _ := comment["metadata__updated_on"].(time.Time)
-						commentID, _ := comment["pull_request_comment_id"].(int64)
-						sCommentID := fmt.Sprintf("%d", commentID)
-						if commentCreatedOn.After(updatedOn) {
-							updatedOn = commentCreatedOn
-						}
-						for _, role := range roles {
-							roleType, _ := role["role"].(string)
-							if roleType != "user_data" {
-								continue
-							}
-							name, _ := role["name"].(string)
-							username, _ := role["username"].(string)
-							email, _ := role["email"].(string)
-							avatarURL, _ := role["avatar_url"].(string)
-							name, username = shared.PostprocessNameUsername(name, username, email)
-							userUUID := shared.UUIDAffs(ctx, source, email, name, username)
-							identity := &models.Identity{
-								ID:           userUUID,
-								DataSourceID: source,
-								Name:         name,
-								Username:     username,
-								Email:        email,
-								AvatarURL:    avatarURL,
-							}
-							actUUID := shared.UUIDNonEmpty(ctx, docUUID, actType, sCommentID)
-							activities = append(activities, &models.CodeChangeRequestActivity{
-								ID:                   actUUID,
-								CodeChangeRequestKey: docUUID,
-								CodeChangeRequestID:  prID,
-								ActivityType:         actType,
-								Identity:             identity,
-								CreatedAt:            strfmt.DateTime(commentCreatedOn),
-								Key:                  &sCommentID,
-								Body:                 commentBody,
-								URL:                  commentURL,
-								IdentityAssociaction: authorAssoc,
-							})
-						}
-					}
-				}
 				reactionsAry, okReactions := doc["review_comments_reactions_array"].([]interface{})
 				if okReactions {
 					actType := "github_pull_request_review_comment_reaction"
@@ -6195,6 +6157,50 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 							Author:    author,
 							Committer: committer,
 						})
+					}
+				}
+				requestedReviewersAry, okRequestedReviewers := doc["requested_reviewers_array"].([]interface{})
+				if okRequestedReviewers {
+					actType := "github_pull_request_requested_reviewer_added"
+					for _, iRequestedReviewer := range requestedReviewersAry {
+						requestedReviewer, okRequestedReviewer := iRequestedReviewer.(map[string]interface{})
+						if !okRequestedReviewer || requestedReviewer == nil {
+							continue
+						}
+						roles, okRoles := requestedReviewer["roles"].([]map[string]interface{})
+						if !okRoles || len(roles) == 0 {
+							continue
+						}
+						for _, role := range roles {
+							roleType, _ := role["role"].(string)
+							if roleType != "requested_reviewer" {
+								continue
+							}
+							name, _ := role["name"].(string)
+							username, _ := role["username"].(string)
+							email, _ := role["email"].(string)
+							avatarURL, _ := role["avatar_url"].(string)
+							name, username = shared.PostprocessNameUsername(name, username, email)
+							userUUID := shared.UUIDAffs(ctx, source, email, name, username)
+							identity := &models.Identity{
+								ID:           userUUID,
+								DataSourceID: source,
+								Name:         name,
+								Username:     username,
+								Email:        email,
+								AvatarURL:    avatarURL,
+							}
+							actUUID := shared.UUIDNonEmpty(ctx, docUUID, actType, userUUID)
+							activities = append(activities, &models.CodeChangeRequestActivity{
+								ID:                   actUUID,
+								CodeChangeRequestKey: docUUID,
+								CodeChangeRequestID:  prID,
+								ActivityType:         actType,
+								Identity:             identity,
+								CreatedAt:            strfmt.DateTime(createdOn),
+								Key:                  &sPRNumber,
+							})
+						}
 					}
 				}
 				// updatedOn can be dynamically updated when any activity is after the current value
