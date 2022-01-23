@@ -5980,9 +5980,8 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						return
 					}
 					pullRequestCommentReaction := igh.PullRequestCommentReaction{
-						ID:            pullRequestCommentReactionID,
-						PullRequestID: pullRequestID,
-						CommentID:     sCommentID,
+						ID:        pullRequestCommentReactionID,
+						CommentID: sCommentID,
 						Reaction: insights.Reaction{
 							Emoji: service.Emoji{
 								ID:      content,
@@ -6874,7 +6873,6 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 					}
 					issueCommentReaction := igh.IssueCommentReaction{
 						ID:        issueCommentReactionID,
-						IssueID:   issueID,
 						CommentID: sCommentID,
 						Reaction: insights.Reaction{
 							Emoji: service.Emoji{
