@@ -3,13 +3,12 @@ module github.com/LF-Engineering/insights-datasource-github
 go 1.15
 
 require (
-	github.com/LF-Engineering/dev-analytics-libraries v1.1.20
-	github.com/LF-Engineering/insights-datasource-shared v0.0.0-20210902054748-02732f27c3c5
-	github.com/go-openapi/errors v0.19.9
-	github.com/go-openapi/strfmt v0.20.1
-	github.com/go-openapi/swag v0.19.15
-	github.com/go-openapi/validate v0.20.2
+	github.com/LF-Engineering/dev-analytics-libraries v1.1.28
+	github.com/LF-Engineering/insights-datasource-shared v1.2.1
+	github.com/LF-Engineering/lfx-event-schema v0.1.2-0.20220124053623-642a2e9ed5bf
+	github.com/aws/aws-lambda-go v1.28.0
+	github.com/aws/aws-sdk-go v1.42.39
 	github.com/google/go-github/v38 v38.1.0
-	github.com/json-iterator/go v1.1.11
-	golang.org/x/oauth2 v0.0.0-20201208152858-08078c50e5b5
+	github.com/json-iterator/go v1.1.12
+	golang.org/x/oauth2 v0.0.0-20211104180415-d3ed0bb246c8
 )

@@ -1,9 +1,9 @@
 GO_BIN_FILES=cmd/github/github.go 
 #for race CGO_ENABLED=1
-GO_ENV=CGO_ENABLED=1
-# GO_ENV=CGO_ENABLED=0
-GO_BUILD=go build -ldflags '-s -w' -race
-# GO_BUILD=go build -ldflags '-s -w'
+# GOOS=linux GO_ENV=CGO_ENABLED=1
+GO_ENV=GOOS=linux CGO_ENABLED=0
+# GO_BUILD=go build -ldflags '-s -w' -race
+GO_BUILD=go build -ldflags '-s -w'
 GO_FMT=gofmt -s -w
 GO_LINT=golint -set_exit_status
 GO_VET=go vet
@@ -24,11 +24,6 @@ imports: ${GO_BIN_FILES}
 errcheck: ${GO_BIN_FILES}
 	${GO_ERRCHECK} ${GO_BIN_FILES}
 check: fmt lint imports vet errcheck
-swagger: clean_swagger
-	swagger -q generate model -t gen -f swagger/github.yaml
-clean_swagger:
-	rm -rf ./gen
-	mkdir gen
 clean:
 	rm -rf ${BINARIES}
 .PHONY: all
