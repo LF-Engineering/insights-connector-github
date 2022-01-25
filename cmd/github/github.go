@@ -5787,7 +5787,8 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 				name, _ := role["name"].(string)
 				email, _ := role["email"].(string)
 				avatarURL, _ := role["avatar_url"].(string)
-				name, username = shared.PostprocessNameUsername(name, username, email)
+				// No identity data postprocessing in V2
+				// name, username = shared.PostprocessNameUsername(name, username, email)
 				userID, err = user.GenerateIdentity(&source, &email, &name, &username)
 				if err != nil {
 					shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
@@ -5867,7 +5868,8 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					}
 					email, _ := role["email"].(string)
 					avatarURL, _ := role["avatar_url"].(string)
-					name, username = shared.PostprocessNameUsername(name, username, email)
+					// No identity data postprocessing in V2
+					// name, username = shared.PostprocessNameUsername(name, username, email)
 					userID, err = user.GenerateIdentity(&source, &email, &name, &username)
 					if err != nil {
 						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
@@ -5944,7 +5946,8 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					username, _ := role["username"].(string)
 					email, _ := role["email"].(string)
 					avatarURL, _ := role["avatar_url"].(string)
-					name, username = shared.PostprocessNameUsername(name, username, email)
+					// No identity data postprocessing in V2
+					// name, username = shared.PostprocessNameUsername(name, username, email)
 					userID, err = user.GenerateIdentity(&source, &email, &name, &username)
 					if err != nil {
 						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
@@ -6022,7 +6025,8 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					username, _ := role["username"].(string)
 					email, _ := role["email"].(string)
 					avatarURL, _ := role["avatar_url"].(string)
-					name, username = shared.PostprocessNameUsername(name, username, email)
+					// No identity data postprocessing in V2
+					// name, username = shared.PostprocessNameUsername(name, username, email)
 					userID, err = user.GenerateIdentity(&source, &email, &name, &username)
 					if err != nil {
 						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
@@ -6118,7 +6122,8 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					username, _ := role["username"].(string)
 					email, _ := role["email"].(string)
 					avatarURL, _ := role["avatar_url"].(string)
-					name, username = shared.PostprocessNameUsername(name, username, email)
+					// No identity data postprocessing in V2
+					// name, username = shared.PostprocessNameUsername(name, username, email)
 					userID, err = user.GenerateIdentity(&source, &email, &name, &username)
 					if err != nil {
 						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
@@ -6193,7 +6198,8 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					username, _ := role["username"].(string)
 					email, _ := role["email"].(string)
 					avatarURL, _ := role["avatar_url"].(string)
-					name, username = shared.PostprocessNameUsername(name, username, email)
+					// No identity data postprocessing in V2
+					// name, username = shared.PostprocessNameUsername(name, username, email)
 					userID, err = user.GenerateIdentity(&source, &email, &name, &username)
 					if err != nil {
 						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
@@ -6268,7 +6274,8 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						username, _ := role["username"].(string)
 						email, _ := role["email"].(string)
 						avatarURL, _ := role["avatar_url"].(string)
-						name, username = shared.PostprocessNameUsername(name, username, email)
+				    // No identity data postprocessing in V2
+						// name, username = shared.PostprocessNameUsername(name, username, email)
 					}
 					commits = append(commits, &models.CodeChangeRequestCommit{
 						SHA:       sha,
@@ -6644,7 +6651,8 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 				primaryAssignee = username
 				email, _ := role["email"].(string)
 				avatarURL, _ := role["avatar_url"].(string)
-				name, username = shared.PostprocessNameUsername(name, username, email)
+				// No identity data postprocessing in V2
+				// name, username = shared.PostprocessNameUsername(name, username, email)
 				userID, err = user.GenerateIdentity(&source, &email, &name, &username)
 				if err != nil {
 					shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
@@ -6722,7 +6730,8 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 					}
 					email, _ := role["email"].(string)
 					avatarURL, _ := role["avatar_url"].(string)
-					name, username = shared.PostprocessNameUsername(name, username, email)
+					// No identity data postprocessing in V2
+					// name, username = shared.PostprocessNameUsername(name, username, email)
 					userID, err = user.GenerateIdentity(&source, &email, &name, &username)
 					if err != nil {
 						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
@@ -6794,7 +6803,8 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 					username, _ := role["username"].(string)
 					email, _ := role["email"].(string)
 					avatarURL, _ := role["avatar_url"].(string)
-					name, username = shared.PostprocessNameUsername(name, username, email)
+					// No identity data postprocessing in V2
+					// name, username = shared.PostprocessNameUsername(name, username, email)
 					userID, err = user.GenerateIdentity(&source, &email, &name, &username)
 					if err != nil {
 						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
@@ -6876,7 +6886,8 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 					username, _ := role["username"].(string)
 					email, _ := role["email"].(string)
 					avatarURL, _ := role["avatar_url"].(string)
-					name, username = shared.PostprocessNameUsername(name, username, email)
+					// No identity data postprocessing in V2
+					// name, username = shared.PostprocessNameUsername(name, username, email)
 					userID, err = user.GenerateIdentity(&source, &email, &name, &username)
 					if err != nil {
 						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
@@ -6953,7 +6964,8 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 					username, _ := role["username"].(string)
 					email, _ := role["email"].(string)
 					avatarURL, _ := role["avatar_url"].(string)
-					name, username = shared.PostprocessNameUsername(name, username, email)
+					// No identity data postprocessing in V2
+					// name, username = shared.PostprocessNameUsername(name, username, email)
 					userID, err = user.GenerateIdentity(&source, &email, &name, &username)
 					if err != nil {
 						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
