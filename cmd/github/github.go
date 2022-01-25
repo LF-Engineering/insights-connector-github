@@ -224,7 +224,7 @@ func (j *DSGitHub) AddPublisher(publisher Publisher) {
 // FIXME: don't use when done implementing
 func (j *DSGitHub) PublisherPushEvents(ev, ori, src, cat, env string, v []interface{}) error {
 	data, _ := jsoniter.Marshal(v)
-	shared.Printf("publish[ev=%s ori=%s src=%s cat=%s env=%s]: %+v\n", ev, ori, src, cat, env, string(data))
+	shared.Printf("publish[ev=%s ori=%s src=%s cat=%s env=%s]: %d items: %+v\n", ev, ori, src, cat, env, len(v), string(data))
 	return nil
 }
 
@@ -5296,6 +5296,9 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 						case "updated":
 							ev, _ := v[0].(igh.IssueUpdatedEvent)
 							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+						case "closed":
+							ev, _ := v[0].(igh.IssueClosedEvent)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
 						case "assignee_added":
 							ev, _ := v[0].(igh.IssueAssigneeAddedEvent)
 							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
@@ -5349,6 +5352,12 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						case "updated":
 							ev, _ := v[0].(igh.PullRequestUpdatedEvent)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+						case "closed":
+							ev, _ := v[0].(igh.PullRequestClosedEvent)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+						case "merged":
+							ev, _ := v[0].(igh.PullRequestMergedEvent)
 							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						case "assignee_added":
 							ev, _ := v[0].(igh.PullRequestAssigneeAddedEvent)
@@ -5560,7 +5569,6 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						UpdatedAt: time.Now().Unix(),
 					},
 				}
-				// ary := []igh.PullRequestCreatedEvent{}
 				ary := []interface{}{}
 				for _, pullRequest := range v {
 					ary = append(ary, igh.PullRequestCreatedEvent{
@@ -5580,10 +5588,47 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						UpdatedAt: time.Now().Unix(),
 					},
 				}
-				// ary := []igh.PullRequestUpdatedEvent{}
 				ary := []interface{}{}
 				for _, pullRequest := range v {
 					ary = append(ary, igh.PullRequestUpdatedEvent{
+						PullRequestBaseEvent: pullRequestBaseEvent,
+						BaseEvent:            baseEvent,
+						Payload:              pullRequest.(igh.PullRequest),
+					})
+				}
+				data[k] = ary
+			case "closed":
+				baseEvent := service.BaseEvent{
+					Type: service.EventType(igh.PullRequestClosedEvent{}.Event()),
+					CRUDInfo: service.CRUDInfo{
+						CreatedBy: GitHubConnector,
+						UpdatedBy: GitHubConnector,
+						CreatedAt: time.Now().Unix(),
+						UpdatedAt: time.Now().Unix(),
+					},
+				}
+				ary := []interface{}{}
+				for _, pullRequest := range v {
+					ary = append(ary, igh.PullRequestClosedEvent{
+						PullRequestBaseEvent: pullRequestBaseEvent,
+						BaseEvent:            baseEvent,
+						Payload:              pullRequest.(igh.PullRequest),
+					})
+				}
+				data[k] = ary
+			case "merged":
+				baseEvent := service.BaseEvent{
+					Type: service.EventType(igh.PullRequestMergedEvent{}.Event()),
+					CRUDInfo: service.CRUDInfo{
+						CreatedBy: GitHubConnector,
+						UpdatedBy: GitHubConnector,
+						CreatedAt: time.Now().Unix(),
+						UpdatedAt: time.Now().Unix(),
+					},
+				}
+				ary := []interface{}{}
+				for _, pullRequest := range v {
+					ary = append(ary, igh.PullRequestMergedEvent{
 						PullRequestBaseEvent: pullRequestBaseEvent,
 						BaseEvent:            baseEvent,
 						Payload:              pullRequest.(igh.PullRequest),
@@ -5723,10 +5768,10 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 		body, _ := doc["body"].(string)
 		url, _ := doc["url"].(string)
 		state, _ := doc["state"].(string)
-		//closedOn := j.ItemNullableDate(doc, "closed_at")
-		//mergedOn := j.ItemNullableDate(doc, "merged_at")
-		//isClosed := closedOn != nil
-		//isMerged := mergedOn != nil
+		closedOn := j.ItemNullableDate(doc, "closed_at")
+		mergedOn := j.ItemNullableDate(doc, "merged_at")
+		isClosed := closedOn != nil
+		isMerged := mergedOn != nil
 		pullRequestContributors := []insights.Contributor{}
 		// Primary assignee start
 		primaryAssignee := ""
@@ -6099,7 +6144,6 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						shared.Printf("GenerateGithubReviewID(%s,%s): %+v for %+v", repoID, reviewSID, err, doc)
 						return
 					}
-					// FIXME: review object misses review body and review creation date
 					pullRequestReview := igh.PullRequestReview{
 						ID:            pullRequestReviewID,
 						PullRequestID: pullRequestID,
@@ -6150,27 +6194,6 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					email, _ := role["email"].(string)
 					avatarURL, _ := role["avatar_url"].(string)
 					name, username = shared.PostprocessNameUsername(name, username, email)
-					/*
-						userUUID := shared.UUIDAffs(ctx, source, email, name, username)
-						identity := &models.Identity{
-							ID:           userUUID,
-							DataSourceID: source,
-							Name:         name,
-							Username:     username,
-							Email:        email,
-							AvatarURL:    avatarURL,
-						}
-						actUUID := shared.UUIDNonEmpty(ctx, docUUID, actType, userUUID)
-						activities = append(activities, &models.CodeChangeRequestActivity{
-							ID:                   actUUID,
-							CodeChangeRequestKey: docUUID,
-							CodeChangeRequestID:  prID,
-							ActivityType:         actType,
-							Identity:             identity,
-							CreatedAt:            strfmt.DateTime(createdOn),
-							Key:                  &sPRNumber,
-						})
-					*/
 					userID, err = user.GenerateIdentity(&source, &email, &name, &username)
 					if err != nil {
 						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
@@ -6256,7 +6279,6 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 			*/
 		}
 		pullRequest := igh.PullRequest{
-			// FIXME: don't we need pullRequest creation, close & merge dates on the pullRequest object?
 			ID:            pullRequestID,
 			RepositoryID:  repoID,
 			RepositoryURL: j.URL,
@@ -6291,6 +6313,34 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 			ary = append(ary, pullRequest)
 		}
 		data[key] = ary
+		// Fake merge "event"
+		if isMerged {
+			pullRequest.Contributors = []insights.Contributor{}
+			pullRequest.SyncTimestamp = time.Now()
+			pullRequest.SourceTimeStamp = *mergedOn
+			key := "merged"
+			ary, ok := data[key]
+			if !ok {
+				ary = []interface{}{pullRequest}
+			} else {
+				ary = append(ary, pullRequest)
+			}
+			data[key] = ary
+		}
+		// Fake "close" event (not merged and closed)
+		if isClosed && !isMerged {
+			pullRequest.Contributors = []insights.Contributor{}
+			pullRequest.SyncTimestamp = time.Now()
+			pullRequest.SourceTimeStamp = *closedOn
+			key := "closed"
+			ary, ok := data[key]
+			if !ok {
+				ary = []interface{}{pullRequest}
+			} else {
+				ary = append(ary, pullRequest)
+			}
+			data[key] = ary
+		}
 		gMaxUpstreamDtMtx.Lock()
 		if updatedOn.After(gMaxUpstreamDt) {
 			gMaxUpstreamDt = updatedOn
@@ -6444,6 +6494,25 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 					})
 				}
 				data[k] = ary
+			case "closed":
+				baseEvent := service.BaseEvent{
+					Type: service.EventType(igh.IssueClosedEvent{}.Event()),
+					CRUDInfo: service.CRUDInfo{
+						CreatedBy: GitHubConnector,
+						UpdatedBy: GitHubConnector,
+						CreatedAt: time.Now().Unix(),
+						UpdatedAt: time.Now().Unix(),
+					},
+				}
+				ary := []interface{}{}
+				for _, issue := range v {
+					ary = append(ary, igh.IssueClosedEvent{
+						IssueBaseEvent: issueBaseEvent,
+						BaseEvent:      baseEvent,
+						Payload:        issue.(igh.Issue),
+					})
+				}
+				data[k] = ary
 			case "assignee_added":
 				baseEvent := service.BaseEvent{
 					Type: service.EventType(igh.IssueAssigneeAddedEvent{}.Event()),
@@ -6534,6 +6603,8 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 		doc, _ := iDoc.(map[string]interface{})
 		createdOn, _ := doc["created_at"].(time.Time)
 		updatedOn := j.ItemUpdatedOn(doc)
+		closedOn := j.ItemNullableDate(doc, "closed_at")
+		isClosed := closedOn != nil
 		githubRepoName, _ := doc["github_repo"].(string)
 		repoID, err = repository.GenerateRepositoryID(githubRepoName, j.URL, GitHubDataSource)
 		// shared.Printf("repository.GenerateRepositoryID(%s, %s, %s) -> %s,%v\n", githubRepoName, j.URL, GitHubDataSource, repoID, err)
@@ -6937,7 +7008,6 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 		// Comment reactions end
 		// Final Issue object
 		issue := igh.Issue{
-			// FIXME: don't we need issue creation & close date on the issue object?
 			ID:            issueID,
 			RepositoryID:  repoID,
 			RepositoryURL: j.URL,
@@ -6971,6 +7041,20 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 			ary = append(ary, issue)
 		}
 		data[key] = ary
+		// Fake close "event"
+		if isClosed {
+			issue.Contributors = []insights.Contributor{}
+			issue.SyncTimestamp = time.Now()
+			issue.SourceTimeStamp = *closedOn
+			key := "closed"
+			ary, ok := data[key]
+			if !ok {
+				ary = []interface{}{issue}
+			} else {
+				ary = append(ary, issue)
+			}
+			data[key] = ary
+		}
 		gMaxUpstreamDtMtx.Lock()
 		if updatedOn.After(gMaxUpstreamDt) {
 			gMaxUpstreamDt = updatedOn
