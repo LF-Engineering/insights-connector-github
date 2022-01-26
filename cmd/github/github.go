@@ -113,8 +113,6 @@ const (
 	GitHubIssueDefaultStream = "PUT-S3-github-issues"
 	// GitHubPullRequestDefaultStream - Stream To Publish pull requests
 	GitHubPullRequestDefaultStream = "PUT-S3-github-pull-requests"
-	// RepositoryUpdated - repository updated event (new stats calculated)
-	RepositoryUpdated = "repository.updated"
 	// GitHubConnector ...
 	GitHubConnector = "github-connector"
 )
@@ -5275,7 +5273,9 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 					for _, d := range repos {
 						formattedData = append(formattedData, d)
 					}
-					err = j.Publisher.PushEvents(RepositoryUpdated, "insights", GitHubDataSource, "repository", os.Getenv("STAGE"), formattedData)
+					if len(repos) > 0 {
+						err = j.Publisher.PushEvents(repos[0].Event(), "insights", GitHubDataSource, "repository", os.Getenv("STAGE"), formattedData)
+					}
 				} else {
 					jsonBytes, err = jsoniter.Marshal(repos)
 				}
@@ -6343,8 +6343,9 @@ func (j *DSGitHub) GetModelDataRepository(ctx *shared.Ctx, docs []interface{}) (
 		// ConnectorVersion: GitHubBackendVersion,
 		// Source:           insights.GithubSource,
 	}
+	ev := repository.RepositoryUpdatedEvent{}
 	baseEvent := service.BaseEvent{
-		Type: RepositoryUpdated,
+		Type: service.EventType(ev.Event()),
 		CRUDInfo: service.CRUDInfo{
 			CreatedBy: GitHubConnector,
 			UpdatedBy: GitHubConnector,
