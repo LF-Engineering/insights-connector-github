@@ -1,5 +1,5 @@
 #!/bin/bash
-# example run: GITHUB_STREAM=xyz ./scripts/git.sh
+# example run: GITHUB_STREAM=xyz ./scripts/github.sh
 # ESENV=prod|test
 if [ -z "${ESENV}" ]
 then
@@ -17,4 +17,4 @@ export AWS_SECRET_ACCESS_KEY="`cat ./secrets/AWS_SECRET_ACCESS_KEY.${AWSENV}.sec
 # --github-org=cncf
 # --github-repo=devstats
 # --github-cache-path='/tmp/github-users-cache'
-./github --git-es-url="`cat ./secrets/ES_URL.${ESENV}.secret`" --github-stream='' $*
+./github --github-es-url="`cat ./secrets/ES_URL.${ESENV}.secret`" --github-stream='' $*
