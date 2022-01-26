@@ -5829,7 +5829,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					Assignee: insights.Assignee{
 						AssigneeID:      username,
 						Contributor:     contributor,
-						SourceTimeStamp: createdOn,
+						SourceTimestamp: createdOn,
 						SyncTimestamp:   time.Now(),
 					},
 				}
@@ -5902,7 +5902,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 							AssigneeID:      username,
 							Contributor:     contributor,
 							SyncTimestamp:   time.Now(),
-							SourceTimeStamp: createdOn,
+							SourceTimestamp: createdOn,
 						},
 					}
 					key := "assignee_added"
@@ -5980,10 +5980,11 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						Comment: insights.Comment{
 							Body:            sCommentBody,
 							CommentURL:      sCommentURL,
-							SourceTimeStamp: commentCreatedOn,
+							SourceTimestamp: commentCreatedOn,
 							SyncTimestamp:   time.Now(),
 							CommentID:       commentSID,
 							Contributor:     contributor,
+							Orphaned:        false,
 						},
 					}
 					key := "comment_added"
@@ -6061,7 +6062,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 								Unicode: emojiContent,
 							},
 							ReactionID:      reactionSID,
-							SourceTimeStamp: reactionCreatedOn,
+							SourceTimestamp: reactionCreatedOn,
 							SyncTimestamp:   time.Now(),
 							Contributor:     contributor,
 						},
@@ -6160,7 +6161,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 								ReviewerID:      username,
 								Contributor:     contributor,
 								SyncTimestamp:   time.Now(),
-								SourceTimeStamp: reviewCreatedOn,
+								SourceTimestamp: reviewCreatedOn,
 							},
 						},
 					}
@@ -6232,7 +6233,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 							ReviewerID:      username,
 							Contributor:     contributor,
 							SyncTimestamp:   time.Now(),
-							SourceTimeStamp: createdOn,
+							SourceTimestamp: createdOn,
 						},
 					}
 					key := "reviewer_added"
@@ -6248,42 +6249,20 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 		}
 		// Requested reviewers end
 		// Final PullRequest object
-		nCommits := 0
+		shas := []string{}
 		commitsAry, okCommits := doc["commits_array"].([]interface{})
 		if okCommits {
-			nCommits = len(commitsAry)
-			// FIXME: we do nothing with commits data
-			/*
-				for _, iCommit := range commitsAry {
-					commit, okCommit := iCommit.(map[string]interface{})
-					if !okCommit || commit == nil {
-						continue
-					}
-					roles, okRoles := commit["roles"].([]map[string]interface{})
-					sha, _ := commit["sha"].(string)
-					if !okRoles || sha == "" || len(roles) == 0 {
-						continue
-					}
-					var (
-						author    *models.Identity
-						committer *models.Identity
-					)
-					for _, role := range roles {
-						roleType, _ := role["role"].(string)
-						name, _ := role["name"].(string)
-						username, _ := role["username"].(string)
-						email, _ := role["email"].(string)
-						avatarURL, _ := role["avatar_url"].(string)
-				    // No identity data postprocessing in V2
-						// name, username = shared.PostprocessNameUsername(name, username, email)
-					}
-					commits = append(commits, &models.CodeChangeRequestCommit{
-						SHA:       sha,
-						Author:    author,
-						Committer: committer,
-					})
+			for _, iCommit := range commitsAry {
+				commit, okCommit := iCommit.(map[string]interface{})
+				if !okCommit || commit == nil {
+					continue
 				}
-			*/
+				sha, _ := commit["sha"].(string)
+				if sha == "" {
+					continue
+				}
+				shas = append(shas, sha)
+			}
 		}
 		pullRequest := igh.PullRequest{
 			ID:            pullRequestID,
@@ -6292,7 +6271,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 			Repository:    githubRepoName,
 			Organization:  org,
 			Labels:        labels,
-			CommitCount:   nCommits,
+			Commits:       shas,
 			Contributors:  pullRequestContributors,
 			ChangeRequest: insights.ChangeRequest{
 				Title:            title,
@@ -6301,7 +6280,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 				ChangeRequestURL: url,
 				State:            insights.ChangeRequestState(state),
 				SyncTimestamp:    time.Now(),
-				SourceTimeStamp:  createdOn,
+				SourceTimestamp:  createdOn,
 				Orphaned:         false,
 			},
 		}
@@ -6324,7 +6303,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 		if isMerged {
 			pullRequest.Contributors = []insights.Contributor{}
 			pullRequest.SyncTimestamp = time.Now()
-			pullRequest.SourceTimeStamp = *mergedOn
+			pullRequest.SourceTimestamp = *mergedOn
 			key := "merged"
 			ary, ok := data[key]
 			if !ok {
@@ -6338,7 +6317,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 		if isClosed && !isMerged {
 			pullRequest.Contributors = []insights.Contributor{}
 			pullRequest.SyncTimestamp = time.Now()
-			pullRequest.SourceTimeStamp = *closedOn
+			pullRequest.SourceTimestamp = *closedOn
 			key := "closed"
 			ary, ok := data[key]
 			if !ok {
@@ -6692,7 +6671,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 						AssigneeID:      username,
 						Contributor:     contributor,
 						SyncTimestamp:   time.Now(),
-						SourceTimeStamp: createdOn,
+						SourceTimestamp: createdOn,
 					},
 				}
 				key := "assignee_added"
@@ -6764,7 +6743,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 							AssigneeID:      username,
 							Contributor:     contributor,
 							SyncTimestamp:   time.Now(),
-							SourceTimeStamp: createdOn,
+							SourceTimestamp: createdOn,
 						},
 					}
 					key := "assignee_added"
@@ -6839,7 +6818,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 								Unicode: emojiContent,
 							},
 							ReactionID:      reactionSID,
-							SourceTimeStamp: reactionCreatedOn,
+							SourceTimestamp: reactionCreatedOn,
 							SyncTimestamp:   time.Now(),
 							Contributor:     contributor,
 						},
@@ -6919,10 +6898,11 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 						Comment: insights.Comment{
 							Body:            sCommentBody,
 							CommentURL:      sCommentURL,
-							SourceTimeStamp: commentCreatedOn,
+							SourceTimestamp: commentCreatedOn,
 							SyncTimestamp:   time.Now(),
 							CommentID:       commentSID,
 							Contributor:     contributor,
+							Orphaned:        false,
 						},
 					}
 					key := "comment_added"
@@ -7000,7 +6980,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 								Unicode: emojiContent,
 							},
 							ReactionID:      reactionSID,
-							SourceTimeStamp: reactionCreatedOn,
+							SourceTimestamp: reactionCreatedOn,
 							SyncTimestamp:   time.Now(),
 							Contributor:     contributor,
 						},
@@ -7034,7 +7014,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 				IssueURL:        url,
 				State:           insights.IssueState(state),
 				SyncTimestamp:   time.Now(),
-				SourceTimeStamp: createdOn,
+				SourceTimestamp: createdOn,
 				Orphaned:        false,
 			},
 		}
@@ -7057,7 +7037,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 		if isClosed {
 			issue.Contributors = []insights.Contributor{}
 			issue.SyncTimestamp = time.Now()
-			issue.SourceTimeStamp = *closedOn
+			issue.SourceTimestamp = *closedOn
 			key := "closed"
 			ary, ok := data[key]
 			if !ok {
