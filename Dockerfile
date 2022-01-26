@@ -11,4 +11,4 @@ ENV ELASTIC_LOG_PASSWORD='<ELASTIC-LOG-PASSWORD>'
 RUN apk update && apk add --no-cache bash
 RUN ls -ltra
 COPY github ./
-CMD ./git --github-org=${GITHUB_ORG} --github-repo=${GITHUB_REPO} --git-es-url=${ES_URL}
+CMD ./github --github-org=${GITHUB_ORG} --github-repo=${GITHUB_REPO} --git-es-url=${ES_URL}
