@@ -19,7 +19,6 @@ import (
 	"github.com/LF-Engineering/lfx-event-schema/service/repository"
 	"github.com/LF-Engineering/lfx-event-schema/service/user"
 
-	// "github.com/LF-Engineering/lfx-event-schema/service/user"
 	"github.com/LF-Engineering/lfx-event-schema/utils/datalake"
 
 	igh "github.com/LF-Engineering/lfx-event-schema/service/insights/github"
