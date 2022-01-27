@@ -5749,7 +5749,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 		repoID, err = repository.GenerateRepositoryID(githubRepoName, j.URL, GitHubDataSource)
 		// shared.Printf("repository.GenerateRepositoryID(%s, %s, %s) -> %s,%v\n", githubRepoName, j.URL, GitHubDataSource, repoID, err)
 		if err != nil {
-			shared.Printf("GenerateRepositoryID(%s,%s,%s): %+v for %+v", githubRepoName, j.URL, GitHubDataSource, err, doc)
+			shared.Printf("GenerateRepositoryID(%s,%s,%s): %+v for %+v\n", githubRepoName, j.URL, GitHubDataSource, err, doc)
 			return
 		}
 		fIID, _ := doc["pull_request_id"].(float64)
@@ -5757,7 +5757,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 		pullRequestID, err = igh.GenerateGithubPullRequestID(repoID, sIID)
 		// shared.Printf("igh.GenerateGithubPullRequestID(%s, %s) -> %s,%v\n", repoID, sIID, pullRequestID, err)
 		if err != nil {
-			shared.Printf("GenerateGithubPullRequestID(%s,%s): %+v for %+v", repoID, sIID, err, doc)
+			shared.Printf("GenerateGithubPullRequestID(%s,%s): %+v for %+v\n", repoID, sIID, err, doc)
 			return
 		}
 		splitted := strings.Split(githubRepoName, "/")
@@ -5790,7 +5790,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 				// name, username = shared.PostprocessNameUsername(name, username, email)
 				userID, err = user.GenerateIdentity(&source, &email, &name, &username)
 				if err != nil {
-					shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
+					shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v\n", source, email, name, username, err, doc)
 					return
 				}
 				roleValue := insights.AuthorRole
@@ -5819,7 +5819,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 				assigneeSID := sIID + ":" + username
 				pullRequestAssigneeID, err = igh.GenerateGithubAssigneeID(repoID, assigneeSID)
 				if err != nil {
-					shared.Printf("GenerateGithubAssigneeID(%s,%s): %+v for %+v", repoID, assigneeSID, err, doc)
+					shared.Printf("GenerateGithubAssigneeID(%s,%s): %+v for %+v\n", repoID, assigneeSID, err, doc)
 					return
 				}
 				pullRequestAssignee := igh.PullRequestAssignee{
@@ -5871,7 +5871,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					// name, username = shared.PostprocessNameUsername(name, username, email)
 					userID, err = user.GenerateIdentity(&source, &email, &name, &username)
 					if err != nil {
-						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
+						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v\n", source, email, name, username, err, doc)
 						return
 					}
 					contributor := insights.Contributor{
@@ -5891,7 +5891,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					assigneeSID := sIID + ":" + username
 					pullRequestAssigneeID, err = igh.GenerateGithubAssigneeID(repoID, assigneeSID)
 					if err != nil {
-						shared.Printf("GenerateGithubAssigneeID(%s,%s): %+v for %+v", repoID, assigneeSID, err, doc)
+						shared.Printf("GenerateGithubAssigneeID(%s,%s): %+v for %+v\n", repoID, assigneeSID, err, doc)
 						return
 					}
 					pullRequestAssignee := igh.PullRequestAssignee{
@@ -5949,7 +5949,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					// name, username = shared.PostprocessNameUsername(name, username, email)
 					userID, err = user.GenerateIdentity(&source, &email, &name, &username)
 					if err != nil {
-						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
+						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v\n", source, email, name, username, err, doc)
 						return
 					}
 					contributor := insights.Contributor{
@@ -5969,7 +5969,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					commentSID := sCommentID
 					pullRequestCommentID, err = igh.GenerateGithubCommentID(repoID, commentSID)
 					if err != nil {
-						shared.Printf("GenerateGithubCommentID(%s,%s): %+v for %+v", repoID, commentSID, err, doc)
+						shared.Printf("GenerateGithubCommentID(%s,%s): %+v for %+v\n", repoID, commentSID, err, doc)
 						return
 					}
 					pullRequestComment := igh.PullRequestComment{
@@ -6029,7 +6029,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					// name, username = shared.PostprocessNameUsername(name, username, email)
 					userID, err = user.GenerateIdentity(&source, &email, &name, &username)
 					if err != nil {
-						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
+						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v\n", source, email, name, username, err, doc)
 						return
 					}
 					contributor := insights.Contributor{
@@ -6049,7 +6049,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					reactionSID := sCommentID + ":" + content
 					pullRequestCommentReactionID, err = igh.GenerateGithubReactionID(repoID, reactionSID)
 					if err != nil {
-						shared.Printf("GenerateGithubReactionID(%s,%s): %+v for %+v", repoID, reactionSID, err, doc)
+						shared.Printf("GenerateGithubReactionID(%s,%s): %+v for %+v\n", repoID, reactionSID, err, doc)
 						return
 					}
 					pullRequestCommentReaction := igh.PullRequestCommentReaction{
@@ -6126,7 +6126,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					// name, username = shared.PostprocessNameUsername(name, username, email)
 					userID, err = user.GenerateIdentity(&source, &email, &name, &username)
 					if err != nil {
-						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
+						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v\n", source, email, name, username, err, doc)
 						return
 					}
 					contributor := insights.Contributor{
@@ -6146,7 +6146,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					reviewSID := sReviewID
 					pullRequestReviewID, err = igh.GenerateGithubReviewID(repoID, reviewSID)
 					if err != nil {
-						shared.Printf("GenerateGithubReviewID(%s,%s): %+v for %+v", repoID, reviewSID, err, doc)
+						shared.Printf("GenerateGithubReviewID(%s,%s): %+v for %+v\n", repoID, reviewSID, err, doc)
 						return
 					}
 					pullRequestReview := igh.PullRequestReview{
@@ -6202,7 +6202,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					// name, username = shared.PostprocessNameUsername(name, username, email)
 					userID, err = user.GenerateIdentity(&source, &email, &name, &username)
 					if err != nil {
-						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
+						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v\n", source, email, name, username, err, doc)
 						return
 					}
 					contributor := insights.Contributor{
@@ -6222,7 +6222,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					reviewerSID := sIID + ":" + username
 					pullRequestReviewerID, err = igh.GenerateGithubReviewerID(repoID, reviewerSID)
 					if err != nil {
-						shared.Printf("GenerateGithubReviewerID(%s,%s): %+v for %+v", repoID, reviewerSID, err, doc)
+						shared.Printf("GenerateGithubReviewerID(%s,%s): %+v for %+v\n", repoID, reviewerSID, err, doc)
 						return
 					}
 					pullRequestReviewer := igh.PullRequestReviewer{
@@ -6371,7 +6371,7 @@ func (j *DSGitHub) GetModelDataRepository(ctx *shared.Ctx, docs []interface{}) (
 		repoID, err = repository.GenerateRepositoryID(sid, j.URL, GitHubDataSource)
 		// shared.Printf("repository.GenerateRepositoryID(%s, %s, %s) -> %s,%v (%s)\n", sid, j.URL, GitHubDataSource, repoID, err, sid)
 		if err != nil {
-			shared.Printf("GenerateRepositoryID(%s,%s,%s): %+v for %+v", sid, j.URL, GitHubDataSource, err, doc)
+			shared.Printf("GenerateRepositoryID(%s,%s,%s): %+v for %+v\n", sid, j.URL, GitHubDataSource, err, doc)
 			return
 		}
 		// Event
@@ -6595,7 +6595,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 		repoID, err = repository.GenerateRepositoryID(githubRepoName, j.URL, GitHubDataSource)
 		// shared.Printf("repository.GenerateRepositoryID(%s, %s, %s) -> %s,%v\n", githubRepoName, j.URL, GitHubDataSource, repoID, err)
 		if err != nil {
-			shared.Printf("GenerateRepositoryID(%s,%s,%s): %+v for %+v", githubRepoName, j.URL, GitHubDataSource, err, doc)
+			shared.Printf("GenerateRepositoryID(%s,%s,%s): %+v for %+v\n", githubRepoName, j.URL, GitHubDataSource, err, doc)
 			return
 		}
 		fIID, _ := doc["issue_id"].(float64)
@@ -6603,7 +6603,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 		issueID, err = igh.GenerateGithubIssueID(repoID, sIID)
 		// shared.Printf("igh.GenerateGithubIssueID(%s, %s) -> %s,%v\n", repoID, sIID, issueID, err)
 		if err != nil {
-			shared.Printf("GenerateGithubIssueID(%s,%s): %+v for %+v", repoID, sIID, err, doc)
+			shared.Printf("GenerateGithubIssueID(%s,%s): %+v for %+v\n", repoID, sIID, err, doc)
 			return
 		}
 		splitted := strings.Split(githubRepoName, "/")
@@ -6634,7 +6634,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 				// name, username = shared.PostprocessNameUsername(name, username, email)
 				userID, err = user.GenerateIdentity(&source, &email, &name, &username)
 				if err != nil {
-					shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
+					shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v\n", source, email, name, username, err, doc)
 					return
 				}
 				roleValue := insights.AuthorRole
@@ -6661,7 +6661,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 				assigneeSID := sIID + ":" + username
 				issueAssigneeID, err = igh.GenerateGithubAssigneeID(repoID, assigneeSID)
 				if err != nil {
-					shared.Printf("GenerateGithubAssigneeID(%s,%s): %+v for %+v", repoID, assigneeSID, err, doc)
+					shared.Printf("GenerateGithubAssigneeID(%s,%s): %+v for %+v\n", repoID, assigneeSID, err, doc)
 					return
 				}
 				issueAssignee := igh.IssueAssignee{
@@ -6713,7 +6713,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 					// name, username = shared.PostprocessNameUsername(name, username, email)
 					userID, err = user.GenerateIdentity(&source, &email, &name, &username)
 					if err != nil {
-						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
+						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v\n", source, email, name, username, err, doc)
 						return
 					}
 					contributor := insights.Contributor{
@@ -6733,7 +6733,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 					assigneeSID := sIID + ":" + username
 					issueAssigneeID, err = igh.GenerateGithubAssigneeID(repoID, assigneeSID)
 					if err != nil {
-						shared.Printf("GenerateGithubAssigneeID(%s,%s): %+v for %+v", repoID, assigneeSID, err, doc)
+						shared.Printf("GenerateGithubAssigneeID(%s,%s): %+v for %+v\n", repoID, assigneeSID, err, doc)
 						return
 					}
 					issueAssignee := igh.IssueAssignee{
@@ -6786,7 +6786,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 					// name, username = shared.PostprocessNameUsername(name, username, email)
 					userID, err = user.GenerateIdentity(&source, &email, &name, &username)
 					if err != nil {
-						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
+						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v\n", source, email, name, username, err, doc)
 						return
 					}
 					contributor := insights.Contributor{
@@ -6806,7 +6806,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 					reactionSID := sIID + ":" + content
 					issueReactionID, err = igh.GenerateGithubReactionID(repoID, reactionSID)
 					if err != nil {
-						shared.Printf("GenerateGithubReactionID(%s,%s): %+v for %+v", repoID, reactionSID, err, doc)
+						shared.Printf("GenerateGithubReactionID(%s,%s): %+v for %+v\n", repoID, reactionSID, err, doc)
 						return
 					}
 					issueReaction := igh.IssueReaction{
@@ -6869,7 +6869,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 					// name, username = shared.PostprocessNameUsername(name, username, email)
 					userID, err = user.GenerateIdentity(&source, &email, &name, &username)
 					if err != nil {
-						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
+						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v\n", source, email, name, username, err, doc)
 						return
 					}
 					contributor := insights.Contributor{
@@ -6889,7 +6889,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 					commentSID := sCommentID
 					issueCommentID, err = igh.GenerateGithubCommentID(repoID, commentSID)
 					if err != nil {
-						shared.Printf("GenerateGithubCommentID(%s,%s): %+v for %+v", repoID, commentSID, err, doc)
+						shared.Printf("GenerateGithubCommentID(%s,%s): %+v for %+v\n", repoID, commentSID, err, doc)
 						return
 					}
 					issueComment := igh.IssueComment{
@@ -6948,7 +6948,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 					// name, username = shared.PostprocessNameUsername(name, username, email)
 					userID, err = user.GenerateIdentity(&source, &email, &name, &username)
 					if err != nil {
-						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
+						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v\n", source, email, name, username, err, doc)
 						return
 					}
 					contributor := insights.Contributor{
@@ -6968,7 +6968,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 					reactionSID := sCommentID + ":" + content
 					issueCommentReactionID, err = igh.GenerateGithubReactionID(repoID, reactionSID)
 					if err != nil {
-						shared.Printf("GenerateGithubReactionID(%s,%s): %+v for %+v", repoID, reactionSID, err, doc)
+						shared.Printf("GenerateGithubReactionID(%s,%s): %+v for %+v\n", repoID, reactionSID, err, doc)
 						return
 					}
 					issueCommentReaction := igh.IssueCommentReaction{
