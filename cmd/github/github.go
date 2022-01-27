@@ -253,7 +253,7 @@ func (j *DSGitHub) WriteLog(ctx *shared.Ctx, status, message string) {
 				"GITHUB_ORG":  j.Org,
 				"GITHUB_REPO": j.Repo,
 				"REPO_URL":    j.URL,
-				"ES_URL":      ctx.ESURL,
+				//"ES_URL":      ctx.ESURL,
 				"ProjectSlug": ctx.Project,
 			}},
 		Status:    status,
