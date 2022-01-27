@@ -1,6 +1,6 @@
 GO_BIN_FILES=cmd/github/github.go 
 #for race CGO_ENABLED=1
-# GOOS=linux GO_ENV=CGO_ENABLED=1
+# GO_ENV=GOOS=linux CGO_ENABLED=1
 GO_ENV=GOOS=linux CGO_ENABLED=0
 # GO_BUILD=go build -ldflags '-s -w' -race
 GO_BUILD=go build -ldflags '-s -w'
