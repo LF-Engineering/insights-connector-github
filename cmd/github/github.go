@@ -245,7 +245,7 @@ func (j *DSGitHub) AddLogger(ctx *shared.Ctx) {
 }
 
 // WriteLog - writes to log
-func (j *DSGitHub) WriteLog(ctx *shared.Ctx, status, message string) {
+func (j *DSGitHub) WriteLog(ctx *shared.Ctx, timestamp time.Time, status, message string) {
 	_ = j.Logger.Write(&logger.Log{
 		Connector: GitHubDataSource,
 		Configuration: []map[string]string{
@@ -253,12 +253,10 @@ func (j *DSGitHub) WriteLog(ctx *shared.Ctx, status, message string) {
 				"GITHUB_ORG":  j.Org,
 				"GITHUB_REPO": j.Repo,
 				"REPO_URL":    j.URL,
-				//"ES_URL":      ctx.ESURL,
 				"ProjectSlug": ctx.Project,
 			}},
 		Status:    status,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		CreatedAt: timestamp,
 		Message:   message,
 	})
 }
@@ -7066,14 +7064,15 @@ func main() {
 		shared.Printf("Error: %+v\n", err)
 		return
 	}
+	timestamp := time.Now()
 	for cat := range ctx.Categories {
-		github.WriteLog(&ctx, logger.InProgress, cat)
+		github.WriteLog(&ctx, timestamp, logger.InProgress, cat)
 		err = github.Sync(&ctx, cat)
 		if err != nil {
 			shared.Printf("Error: %+v\n", err)
-			github.WriteLog(&ctx, logger.Failed, cat+": "+err.Error())
+			github.WriteLog(&ctx, timestamp, logger.Failed, cat+": "+err.Error())
 			return
 		}
-		github.WriteLog(&ctx, logger.Done, cat)
+		github.WriteLog(&ctx, timestamp, logger.Done, cat)
 	}
 }
