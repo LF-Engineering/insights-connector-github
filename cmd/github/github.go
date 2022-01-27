@@ -5746,10 +5746,10 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 		createdOn, _ := doc["created_at"].(time.Time)
 		updatedOn := j.ItemUpdatedOn(doc)
 		githubRepoName, _ := doc["github_repo"].(string)
-		repoID, err = repository.GenerateRepositoryID(githubRepoName, j.URL, GitHubDataSource)
-		// shared.Printf("repository.GenerateRepositoryID(%s, %s, %s) -> %s,%v\n", githubRepoName, j.URL, GitHubDataSource, repoID, err)
+		repoID, err = repository.GenerateRepositoryID(githubRepoName, j.URL, source)
+		// shared.Printf("repository.GenerateRepositoryID(%s, %s, %s) -> %s,%v\n", githubRepoName, j.URL, source, repoID, err)
 		if err != nil {
-			shared.Printf("GenerateRepositoryID(%s,%s,%s): %+v for %+v\n", githubRepoName, j.URL, GitHubDataSource, err, doc)
+			shared.Printf("GenerateRepositoryID(%s,%s,%s): %+v for %+v\n", githubRepoName, j.URL, source, err, doc)
 			return
 		}
 		fIID, _ := doc["pull_request_id"].(float64)
@@ -5809,7 +5809,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						IsVerified: false,
 						Name:       name,
 						Username:   username,
-						Source:     GitHubDataSource,
+						Source:     source,
 					},
 				}
 				pullRequestContributors = append(pullRequestContributors, contributor)
@@ -5884,7 +5884,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 							IsVerified: false,
 							Name:       name,
 							Username:   username,
-							Source:     GitHubDataSource,
+							Source:     source,
 						},
 					}
 					pullRequestContributors = append(pullRequestContributors, contributor)
@@ -5962,7 +5962,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 							IsVerified: false,
 							Name:       name,
 							Username:   username,
-							Source:     GitHubDataSource,
+							Source:     source,
 						},
 					}
 					pullRequestContributors = append(pullRequestContributors, contributor)
@@ -6042,7 +6042,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 							IsVerified: false,
 							Name:       name,
 							Username:   username,
-							Source:     GitHubDataSource,
+							Source:     source,
 						},
 					}
 					pullRequestContributors = append(pullRequestContributors, contributor)
@@ -6139,7 +6139,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 							IsVerified: false,
 							Name:       name,
 							Username:   username,
-							Source:     GitHubDataSource,
+							Source:     source,
 						},
 					}
 					pullRequestContributors = append(pullRequestContributors, contributor)
@@ -6215,7 +6215,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 							IsVerified: false,
 							Name:       name,
 							Username:   username,
-							Source:     GitHubDataSource,
+							Source:     source,
 						},
 					}
 					pullRequestContributors = append(pullRequestContributors, contributor)
@@ -6592,10 +6592,10 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 		closedOn := j.ItemNullableDate(doc, "closed_at")
 		isClosed := closedOn != nil
 		githubRepoName, _ := doc["github_repo"].(string)
-		repoID, err = repository.GenerateRepositoryID(githubRepoName, j.URL, GitHubDataSource)
-		// shared.Printf("repository.GenerateRepositoryID(%s, %s, %s) -> %s,%v\n", githubRepoName, j.URL, GitHubDataSource, repoID, err)
+		repoID, err = repository.GenerateRepositoryID(githubRepoName, j.URL, source)
+		// shared.Printf("repository.GenerateRepositoryID(%s, %s, %s) -> %s,%v\n", githubRepoName, j.URL, source, repoID, err)
 		if err != nil {
-			shared.Printf("GenerateRepositoryID(%s,%s,%s): %+v for %+v\n", githubRepoName, j.URL, GitHubDataSource, err, doc)
+			shared.Printf("GenerateRepositoryID(%s,%s,%s): %+v for %+v\n", githubRepoName, j.URL, source, err, doc)
 			return
 		}
 		fIID, _ := doc["issue_id"].(float64)
@@ -6651,7 +6651,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 						IsVerified: false,
 						Name:       name,
 						Username:   username,
-						Source:     GitHubDataSource,
+						Source:     source,
 					},
 				}
 				issueContributors = append(issueContributors, contributor)
@@ -6726,7 +6726,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 							IsVerified: false,
 							Name:       name,
 							Username:   username,
-							Source:     GitHubDataSource,
+							Source:     source,
 						},
 					}
 					issueContributors = append(issueContributors, contributor)
@@ -6799,7 +6799,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 							IsVerified: false,
 							Name:       name,
 							Username:   username,
-							Source:     GitHubDataSource,
+							Source:     source,
 						},
 					}
 					issueContributors = append(issueContributors, contributor)
@@ -6882,7 +6882,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 							IsVerified: false,
 							Name:       name,
 							Username:   username,
-							Source:     GitHubDataSource,
+							Source:     source,
 						},
 					}
 					issueContributors = append(issueContributors, contributor)
@@ -6961,7 +6961,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 							IsVerified: false,
 							Name:       name,
 							Username:   username,
-							Source:     GitHubDataSource,
+							Source:     source,
 						},
 					}
 					issueContributors = append(issueContributors, contributor)
