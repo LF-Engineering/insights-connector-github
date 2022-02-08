@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/LF-Engineering/insights-datasource-shared/cryptography"
 	"github.com/LF-Engineering/lfx-event-schema/service"
 	"github.com/LF-Engineering/lfx-event-schema/service/insights"
 	"github.com/LF-Engineering/lfx-event-schema/service/repository"
@@ -272,6 +273,10 @@ func (j *DSGitHub) AddFlags() {
 
 // ParseArgs - parse GitHub specific environment variables
 func (j *DSGitHub) ParseArgs(ctx *shared.Ctx) (err error) {
+	decrypt, err := cryptography.NewEncryptionClient()
+	if err != nil {
+		return err
+	}
 	// GitHub org
 	if shared.FlagPassed(ctx, "org") && *j.FlagOrg != "" {
 		j.Org = *j.FlagOrg
@@ -296,6 +301,13 @@ func (j *DSGitHub) ParseArgs(ctx *shared.Ctx) (err error) {
 		j.Tokens = ctx.Env("TOKENS")
 	}
 	if j.Tokens != "" {
+		tokenDecrypted, err := decrypt.Decrypt(j.Tokens)
+		if err != nil {
+			return err
+		}
+
+		// decrypted tokens
+		j.Tokens = tokenDecrypted
 		shared.AddRedacted(j.Tokens, false)
 	}
 
