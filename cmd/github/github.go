@@ -5529,6 +5529,19 @@ func (j *DSGitHub) ItemNullableDate(item interface{}, field string) *time.Time {
 	return &when
 }
 
+func (j *DSGitHub) dedupContributors(inContributors []insights.Contributor) (outContributors []insights.Contributor) {
+	m := make(map[string]struct{})
+	for _, contributor := range inContributors {
+		key := string(contributor.Role) + ":" + contributor.Identity.ID
+		_, found := m[key]
+		if !found {
+			outContributors = append(outContributors, contributor)
+			m[key] = struct{}{}
+		}
+	}
+	return
+}
+
 // GetModelDataPullRequest - return pull requests data in lfx-event-schema format
 func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) (data map[string][]interface{}, err error) {
 	data = make(map[string][]interface{})
@@ -6284,7 +6297,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 			Organization:  org,
 			Labels:        labels,
 			Commits:       shas,
-			Contributors:  pullRequestContributors,
+			Contributors:  j.dedupContributors(pullRequestContributors),
 			ChangeRequest: insights.ChangeRequest{
 				Title:            title,
 				Body:             body,
@@ -7019,7 +7032,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 			Repository:    githubRepoName,
 			Organization:  org,
 			Labels:        labels,
-			Contributors:  issueContributors,
+			Contributors:  j.dedupContributors(issueContributors),
 			Issue: insights.Issue{
 				Title:           title,
 				Body:            body,
