@@ -6119,6 +6119,9 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					state = igh.DismissedReviewState
 				case "COMMENTED":
 					state = igh.CommentedReviewState
+					// NOTE:
+					// Those "reviews" come without comment body and are duplicted in comments data, this is why they need to be skipped.
+					continue
 				default:
 					shared.Printf("WARNING: unknown review state '%s', skipping\n", sReviewState)
 					continue
