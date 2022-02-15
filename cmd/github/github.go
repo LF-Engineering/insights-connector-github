@@ -5430,7 +5430,7 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 		*docs = []interface{}{}
 		gMaxUpstreamDtMtx.Lock()
 		defer gMaxUpstreamDtMtx.Unlock()
-		shared.SetLastUpdate(ctx, j.URL, gMaxUpstreamDt)
+		shared.SetLastUpdate(ctx, j.Endpoint(), gMaxUpstreamDt)
 	}
 }
 
@@ -6310,7 +6310,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 		data[key] = ary
 		// Fake merge "event"
 		if isMerged {
-			pullRequest.Contributors = []insights.Contributor{}
+			// pullRequest.Contributors = []insights.Contributor{}
 			pullRequest.SyncTimestamp = time.Now()
 			pullRequest.SourceTimestamp = *mergedOn
 			key := "merged"
@@ -6324,7 +6324,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 		}
 		// Fake "close" event (not merged and closed)
 		if isClosed && !isMerged {
-			pullRequest.Contributors = []insights.Contributor{}
+			// pullRequest.Contributors = []insights.Contributor{}
 			pullRequest.SyncTimestamp = time.Now()
 			pullRequest.SourceTimestamp = *closedOn
 			key := "closed"
@@ -7045,7 +7045,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 		data[key] = ary
 		// Fake close "event"
 		if isClosed {
-			issue.Contributors = []insights.Contributor{}
+			// issue.Contributors = []insights.Contributor{}
 			issue.SyncTimestamp = time.Now()
 			issue.SourceTimestamp = *closedOn
 			key := "closed"
