@@ -37,6 +37,10 @@ github.com/LF-Engineering/dev-analytics-libraries v1.1.28 h1:sjmYNPSY3hXUl2+ouCq
 github.com/LF-Engineering/dev-analytics-libraries v1.1.28/go.mod h1:O+9mOX1nf6qGKrZne33F6speSzrGj6+Y1tPF6jh/mcw=
 github.com/LF-Engineering/insights-datasource-shared v1.4.1 h1:GjZVyrclZbJ/xdmvD1+d1DBur/O2EfVo/KEsT3b8dF0=
 github.com/LF-Engineering/insights-datasource-shared v1.4.1/go.mod h1:5rFuev3hw1RzH+gLm35R6m4z83SKyDtQfuk+ifubN6Y=
+github.com/LF-Engineering/insights-datasource-shared v1.4.2-0.20220215073650-15d419c683fd h1:KhkS6c2QfEOSaZg/alrT8ClDUMuoE7Y0vHYCr8KBjtM=
+github.com/LF-Engineering/insights-datasource-shared v1.4.2-0.20220215073650-15d419c683fd/go.mod h1:5rFuev3hw1RzH+gLm35R6m4z83SKyDtQfuk+ifubN6Y=
+github.com/LF-Engineering/insights-datasource-shared v1.4.2-0.20220215074423-3319bf5a8e80 h1:A7lalLx7fUVJYM4osjUgG47L53iPVbFG20qokM4ZwOI=
+github.com/LF-Engineering/insights-datasource-shared v1.4.2-0.20220215074423-3319bf5a8e80/go.mod h1:5rFuev3hw1RzH+gLm35R6m4z83SKyDtQfuk+ifubN6Y=
 github.com/LF-Engineering/lfx-event-schema v0.1.2-0.20220127084830-c86856b9906e h1:xar7oguahyevrAKAK442Co9A2WX2O2cvyi8amm4DN+o=
 github.com/LF-Engineering/lfx-event-schema v0.1.2-0.20220127084830-c86856b9906e/go.mod h1:GvEBmXvYGafFRIpZ6I0G5Ss4jsmkBNptLJIasLClXu8=
 github.com/alcortesm/tgz v0.0.0-20161220082320-9c5fe88206d7/go.mod h1:6zEj6s6u/ghQa61ZWa/C2Aw3RkjiTBOix7dkqa1VLIs=
