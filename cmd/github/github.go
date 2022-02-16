@@ -6639,7 +6639,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 		body, _ := doc["body"].(string)
 		url, _ := doc["url"].(string)
 		state, _ := doc["state"].(string)
-		// We need an information that issue is a PR (GitHub specific), or maybe should we skip such issues?
+		// We need an information that issue is a PR (GitHub specific)
 		isPullRequest, _ := doc["pull_request"].(bool)
 		issueContributors := []insights.Contributor{}
 		// Primary assignee start
