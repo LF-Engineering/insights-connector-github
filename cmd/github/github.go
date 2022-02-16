@@ -6639,8 +6639,8 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 		body, _ := doc["body"].(string)
 		url, _ := doc["url"].(string)
 		state, _ := doc["state"].(string)
-		// FIXME: don't we need an information that issue is a PR (GitHub specific), or maybe should we skip such issues?
-		// isPullRequest, _ := doc["pull_request"].(bool)
+		// We need an information that issue is a PR (GitHub specific), or maybe should we skip such issues?
+		isPullRequest, _ := doc["pull_request"].(bool)
 		issueContributors := []insights.Contributor{}
 		// Primary assignee start
 		primaryAssignee := ""
@@ -7031,6 +7031,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 			RepositoryURL: j.URL,
 			Repository:    githubRepoName,
 			Organization:  org,
+			IsPullRequest: isPullRequest,
 			Labels:        labels,
 			Contributors:  j.dedupContributors(issueContributors),
 			Issue: insights.Issue{
