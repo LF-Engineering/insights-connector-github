@@ -106,6 +106,10 @@ const (
 	WantEnrichPullRequestRequestedReviewers = true
 	// WantEnrichPullRequestCommits - do we want to create rich documents for pull request commits (it contains identity data too).
 	WantEnrichPullRequestCommits = true
+	// WantIssuePullRequestCommentsOnIssue - do we want to fetch pull request's issue part comments (pull requests are issues too) on the issue object?
+	WantIssuePullRequestCommentsOnIssue = true
+	// WantIssuePullRequestCommentsOnPullRequest - do we want to fetch pull request's issue part comments (pull requests are issues too) on the pull request object?
+	WantIssuePullRequestCommentsOnPullRequest = true
 	// GitHubDataSource - constant for github source
 	GitHubDataSource = "github"
 	// GitHubRepositoryDefaultStream - Stream To Publish repo stats
@@ -2748,20 +2752,26 @@ func (j *DSGitHub) ProcessIssue(ctx *shared.Ctx, inIssue map[string]interface{})
 		issue["assignees_data"] = assigneesAry
 	}
 	number, ok := shared.Dig(issue, []string{"number"}, false, true)
+	isPull := false
+	iIsPull, ok := shared.Dig(issue, []string{"is_pull"}, false, true)
 	if ok {
+		isPull, _ = iIsPull.(bool)
+	}
+	// For issues that are PRs we only get comments if WantIssuePullRequestCommentsOnIssue is set
+	if ok && (!isPull || (isPull && WantIssuePullRequestCommentsOnIssue)) {
 		issue["comments_data"], err = j.githubIssueComments(ctx, j.Org, j.Repo, int(number.(float64)))
 		if err != nil {
 			return
 		}
-		iCnt, ok := shared.Dig(issue, []string{"reactions", "total_count"}, false, true)
-		if ok {
-			issue["reactions_data"] = []interface{}{}
-			cnt := int(iCnt.(float64))
-			if cnt > 0 {
-				issue["reactions_data"], err = j.githubIssueReactions(ctx, j.Org, j.Repo, int(number.(float64)))
-				if err != nil {
-					return
-				}
+	}
+	iCnt, ok := shared.Dig(issue, []string{"reactions", "total_count"}, false, true)
+	if ok {
+		issue["reactions_data"] = []interface{}{}
+		cnt := int(iCnt.(float64))
+		if cnt > 0 {
+			issue["reactions_data"], err = j.githubIssueReactions(ctx, j.Org, j.Repo, int(number.(float64)))
+			if err != nil {
+				return
 			}
 		}
 	}
@@ -2780,6 +2790,7 @@ func (j *DSGitHub) ProcessPull(ctx *shared.Ctx, inPull map[string]interface{}) (
 	pull["reviews_data"] = []interface{}{}
 	pull["requested_reviewers_data"] = []interface{}{}
 	pull["commits_data"] = []interface{}{}
+	pull["comments_data"] = []interface{}{}
 	// ["user", "review_comments", "requested_reviewers", "merged_by", "commits", "assignee", "assignees"]
 	number, ok := shared.Dig(pull, []string{"number"}, false, true)
 	if ok {
@@ -2791,6 +2802,12 @@ func (j *DSGitHub) ProcessPull(ctx *shared.Ctx, inPull map[string]interface{}) (
 		pull["review_comments_data"], err = j.githubPullReviewComments(ctx, j.Org, j.Repo, iNumber)
 		if err != nil {
 			return
+		}
+		if WantIssuePullRequestCommentsOnPullRequest {
+			pull["comments_data"], err = j.githubIssueComments(ctx, j.Org, j.Repo, iNumber)
+			if err != nil {
+				return
+			}
 		}
 		pull["requested_reviewers_data"], err = j.githubPullRequestedReviewers(ctx, j.Org, j.Repo, iNumber)
 		if err != nil {
@@ -4134,10 +4151,10 @@ func (j *DSGitHub) EnrichPullRequestItem(ctx *shared.Ctx, item map[string]interf
 	nComments := 0
 	reactions := 0
 	iComments, ok := pull["review_comments_data"]
+	commenters := map[string]interface{}{}
 	if ok && iComments != nil {
 		ary, _ := iComments.([]interface{})
 		nComments = len(ary)
-		commenters := map[string]interface{}{}
 		for _, iComment := range ary {
 			comment, _ := iComment.(map[string]interface{})
 			iCommenter, _ := shared.Dig(comment, []string{"user", "login"}, false, true)
@@ -4151,6 +4168,26 @@ func (j *DSGitHub) EnrichPullRequestItem(ctx *shared.Ctx, item map[string]interf
 				reactions += reacts
 			}
 		}
+	}
+	iComments, ok = pull["comments_data"]
+	if ok && iComments != nil {
+		ary, _ := iComments.([]interface{})
+		nComments += len(ary)
+		for _, iComment := range ary {
+			comment, _ := iComment.(map[string]interface{})
+			iCommenter, _ := shared.Dig(comment, []string{"user", "login"}, false, true)
+			commenter, _ := iCommenter.(string)
+			if commenter != "" {
+				commenters[commenter] = struct{}{}
+			}
+			iReactions, ok := shared.Dig(comment, []string{"reactions", "total_count"}, false, true)
+			if ok {
+				reacts := int(iReactions.(float64))
+				reactions += reacts
+			}
+		}
+	}
+	if len(commenters) > 0 {
 		nCommenters = len(commenters)
 		comms := []string{}
 		for commenter := range commenters {
@@ -4582,6 +4619,108 @@ func (j *DSGitHub) EnrichIssueComments(ctx *shared.Ctx, issue map[string]interfa
 	return
 }
 
+// EnrichIssuePullRequestComments - return rich comments from raw pull request (issue part)
+func (j *DSGitHub) EnrichIssuePullRequestComments(ctx *shared.Ctx, pull map[string]interface{}, comments []map[string]interface{}) (richItems []interface{}, err error) {
+	// type: category, type(_), item_type( ), pull_request_comment=true
+	// copy pull request: github_repo, repo_name, repository
+	// copy comment: created_at, updated_at, body, body_analyzed, author_association, url, html_url
+	// identify: id, id_in_repo, pull_request_comment_id, url_id
+	// standard: metadata..., origin, project, project_slug, uuid
+	// parent: pull_request_id, pull_request_number
+	// calc: n_reactions
+	// identity: author_... -> commenter_...,
+	// common: is_github_pull_request=1, is_github_pull_request_comment=1
+	iID, _ := pull["id"]
+	id, _ := iID.(string)
+	iPullID, _ := pull["pull_request_id"]
+	pullID := int(iPullID.(float64))
+	pullNumber, _ := pull["id_in_repo"]
+	iNumber, _ := pullNumber.(int)
+	iGithubRepo, _ := pull["github_repo"]
+	githubRepo, _ := iGithubRepo.(string)
+	copyPullFields := []string{"category", "github_repo", "repo_name", "repository", "repo_short_name"}
+	copyCommentFields := []string{"created_at", "updated_at", "body", "body_analyzed", "author_association", "url", "html_url"}
+	for _, comment := range comments {
+		rich := make(map[string]interface{})
+		for _, field := range shared.RawFields {
+			v, _ := pull[field]
+			rich[field] = v
+		}
+		for _, field := range copyPullFields {
+			rich[field], _ = pull[field]
+		}
+		for _, field := range copyCommentFields {
+			rich[field], _ = comment[field]
+		}
+		if ctx.Project != "" {
+			rich["project"] = ctx.Project
+		}
+		rich["type"] = "issue_pull_request_comment"
+		rich["item_type"] = "issue pull request comment"
+		rich["issue_pull_request_comment"] = true
+		rich["pull_request_created_at"], _ = pull["created_at"]
+		rich["pull_request_id"] = pullID
+		rich["pull_request_number"] = pullNumber
+		iCID, _ := comment["id"]
+		cid := int64(iCID.(float64))
+		rich["id_in_repo"] = cid
+		rich["pull_request_comment_id"] = cid
+		rich["issue_comment_id"] = cid
+		rich["id"] = id + "/comment/" + fmt.Sprintf("%d", cid)
+		// rich["url_id"] = fmt.Sprintf("%s/pulls/%d/comments/%d", githubRepo, iNumber, cid)
+		rich["url_id"] = fmt.Sprintf("%s/issues/%d/comments/%d", githubRepo, iNumber, cid)
+		reactions := 0
+		iReactions, ok := shared.Dig(comment, []string{"reactions", "total_count"}, false, true)
+		if ok {
+			reactions = int(iReactions.(float64))
+		}
+		rich["n_reactions"] = reactions
+		rich["commenter_association"], _ = comment["author_association"]
+		rich["commenter_login"], _ = shared.Dig(comment, []string{"user", "login"}, false, true)
+		iCommenterData, ok := comment["user_data"]
+		if ok && iCommenterData != nil {
+			user, _ := iCommenterData.(map[string]interface{})
+			rich["author_login"], _ = user["login"]
+			rich["author_name"], _ = user["name"]
+			rich["author_avatar_url"], _ = user["avatar_url"]
+			rich["commenter_avatar_url"] = rich["author_avatar_url"]
+			rich["commenter_name"], _ = user["name"]
+			rich["commenter_domain"] = nil
+			iEmail, ok := user["email"]
+			if ok {
+				email, _ := iEmail.(string)
+				ary := strings.Split(email, "@")
+				if len(ary) > 1 {
+					rich["commenter_domain"] = strings.TrimSpace(ary[1])
+				}
+			}
+			rich["commenter_org"], _ = user["company"]
+			rich["commenter_location"], _ = user["location"]
+			rich["commenter_geolocation"] = nil
+		} else {
+			rich["author_login"] = nil
+			rich["author_name"] = nil
+			rich["author_avatar_url"] = nil
+			rich["commenter_avatar_url"] = nil
+			rich["commenter_name"] = nil
+			rich["commenter_domain"] = nil
+			rich["commenter_org"] = nil
+			rich["commenter_location"] = nil
+			rich["commenter_geolocation"] = nil
+		}
+		iCreatedAt, _ := comment["created_at"]
+		createdAt, _ := shared.TimeParseInterfaceString(iCreatedAt)
+		rich["metadata__updated_on"] = createdAt
+		rich["roles"] = j.GetRoles(ctx, comment, GitHubPullRequestCommentRoles, createdAt)
+		// NOTE: From shared
+		rich["metadata__enriched_on"] = time.Now()
+		// rich[ProjectSlug] = ctx.ProjectSlug
+		// rich["groups"] = ctx.Groups
+		richItems = append(richItems, rich)
+	}
+	return
+}
+
 // EnrichIssueAssignees - return rich assignees from raw issue
 func (j *DSGitHub) EnrichIssueAssignees(ctx *shared.Ctx, issue map[string]interface{}, assignees []map[string]interface{}) (richItems []interface{}, err error) {
 	// type: category, type(_), item_type( ), issue_assignee=true
@@ -4966,6 +5105,8 @@ func (j *DSGitHub) GitHubPullRequestEnrichItemsFunc(ctx *shared.Ctx, items []int
 		// pr:    reviews_data[].user_data
 		// pr:    review_comments_data[].user_data
 		// pr:    review_comments_data[].reactions_data[].user_data
+		// pr:    comments_data[].user_data
+		// pr:    comments_data[].reactions_data[].user_data
 		// pr:    requested_reviewers_data[].user_data
 		// pr:    commits_data[].author_data
 		// pr:    commits_data[].committer_data
@@ -5026,6 +5167,42 @@ func (j *DSGitHub) GitHubPullRequestEnrichItemsFunc(ctx *shared.Ctx, items []int
 							return
 						}
 						rich["review_comments_reactions_array"] = riches
+					}
+				}
+			}
+		}
+		iComments, ok = shared.Dig(data, []string{"comments_data"}, false, true)
+		if ok && iComments != nil {
+			comments, ok := iComments.([]map[string]interface{})
+			if ok && len(comments) > 0 {
+				var riches []interface{}
+				riches, e = j.EnrichIssuePullRequestComments(ctx, rich, comments)
+				if e != nil {
+					return
+				}
+				rich["comments_array"] = riches
+				if WantEnrichIssueCommentReactions {
+					var reacts []map[string]interface{}
+					for _, comment := range comments {
+						iReactions, ok := shared.Dig(comment, []string{"reactions_data"}, false, true)
+						if ok && iReactions != nil {
+							reactions, ok := iReactions.([]map[string]interface{})
+							if ok {
+								for _, reaction := range reactions {
+									// Store parent comment (not present in issue)
+									reaction["parent"] = comment
+									reacts = append(reacts, reaction)
+								}
+							}
+						}
+					}
+					if len(reacts) > 0 {
+						var riches []interface{}
+						riches, e = j.EnrichPullRequestReactions(ctx, rich, reacts)
+						if e != nil {
+							return
+						}
+						rich["comments_reactions_array"] = riches
 					}
 				}
 			}
@@ -5748,6 +5925,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 	// pullRequestID, repoID, userID, pullRequestAssigneeID, pullRequestReactionID, pullRequestCommentID, pullRequestCommentReactionID := "", "", "", "", "", "", ""
 	pullRequestID, repoID, userID, pullRequestAssigneeID, pullRequestCommentID, pullRequestCommentReactionID, pullRequestReviewID, pullRequestReviewerID := "", "", "", "", "", "", "", ""
 	source := GitHubDataSource
+	resolution := int64(5)
 	for _, iDoc := range docs {
 		nReactions := 0
 		nComments := 0
@@ -5926,8 +6104,116 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 			}
 		}
 		// Other assignees end
-		// Comments start
+		// Reviews of state=COMMENTED come without body from reviews API
+		// PR Comments are actually review comments (state=COMMENTED) - they have body but miss the review part
+		// We need to correlate them and make both reviews data and comments data contain both body and review ID
+		// correlation: (author login, review comment unix timestamp) -> (reviewID, review comment body, author, unix timestamp)
+		correlation := make(map[string][4]string)
+		correlation2 := make(map[string][4]string)
 		commentsAry, okComments := doc["review_comments_array"].([]interface{})
+		reviewsAry, okReviews := doc["reviews_array"].([]interface{})
+		if okReviews {
+			for _, iReview := range reviewsAry {
+				review, okReview := iReview.(map[string]interface{})
+				if !okReview || review == nil {
+					continue
+				}
+				roles, okRoles := review["roles"].([]map[string]interface{})
+				if !okRoles || len(roles) == 0 {
+					continue
+				}
+				sReviewState, _ := review["state"].(string)
+				if sReviewState != "COMMENTED" {
+					continue
+				}
+				sAuthorLogin, _ := review["author_login"].(string)
+				reviewCreatedOn, _ := review["metadata__updated_on"].(time.Time)
+				reviewID, _ := review["pull_request_review_id"].(int64)
+				sReviewID := fmt.Sprintf("%d", reviewID)
+				ts := reviewCreatedOn.Unix()
+				ts2 := ts / resolution
+				key := fmt.Sprintf("%s:%d", sAuthorLogin, ts)
+				key2 := fmt.Sprintf("%s:%d", sAuthorLogin, ts2)
+				pullRequestReviewID, err = igh.GenerateGithubReviewID(repoID, sReviewID)
+				if err != nil {
+					shared.Printf("GenerateGithubReviewID(%s,%s): %+v for %+v\n", repoID, sReviewID, err, doc)
+					return
+				}
+				_, ok := correlation[key]
+				if ok && ctx.Debug > 0 {
+					shared.Printf("WARNING: non-unique key '%s'(%v) within a PR %s(%s)\ncomments=%s\nreviews=%s\n", key, reviewCreatedOn, url, sReviewID, shared.PrettyPrint(commentsAry), shared.PrettyPrint(reviewsAry))
+				}
+				correlation[key] = [4]string{pullRequestReviewID, "", sAuthorLogin, fmt.Sprintf("%d", ts)}
+				correlation2[key2] = [4]string{pullRequestReviewID, "", sAuthorLogin, fmt.Sprintf("%d", ts2)}
+			}
+		}
+		if okComments {
+			for _, iComment := range commentsAry {
+				comment, okComment := iComment.(map[string]interface{})
+				if !okComment || comment == nil {
+					continue
+				}
+				roles, okRoles := comment["roles"].([]map[string]interface{})
+				if !okRoles || len(roles) == 0 {
+					continue
+				}
+				sAuthorLogin, _ := comment["author_login"].(string)
+				sBody, _ := comment["body"].(string)
+				commentCreatedOn, _ := comment["metadata__updated_on"].(time.Time)
+				ts := commentCreatedOn.Unix()
+				ts2 := ts / resolution
+				key := fmt.Sprintf("%s:%d", sAuthorLogin, ts)
+				key2 := fmt.Sprintf("%s:%d", sAuthorLogin, ts2)
+				ary, ok := correlation[key]
+				if !ok {
+					ary, ok = correlation2[key2]
+					if !ok {
+						if ctx.Debug > 0 {
+							shared.Printf("WARNING: cannot find review data for key '%s'(%v) within a PR %s(%s)\ncomments=%s\nreviews=%s\n", key, commentCreatedOn, url, sBody, shared.PrettyPrint(commentsAry), shared.PrettyPrint(reviewsAry))
+						}
+						correlation[key] = [4]string{"", sBody, sAuthorLogin, fmt.Sprintf("%d", ts)}
+						correlation2[key2] = [4]string{"", sBody, sAuthorLogin, fmt.Sprintf("%d", ts2)}
+						continue
+					}
+				}
+				ary[1] = sBody
+				correlation[key] = ary
+				ary[3] = fmt.Sprintf("%d", ts2)
+				correlation2[key2] = ary
+			}
+		}
+		for key, ary := range correlation {
+			reviewID := ary[0]
+			body := ary[1]
+			if reviewID == "" || body == "" {
+				sts := ary[3]
+				ts, e := strconv.ParseInt(sts, 10, 64)
+				if e != nil {
+					continue
+				}
+				author := ary[2]
+				ts2 := ts / resolution
+				key2 := fmt.Sprintf("%s:%d", author, ts2)
+				ary2, ok := correlation2[key2]
+				if !ok && ctx.Debug > 0 {
+					shared.Printf("WARNING: cannot find review data for key '%s'(%v) within a PR %s\ncomments=%s\nreviews=%s\n", key, ary, url, shared.PrettyPrint(commentsAry), shared.PrettyPrint(reviewsAry))
+				}
+				if reviewID == "" {
+					reviewID = ary2[0]
+					ary[0] = ary2[0]
+				}
+				if body == "" {
+					body = ary2[1]
+					ary[1] = ary2[1]
+				}
+				correlation[key] = ary
+			}
+		}
+		// fmt.Printf("correlation=%+v\n", correlation)
+		// fmt.Printf("correlation2=%+v\n", correlation2)
+		// Correlation calculate ends
+		// Comments start
+		commentsAry, okComments = doc["review_comments_array"].([]interface{})
 		if okComments {
 			for _, iComment := range commentsAry {
 				comment, okComment := iComment.(map[string]interface{})
@@ -5945,6 +6231,14 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 				sCommentID := fmt.Sprintf("%d", commentID)
 				if commentCreatedOn.After(updatedOn) {
 					updatedOn = commentCreatedOn
+				}
+				sAuthorLogin, _ := comment["author_login"].(string)
+				ts := commentCreatedOn.Unix()
+				key := fmt.Sprintf("%s:%d", sAuthorLogin, ts)
+				sReviewID := ""
+				ary, ok := correlation[key]
+				if ok {
+					sReviewID = ary[0]
 				}
 				for _, role := range roles {
 					roleType, _ := role["role"].(string)
@@ -5985,7 +6279,8 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					pullRequestComment := igh.PullRequestComment{
 						ID:              pullRequestCommentID,
 						PullRequestID:   pullRequestID,
-						IsReviewComment: false,
+						IsReviewComment: true,
+						ReviewID:        sReviewID,
 						Comment: insights.Comment{
 							Body:            sCommentBody,
 							CommentURL:      sCommentURL,
@@ -6089,8 +6384,172 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 			}
 		}
 		// Comments reactions end
+		// Comments start (comments stored on the issue part of PR)
+		commentsAry, okComments = doc["comments_array"].([]interface{})
+		if okComments {
+			for _, iComment := range commentsAry {
+				comment, okComment := iComment.(map[string]interface{})
+				if !okComment || comment == nil {
+					continue
+				}
+				roles, okRoles := comment["roles"].([]map[string]interface{})
+				if !okRoles || len(roles) == 0 {
+					continue
+				}
+				sCommentBody, _ := comment["body"].(string)
+				sCommentURL, _ := comment["html_url"].(string)
+				commentCreatedOn, _ := comment["metadata__updated_on"].(time.Time)
+				commentID, _ := comment["pull_request_comment_id"].(int64)
+				sCommentID := fmt.Sprintf("%d", commentID)
+				if commentCreatedOn.After(updatedOn) {
+					updatedOn = commentCreatedOn
+				}
+				for _, role := range roles {
+					roleType, _ := role["role"].(string)
+					if roleType != "user_data" {
+						continue
+					}
+					name, _ := role["name"].(string)
+					username, _ := role["username"].(string)
+					email, _ := role["email"].(string)
+					avatarURL, _ := role["avatar_url"].(string)
+					// No identity data postprocessing in V2
+					// name, username = shared.PostprocessNameUsername(name, username, email)
+					userID, err = user.GenerateIdentity(&source, &email, &name, &username)
+					if err != nil {
+						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v\n", source, email, name, username, err, doc)
+						return
+					}
+					contributor := insights.Contributor{
+						Role:   insights.CommenterRole,
+						Weight: 1.0,
+						Identity: user.UserIdentityObjectBase{
+							ID:         userID,
+							Avatar:     avatarURL,
+							Email:      email,
+							IsVerified: false,
+							Name:       name,
+							Username:   username,
+							Source:     source,
+						},
+					}
+					pullRequestContributors = append(pullRequestContributors, contributor)
+					commentSID := sCommentID
+					pullRequestCommentID, err = igh.GenerateGithubCommentID(repoID, commentSID)
+					if err != nil {
+						shared.Printf("GenerateGithubCommentID(%s,%s): %+v for %+v\n", repoID, commentSID, err, doc)
+						return
+					}
+					pullRequestComment := igh.PullRequestComment{
+						ID:              pullRequestCommentID,
+						PullRequestID:   pullRequestID,
+						IsReviewComment: false,
+						ReviewID:        "",
+						Comment: insights.Comment{
+							Body:            sCommentBody,
+							CommentURL:      sCommentURL,
+							SourceTimestamp: commentCreatedOn,
+							SyncTimestamp:   time.Now(),
+							CommentID:       commentSID,
+							Contributor:     contributor,
+							Orphaned:        false,
+						},
+					}
+					key := "comment_added"
+					ary, ok := data[key]
+					if !ok {
+						ary = []interface{}{pullRequestComment}
+					} else {
+						ary = append(ary, pullRequestComment)
+					}
+					data[key] = ary
+					nComments++
+				}
+			}
+		}
+		// Comments end (comments stored on the issue part of PR)
+		// Comment reactions start (reactions to comments stored on the issue part of PR)
+		reactionsAry, okReactions = doc["comments_reactions_array"].([]interface{})
+		if okReactions {
+			for _, iReaction := range reactionsAry {
+				reaction, okReaction := iReaction.(map[string]interface{})
+				if !okReaction || reaction == nil {
+					continue
+				}
+				commentID, _ := reaction["pull_request_comment_id"].(int64)
+				sCommentID := fmt.Sprintf("%d", commentID)
+				reactionCreatedOn, _ := reaction["metadata__updated_on"].(time.Time)
+				roles, okRoles := reaction["roles"].([]map[string]interface{})
+				if !okRoles || len(roles) == 0 {
+					continue
+				}
+				content, _ := reaction["content"].(string)
+				emojiContent := j.emojiForContent(content)
+				for _, role := range roles {
+					roleType, _ := role["role"].(string)
+					if roleType != "user_data" {
+						continue
+					}
+					name, _ := role["name"].(string)
+					username, _ := role["username"].(string)
+					email, _ := role["email"].(string)
+					avatarURL, _ := role["avatar_url"].(string)
+					// No identity data postprocessing in V2
+					// name, username = shared.PostprocessNameUsername(name, username, email)
+					userID, err = user.GenerateIdentity(&source, &email, &name, &username)
+					if err != nil {
+						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v\n", source, email, name, username, err, doc)
+						return
+					}
+					contributor := insights.Contributor{
+						Role:   insights.ReactionAuthorRole,
+						Weight: 1.0,
+						Identity: user.UserIdentityObjectBase{
+							ID:         userID,
+							Avatar:     avatarURL,
+							Email:      email,
+							IsVerified: false,
+							Name:       name,
+							Username:   username,
+							Source:     source,
+						},
+					}
+					pullRequestContributors = append(pullRequestContributors, contributor)
+					reactionSID := sCommentID + ":" + content
+					pullRequestCommentReactionID, err = igh.GenerateGithubReactionID(repoID, reactionSID)
+					if err != nil {
+						shared.Printf("GenerateGithubReactionID(%s,%s): %+v for %+v\n", repoID, reactionSID, err, doc)
+						return
+					}
+					pullRequestCommentReaction := igh.PullRequestCommentReaction{
+						ID:        pullRequestCommentReactionID,
+						CommentID: sCommentID,
+						Reaction: insights.Reaction{
+							Emoji: service.Emoji{
+								ID:      content,
+								Unicode: emojiContent,
+							},
+							ReactionID:      reactionSID,
+							SourceTimestamp: reactionCreatedOn,
+							SyncTimestamp:   time.Now(),
+							Contributor:     contributor,
+						},
+					}
+					key := "comment_reaction_added"
+					ary, ok := data[key]
+					if !ok {
+						ary = []interface{}{pullRequestCommentReaction}
+					} else {
+						ary = append(ary, pullRequestCommentReaction)
+					}
+					data[key] = ary
+					nReactions++
+				}
+			}
+		}
+		// Comment reactions end (reactions to comments stored on the issue part of PR)
 		// Reviews start
-		reviewsAry, okReviews := doc["reviews_array"].([]interface{})
+		reviewsAry, okReviews = doc["reviews_array"].([]interface{})
 		if okReviews {
 			for _, iReview := range reviewsAry {
 				review, okReview := iReview.(map[string]interface{})
@@ -6121,7 +6580,15 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					state = igh.CommentedReviewState
 					// NOTE:
 					// Those "reviews" come without comment body and are duplicted in comments data, this is why they need to be skipped.
-					continue
+					if sReviewBody == "" {
+						sAuthorLogin, _ := review["author_login"].(string)
+						ts := reviewCreatedOn.Unix()
+						key := fmt.Sprintf("%s:%d", sAuthorLogin, ts)
+						ary, ok := correlation[key]
+						if ok {
+							sReviewBody = ary[1]
+						}
+					}
 				default:
 					shared.Printf("WARNING: unknown review state '%s', skipping\n", sReviewState)
 					continue
