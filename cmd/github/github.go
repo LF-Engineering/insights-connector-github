@@ -5934,6 +5934,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 		createdOn, _ := doc["created_at"].(time.Time)
 		updatedOn := j.ItemUpdatedOn(doc)
 		githubRepoName, _ := doc["github_repo"].(string)
+		repoShortName, _ := doc["repo_short_name"].(string)
 		repoID, err = repository.GenerateRepositoryID(githubRepoName, j.URL, source)
 		// shared.Printf("repository.GenerateRepositoryID(%s, %s, %s) -> %s,%v\n", githubRepoName, j.URL, source, repoID, err)
 		if err != nil {
@@ -6747,7 +6748,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 			ID:            pullRequestID,
 			RepositoryID:  repoID,
 			RepositoryURL: j.URL,
-			Repository:    githubRepoName,
+			Repository:    repoShortName,
 			Organization:  org,
 			Labels:        labels,
 			Commits:       shas,
@@ -7072,6 +7073,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 		closedOn := j.ItemNullableDate(doc, "closed_at")
 		isClosed := closedOn != nil
 		githubRepoName, _ := doc["github_repo"].(string)
+		repoShortName, _ := doc["repo_short_name"].(string)
 		repoID, err = repository.GenerateRepositoryID(githubRepoName, j.URL, source)
 		// shared.Printf("repository.GenerateRepositoryID(%s, %s, %s) -> %s,%v\n", githubRepoName, j.URL, source, repoID, err)
 		if err != nil {
@@ -7483,7 +7485,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 			ID:            issueID,
 			RepositoryID:  repoID,
 			RepositoryURL: j.URL,
-			Repository:    githubRepoName,
+			Repository:    repoShortName,
 			Organization:  org,
 			IsPullRequest: isPullRequest,
 			Labels:        labels,
