@@ -6630,9 +6630,18 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						shared.Printf("GenerateGithubReviewID(%s,%s): %+v for %+v\n", repoID, reviewSID, err, doc)
 						return
 					}
+					// If we want to have different reviewer ID for the same user in different repos
+					// reviewerSID := sIID + ":" + username
+					reviewerSID := username
+					pullRequestReviewerID, err = igh.GenerateGithubReviewerID(repoID, reviewerSID)
+					if err != nil {
+						shared.Printf("GenerateGithubReviewerID(%s,%s): %+v for %+v\n", repoID, reviewerSID, err, doc)
+						return
+					}
 					pullRequestReview := igh.PullRequestReview{
 						ID:            pullRequestReviewID,
 						PullRequestID: pullRequestID,
+						ReviewerID:    pullRequestReviewerID,
 						Review: igh.Review{
 							ReviewID: reviewSID,
 							State:    state,
@@ -6700,7 +6709,9 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						},
 					}
 					pullRequestContributors = append(pullRequestContributors, contributor)
-					reviewerSID := sIID + ":" + username
+					// If we want to have different reviewer ID for the same user in different repos
+					// reviewerSID := sIID + ":" + username
+					reviewerSID := username
 					pullRequestReviewerID, err = igh.GenerateGithubReviewerID(repoID, reviewerSID)
 					if err != nil {
 						shared.Printf("GenerateGithubReviewerID(%s,%s): %+v for %+v\n", repoID, reviewerSID, err, doc)
