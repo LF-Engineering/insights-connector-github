@@ -7561,6 +7561,8 @@ func main() {
 		return
 	}
 	timestamp := time.Now()
+	shared.SetSyncMode(true, false)
+	shared.SetLogLoggerError(false)
 	shared.AddLogger(&github.Logger, GitHubDataSource, logger.Internal, []map[string]string{{"GITHUB_ORG": github.Org, "GITHUB_REPO": github.Repo, "REPO_URL": github.URL, "ProjectSlug": ctx.Project}})
 	for cat := range ctx.Categories {
 		github.WriteLog(&ctx, timestamp, logger.InProgress, cat)
