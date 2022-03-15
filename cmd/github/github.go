@@ -32,7 +32,7 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
-	"github.com/google/go-github/v38/github"
+	"github.com/google/go-github/v43/github"
 
 	jsoniter "github.com/json-iterator/go"
 	"golang.org/x/oauth2"
@@ -126,7 +126,7 @@ var (
 	// GitHubCategories - categories defined for GitHub
 	GitHubCategories = map[string]struct{}{"issue": {}, "pull_request": {}, "repository": {}}
 	// GitHubIssueRoles - roles to fetch affiliation data for github issue
-	GitHubIssueRoles = []string{"user_data", "assignee_data"}
+	GitHubIssueRoles = []string{"user_data", "assignee_data", "closed_by_data"}
 	// GitHubIssueCommentRoles - roles to fetch affiliation data for github issue comment
 	GitHubIssueCommentRoles = []string{"user_data"}
 	// GitHubIssueAssigneeRoles - roles to fetch affiliation data for github issue comment
@@ -2716,6 +2716,7 @@ func (j *DSGitHub) ProcessIssue(ctx *shared.Ctx, inIssue map[string]interface{})
 	issue = inIssue
 	issue["user_data"] = map[string]interface{}{}
 	issue["assignee_data"] = map[string]interface{}{}
+	issue["closed_by_data"] = map[string]interface{}{}
 	issue["assignees_data"] = []interface{}{}
 	issue["comments_data"] = []interface{}{}
 	issue["reactions_data"] = []interface{}{}
@@ -2730,6 +2731,13 @@ func (j *DSGitHub) ProcessIssue(ctx *shared.Ctx, inIssue map[string]interface{})
 	assigneeLogin, ok := shared.Dig(issue, []string{"assignee", "login"}, false, true)
 	if ok {
 		issue["assignee_data"], _, err = j.githubUser(ctx, assigneeLogin.(string))
+		if err != nil {
+			return
+		}
+	}
+	closedByLogin, ok := shared.Dig(issue, []string{"closed_by", "login"}, false, true)
+	if ok {
+		issue["closed_by_data"], _, err = j.githubUser(ctx, closedByLogin.(string))
 		if err != nil {
 			return
 		}
@@ -3261,13 +3269,14 @@ func (j *DSGitHub) GetRoleIdentity(ctx *shared.Ctx, item map[string]interface{},
 			"email":      ident[2],
 			"avatar_url": ident[3],
 			"role":       role,
+			"site_admin": ident[4] != "",
 		}
 	}
 	return
 }
 
 // IdentityForObject - construct identity from a given object
-func (j *DSGitHub) IdentityForObject(ctx *shared.Ctx, item map[string]interface{}) (identity [4]string) {
+func (j *DSGitHub) IdentityForObject(ctx *shared.Ctx, item map[string]interface{}) (identity [5]string) {
 	if ctx.Debug > 1 {
 		defer func() {
 			shared.Printf("%s/%s: IdentityForObject: %+v -> %+v\n", j.URL, j.CurrentCategory, item, identity)
@@ -3282,6 +3291,13 @@ func (j *DSGitHub) IdentityForObject(ctx *shared.Ctx, item map[string]interface{
 			}
 		} else {
 			identity[i] = ""
+		}
+	}
+	bVal, ok := shared.Dig(item, []string{"site_admin"}, false, true)
+	if ok {
+		val, ok := bVal.(bool)
+		if ok && val {
+			identity[4] = "1"
 		}
 	}
 	return
@@ -5960,7 +5976,20 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 		mergedOn := j.ItemNullableDate(doc, "merged_at")
 		isClosed := closedOn != nil
 		isMerged := mergedOn != nil
+		var (
+			mergedBy *insights.Contributor
+			closedBy *insights.Contributor
+		)
+		mergedBy, closedBy = nil, nil
 		pullRequestContributors := []insights.Contributor{}
+		possiblyAddOwnerContributor := func(role map[string]interface{}, contributor insights.Contributor) {
+			siteAdmin, _ := role["site_admin"].(bool)
+			if siteAdmin {
+				contributor.Role = insights.OwnerRole
+				pullRequestContributors = append(pullRequestContributors, contributor)
+				// fmt.Printf("added owner: %s\n", shared.PrettyPrint(contributor))
+			}
+		}
 		// Primary assignee start
 		primaryAssignee := ""
 		roles, okRoles := doc["roles"].([]map[string]interface{})
@@ -6001,7 +6030,11 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						Source:     source,
 					},
 				}
+				if roleType == "merged_by_data" {
+					mergedBy = &contributor
+				}
 				pullRequestContributors = append(pullRequestContributors, contributor)
+				possiblyAddOwnerContributor(role, contributor)
 				if roleType != "assignee_data" {
 					continue
 				}
@@ -6077,6 +6110,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						},
 					}
 					pullRequestContributors = append(pullRequestContributors, contributor)
+					possiblyAddOwnerContributor(role, contributor)
 					assigneeSID := sIID + ":" + username
 					pullRequestAssigneeID, err = igh.GenerateGithubAssigneeID(repoID, assigneeSID)
 					if err != nil {
@@ -6271,6 +6305,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						},
 					}
 					pullRequestContributors = append(pullRequestContributors, contributor)
+					possiblyAddOwnerContributor(role, contributor)
 					commentSID := sCommentID
 					pullRequestCommentID, err = igh.GenerateGithubCommentID(repoID, commentSID)
 					if err != nil {
@@ -6352,6 +6387,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						},
 					}
 					pullRequestContributors = append(pullRequestContributors, contributor)
+					possiblyAddOwnerContributor(role, contributor)
 					reactionSID := sCommentID + ":" + content
 					pullRequestCommentReactionID, err = igh.GenerateGithubReactionID(repoID, reactionSID)
 					if err != nil {
@@ -6435,6 +6471,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						},
 					}
 					pullRequestContributors = append(pullRequestContributors, contributor)
+					possiblyAddOwnerContributor(role, contributor)
 					commentSID := sCommentID
 					pullRequestCommentID, err = igh.GenerateGithubCommentID(repoID, commentSID)
 					if err != nil {
@@ -6516,6 +6553,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						},
 					}
 					pullRequestContributors = append(pullRequestContributors, contributor)
+					possiblyAddOwnerContributor(role, contributor)
 					reactionSID := sCommentID + ":" + content
 					pullRequestCommentReactionID, err = igh.GenerateGithubReactionID(repoID, reactionSID)
 					if err != nil {
@@ -6624,6 +6662,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						},
 					}
 					pullRequestContributors = append(pullRequestContributors, contributor)
+					possiblyAddOwnerContributor(role, contributor)
 					reviewSID := sReviewID
 					pullRequestReviewID, err = igh.GenerateGithubReviewID(repoID, reviewSID)
 					if err != nil {
@@ -6709,6 +6748,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						},
 					}
 					pullRequestContributors = append(pullRequestContributors, contributor)
+					possiblyAddOwnerContributor(role, contributor)
 					// If we want to have different reviewer ID for the same user in different repos
 					// reviewerSID := sIID + ":" + username
 					reviewerSID := username
@@ -6764,6 +6804,8 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 			Labels:        labels,
 			Commits:       shas,
 			Contributors:  shared.DedupContributors(pullRequestContributors),
+			MergedBy:      mergedBy,
+			ClosedBy:      closedBy,
 			ChangeRequest: insights.ChangeRequest{
 				Title:            title,
 				Body:             body,
@@ -7083,6 +7125,8 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 		updatedOn := j.ItemUpdatedOn(doc)
 		closedOn := j.ItemNullableDate(doc, "closed_at")
 		isClosed := closedOn != nil
+		var closedBy *insights.Contributor
+		closedBy = nil
 		githubRepoName, _ := doc["github_repo"].(string)
 		repoShortName, _ := doc["repo_short_name"].(string)
 		repoID, err = repository.GenerateRepositoryID(githubRepoName, j.URL, source)
@@ -7109,13 +7153,21 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 		// We need an information that issue is a PR (GitHub specific)
 		isPullRequest, _ := doc["pull_request"].(bool)
 		issueContributors := []insights.Contributor{}
+		possiblyAddOwnerContributor := func(role map[string]interface{}, contributor insights.Contributor) {
+			siteAdmin, _ := role["site_admin"].(bool)
+			if siteAdmin {
+				contributor.Role = insights.OwnerRole
+				issueContributors = append(issueContributors, contributor)
+				// fmt.Printf("added owner: %s\n", shared.PrettyPrint(contributor))
+			}
+		}
 		// Primary assignee start
 		primaryAssignee := ""
 		roles, okRoles := doc["roles"].([]map[string]interface{})
 		if okRoles {
 			for _, role := range roles {
 				roleType, _ := role["role"].(string)
-				if roleType != "assignee_data" && roleType != "user_data" {
+				if roleType != "assignee_data" && roleType != "user_data" && roleType != "closed_by_data" {
 					continue
 				}
 				name, _ := role["name"].(string)
@@ -7133,6 +7185,8 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 				roleValue := insights.AuthorRole
 				if roleType == "assignee_data" {
 					roleValue = insights.AssigneeRole
+				} else if roleType == "closed_by_data" {
+					roleValue = insights.CloseAuthorRole
 				}
 				contributor := insights.Contributor{
 					Role:   roleValue,
@@ -7147,7 +7201,11 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 						Source:     source,
 					},
 				}
+				if roleType == "closed_by_data" {
+					closedBy = &contributor
+				}
 				issueContributors = append(issueContributors, contributor)
+				possiblyAddOwnerContributor(role, contributor)
 				if roleType != "assignee_data" {
 					continue
 				}
@@ -7223,6 +7281,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 						},
 					}
 					issueContributors = append(issueContributors, contributor)
+					possiblyAddOwnerContributor(role, contributor)
 					assigneeSID := sIID + ":" + username
 					issueAssigneeID, err = igh.GenerateGithubAssigneeID(repoID, assigneeSID)
 					if err != nil {
@@ -7296,6 +7355,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 						},
 					}
 					issueContributors = append(issueContributors, contributor)
+					possiblyAddOwnerContributor(role, contributor)
 					reactionSID := sIID + ":" + content
 					issueReactionID, err = igh.GenerateGithubReactionID(repoID, reactionSID)
 					if err != nil {
@@ -7379,6 +7439,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 						},
 					}
 					issueContributors = append(issueContributors, contributor)
+					possiblyAddOwnerContributor(role, contributor)
 					commentSID := sCommentID
 					issueCommentID, err = igh.GenerateGithubCommentID(repoID, commentSID)
 					if err != nil {
@@ -7458,6 +7519,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 						},
 					}
 					issueContributors = append(issueContributors, contributor)
+					possiblyAddOwnerContributor(role, contributor)
 					reactionSID := sCommentID + ":" + content
 					issueCommentReactionID, err = igh.GenerateGithubReactionID(repoID, reactionSID)
 					if err != nil {
@@ -7500,6 +7562,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 			Organization:  org,
 			IsPullRequest: isPullRequest,
 			Labels:        labels,
+			ClosedBy:      closedBy,
 			Contributors:  shared.DedupContributors(issueContributors),
 			Issue: insights.Issue{
 				Title:           title,
