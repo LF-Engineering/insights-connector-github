@@ -6735,7 +6735,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						return
 					}
 					contributor := insights.Contributor{
-						Role:   insights.RequestedReviewerRole,
+						Role:   insights.ReviewerRole,
 						Weight: 1.0,
 						Identity: user.UserIdentityObjectBase{
 							ID:         userID,
