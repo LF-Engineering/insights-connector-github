@@ -46,6 +46,8 @@ github.com/LF-Engineering/lfx-event-schema v0.1.11-0.20220315141947-321c7a802053
 github.com/LF-Engineering/lfx-event-schema v0.1.11-0.20220315141947-321c7a802053/go.mod h1:CfFIZ4mwzo88umf5+KxDQEzqlVkPG7Vx8eLK2oDfWIs=
 github.com/LF-Engineering/lfx-event-schema v0.1.11-0.20220315151021-58c32f92f6db h1:+K3NtHjscidAGLqZ4ld+/lrB6NBswlxD7mcQNsiPFv4=
 github.com/LF-Engineering/lfx-event-schema v0.1.11-0.20220315151021-58c32f92f6db/go.mod h1:CfFIZ4mwzo88umf5+KxDQEzqlVkPG7Vx8eLK2oDfWIs=
+github.com/LF-Engineering/lfx-event-schema v0.1.11-0.20220320055605-9c01462354d6 h1:jCiu4G+ih1ZuMbRVSmugsM/Z90ZuyGs61VPXaUClh8w=
+github.com/LF-Engineering/lfx-event-schema v0.1.11-0.20220320055605-9c01462354d6/go.mod h1:CfFIZ4mwzo88umf5+KxDQEzqlVkPG7Vx8eLK2oDfWIs=
 github.com/alcortesm/tgz v0.0.0-20161220082320-9c5fe88206d7/go.mod h1:6zEj6s6u/ghQa61ZWa/C2Aw3RkjiTBOix7dkqa1VLIs=
 github.com/alecthomas/jsonschema v0.0.0-20210920000243-787cd8204a0d/go.mod h1:/n6+1/DWPltRLWL/VKyUxg6tzsl5kHUCcraimt4vr60=
 github.com/anmitsu/go-shlex v0.0.0-20161002113705-648efa622239/go.mod h1:2FmKhYUyUczH0OGQWaF5ceTx0UBShxjsH6f8oGKYe2c=
