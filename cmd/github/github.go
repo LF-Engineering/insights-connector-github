@@ -168,6 +168,7 @@ type DSGitHub struct {
 	FlagTokens    *string
 	FlagCachePath *string
 	FlagStream    *string
+	FlagSourceID  *string
 	// Others (calculated)
 	URL                             string
 	Categories                      []string
@@ -215,6 +216,10 @@ type DSGitHub struct {
 	Publisher
 	Stream string // stream to publish the data
 	Logger logger.Logger
+	// SourceID: the optional external source identifier (such as the repo ID from github/gitlab, or gerrit project slug)
+	// this field is required for github, gitlab and gerrit. For github and gitlab, this is typically a numeric value
+	// converted to a string such as 194341141. For gerrit this is the project (repository) slug.
+	SourceID string
 }
 
 // AddPublisher - sets Kinesis publisher
@@ -273,6 +278,7 @@ func (j *DSGitHub) AddFlags() {
 	j.FlagTokens = flag.String("github-tokens", "", "\",\" separated list of OAuth tokens")
 	j.FlagCachePath = flag.String("github-cache-path", GitHubDefaultCachePath, "path to store github users cache, defaults to"+GitHubDefaultCachePath)
 	j.FlagStream = flag.String("github-stream", GitHubIssueDefaultStream, "github kinesis stream name, for example PUT-S3-github-issues")
+	j.FlagSourceID = flag.String("github-source-id", "", "repository id value from the github api")
 }
 
 // ParseArgs - parse GitHub specific environment variables
@@ -348,6 +354,12 @@ func (j *DSGitHub) ParseArgs(ctx *shared.Ctx) (err error) {
 	if ctx.EnvSet("STREAM") {
 		j.Stream = ctx.Env("STREAM")
 	}
+
+	// github repository sourceID
+	if shared.FlagPassed(ctx, "source-id") {
+		j.SourceID = strings.TrimSpace(*j.FlagSourceID)
+	}
+
 	// FIXME
 	// gGitHubDataSource.Categories = j.Categories
 	// gGitHubMetaData.Project = ctx.Project
@@ -378,7 +390,7 @@ func (j *DSGitHub) Validate(ctx *shared.Ctx) (err error) {
 	if j.Tokens != "" {
 		shared.AddRedacted(j.Tokens, false)
 	}
-	j.URL = GitHubURLRoot + j.Org + "/" + j.Repo
+	j.URL = strings.TrimSpace(GitHubURLRoot + j.Org + "/" + j.Repo)
 	defer func() {
 		shared.Printf("configured %d GitHub OAuth clients\n", len(j.Clients))
 	}()
@@ -5951,7 +5963,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 		updatedOn := j.ItemUpdatedOn(doc)
 		githubRepoName, _ := doc["github_repo"].(string)
 		repoShortName, _ := doc["repo_short_name"].(string)
-		repoID, err = repository.GenerateRepositoryID(githubRepoName, j.URL, source)
+		repoID, err = repository.GenerateRepositoryID(j.SourceID, j.URL, source)
 		// shared.Printf("repository.GenerateRepositoryID(%s, %s, %s) -> %s,%v\n", githubRepoName, j.URL, source, repoID, err)
 		if err != nil {
 			shared.Printf("GenerateRepositoryID(%s,%s,%s): %+v for %+v\n", githubRepoName, j.URL, source, err, doc)
