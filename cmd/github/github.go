@@ -6918,7 +6918,7 @@ func (j *DSGitHub) GetModelDataRepository(ctx *shared.Ctx, docs []interface{}) (
 		id, _ := doc["id"].(float64)
 		sid := fmt.Sprintf("%.0f", id)
 		// repoName, _ := doc["repo_name"].(string)
-		repoID, err = repository.GenerateRepositoryID(sid, j.URL, GitHubDataSource)
+		repoID, err = repository.GenerateRepositoryID(j.SourceID, j.URL, GitHubDataSource)
 		// shared.Printf("repository.GenerateRepositoryID(%s, %s, %s) -> %s,%v (%s)\n", sid, j.URL, GitHubDataSource, repoID, err, sid)
 		if err != nil {
 			shared.Printf("GenerateRepositoryID(%s,%s,%s): %+v for %+v\n", sid, j.URL, GitHubDataSource, err, doc)
@@ -7145,7 +7145,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 		closedBy = nil
 		githubRepoName, _ := doc["github_repo"].(string)
 		repoShortName, _ := doc["repo_short_name"].(string)
-		repoID, err = repository.GenerateRepositoryID(githubRepoName, j.URL, source)
+		repoID, err = repository.GenerateRepositoryID(j.SourceID, j.URL, source)
 		// shared.Printf("repository.GenerateRepositoryID(%s, %s, %s) -> %s,%v\n", githubRepoName, j.URL, source, repoID, err)
 		if err != nil {
 			shared.Printf("GenerateRepositoryID(%s,%s,%s): %+v for %+v\n", githubRepoName, j.URL, source, err, doc)
