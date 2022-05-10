@@ -5970,7 +5970,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 		repoID, err = repository.GenerateRepositoryID(j.SourceID, j.URL, source)
 		// shared.Printf("repository.GenerateRepositoryID(%s, %s, %s) -> %s,%v\n", githubRepoName, j.URL, source, repoID, err)
 		if err != nil {
-			shared.Printf("GenerateRepositoryID(%s,%s,%s): %+v for %+v\n", githubRepoName, j.URL, source, err, doc)
+			shared.Printf("GenerateRepositoryID(%s,%s,%s): %+v for %+v\n", j.SourceID, j.URL, source, err, doc)
 			return
 		}
 		fIID, _ := doc["pull_request_id"].(float64)
@@ -6921,7 +6921,7 @@ func (j *DSGitHub) GetModelDataRepository(ctx *shared.Ctx, docs []interface{}) (
 		repoID, err = repository.GenerateRepositoryID(j.SourceID, j.URL, GitHubDataSource)
 		// shared.Printf("repository.GenerateRepositoryID(%s, %s, %s) -> %s,%v (%s)\n", sid, j.URL, GitHubDataSource, repoID, err, sid)
 		if err != nil {
-			shared.Printf("GenerateRepositoryID(%s,%s,%s): %+v for %+v\n", sid, j.URL, GitHubDataSource, err, doc)
+			shared.Printf("GenerateRepositoryID(%s,%s,%s): %+v for %+v\n", j.SourceID, j.URL, GitHubDataSource, err, doc)
 			return
 		}
 		// Event
@@ -7148,7 +7148,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 		repoID, err = repository.GenerateRepositoryID(j.SourceID, j.URL, source)
 		// shared.Printf("repository.GenerateRepositoryID(%s, %s, %s) -> %s,%v\n", githubRepoName, j.URL, source, repoID, err)
 		if err != nil {
-			shared.Printf("GenerateRepositoryID(%s,%s,%s): %+v for %+v\n", githubRepoName, j.URL, source, err, doc)
+			shared.Printf("GenerateRepositoryID(%s,%s,%s): %+v for %+v\n", j.SourceID, j.URL, source, err, doc)
 			return
 		}
 		fIID, _ := doc["issue_id"].(float64)
