@@ -369,6 +369,10 @@ func (j *DSGitHub) ParseArgs(ctx *shared.Ctx) (err error) {
 
 // Validate - is current DS configuration OK?
 func (j *DSGitHub) Validate(ctx *shared.Ctx) (err error) {
+	if strings.TrimSpace(j.SourceID) == "" {
+		return fmt.Errorf("github-source-id must be set")
+	}
+
 	j.Org = strings.TrimSpace(j.Org)
 	if j.Org == "" {
 		err = fmt.Errorf("github org must be set")
