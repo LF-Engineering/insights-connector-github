@@ -5967,10 +5967,10 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 		updatedOn := j.ItemUpdatedOn(doc)
 		githubRepoName, _ := doc["github_repo"].(string)
 		repoShortName, _ := doc["repo_short_name"].(string)
-		repoID, err = repository.GenerateRepositoryID(j.SourceID, shared.StripURL(j.URL), source)
-		// shared.Printf("repository.GenerateRepositoryID(%s, %s, %s) -> %s,%v\n", j.SourceID, shared.StripURL(j.URL), source, repoID, err)
+		repoID, err = repository.GenerateRepositoryID(j.SourceID, j.URL, source)
+		// shared.Printf("repository.GenerateRepositoryID(%s, %s, %s) -> %s,%v\n", j.SourceID, j.URL, source, repoID, err)
 		if err != nil {
-			shared.Printf("GenerateRepositoryID(%s,%s,%s): %+v for %+v\n", j.SourceID, shared.StripURL(j.URL), source, err, doc)
+			shared.Printf("GenerateRepositoryID(%s,%s,%s): %+v for %+v\n", j.SourceID, j.URL, source, err, doc)
 			return
 		}
 		fIID, _ := doc["pull_request_id"].(float64)
@@ -6918,10 +6918,10 @@ func (j *DSGitHub) GetModelDataRepository(ctx *shared.Ctx, docs []interface{}) (
 		id, _ := doc["id"].(float64)
 		sid := fmt.Sprintf("%.0f", id)
 		// repoName, _ := doc["repo_name"].(string)
-		repoID, err = repository.GenerateRepositoryID(j.SourceID, shared.StripURL(j.URL), GitHubDataSource)
-		// shared.Printf("repository.GenerateRepositoryID(%s, %s, %s) -> %s,%v (%s)\n", j.SourceID, shared.StripURL(j.URL), GitHubDataSource, repoID, err, sid)
+		repoID, err = repository.GenerateRepositoryID(j.SourceID, j.URL, GitHubDataSource)
+		// shared.Printf("repository.GenerateRepositoryID(%s, %s, %s) -> %s,%v (%s)\n", j.SourceID, j.URL, GitHubDataSource, repoID, err, sid)
 		if err != nil {
-			shared.Printf("GenerateRepositoryID(%s,%s,%s): %+v for %+v\n", j.SourceID, shared.StripURL(j.URL), GitHubDataSource, err, doc)
+			shared.Printf("GenerateRepositoryID(%s,%s,%s): %+v for %+v\n", j.SourceID, j.URL, GitHubDataSource, err, doc)
 			return
 		}
 		// Event
@@ -7145,10 +7145,10 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 		closedBy = nil
 		githubRepoName, _ := doc["github_repo"].(string)
 		repoShortName, _ := doc["repo_short_name"].(string)
-		repoID, err = repository.GenerateRepositoryID(j.SourceID, shared.StripURL(j.URL), source)
-		// shared.Printf("repository.GenerateRepositoryID(%s, %s, %s) -> %s,%v\n", j.SourceID, shared.StripURL(j.URL), source, repoID, err)
+		repoID, err = repository.GenerateRepositoryID(j.SourceID, j.URL, source)
+		// shared.Printf("repository.GenerateRepositoryID(%s, %s, %s) -> %s,%v\n", j.SourceID, j.URL, source, repoID, err)
 		if err != nil {
-			shared.Printf("GenerateRepositoryID(%s,%s,%s): %+v for %+v\n", j.SourceID, shared.StripURL(j.URL), source, err, doc)
+			shared.Printf("GenerateRepositoryID(%s,%s,%s): %+v for %+v\n", j.SourceID, j.URL, source, err, doc)
 			return
 		}
 		fIID, _ := doc["issue_id"].(float64)
