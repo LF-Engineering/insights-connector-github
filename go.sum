@@ -39,6 +39,8 @@ github.com/LF-Engineering/insights-datasource-shared v1.4.2 h1:bGjwqlLUhG2eSHTXv
 github.com/LF-Engineering/insights-datasource-shared v1.4.2/go.mod h1:cy/YH2aldmSRGUg9XUe6W+rW+m7p2N8RsSSwyATIe9Y=
 github.com/LF-Engineering/insights-datasource-shared v1.4.3-0.20220314162813-49e8868ac871 h1:7DT1e8zUIjxAdlzJkB0pWfwMTZyQA5JE8aPqTm3Mph8=
 github.com/LF-Engineering/insights-datasource-shared v1.4.3-0.20220314162813-49e8868ac871/go.mod h1:cy/YH2aldmSRGUg9XUe6W+rW+m7p2N8RsSSwyATIe9Y=
+github.com/LF-Engineering/insights-datasource-shared v1.4.5-0.20220511063206-6754a12066b9 h1:CcKhPF0SgXbOFasPhoD/1of1ohvgLc4aASJj2KTdsrI=
+github.com/LF-Engineering/insights-datasource-shared v1.4.5-0.20220511063206-6754a12066b9/go.mod h1:ZQCRAJNyizhBemQDSjqm14G2MPkOJbRzCPfjwFhYKy4=
 github.com/LF-Engineering/lfx-event-schema v0.1.8-0.20220222202022-c7ff0e6233a6/go.mod h1:GvEBmXvYGafFRIpZ6I0G5Ss4jsmkBNptLJIasLClXu8=
 github.com/LF-Engineering/lfx-event-schema v0.1.10 h1:pBRwEiOOeY0T6g4f9TL6YYoZsXTD0hFHyXlzezBNPSM=
 github.com/LF-Engineering/lfx-event-schema v0.1.10/go.mod h1:CfFIZ4mwzo88umf5+KxDQEzqlVkPG7Vx8eLK2oDfWIs=
@@ -48,6 +50,8 @@ github.com/LF-Engineering/lfx-event-schema v0.1.11 h1:qDk4YE+ZdZakdG2VYfpUy4HNUt
 github.com/LF-Engineering/lfx-event-schema v0.1.11/go.mod h1:CfFIZ4mwzo88umf5+KxDQEzqlVkPG7Vx8eLK2oDfWIs=
 github.com/LF-Engineering/lfx-event-schema v0.1.14 h1:WhdJbeLloWIMPgbHoUPOUOIGipwTSl8hXxp530ui7XM=
 github.com/LF-Engineering/lfx-event-schema v0.1.14/go.mod h1:CfFIZ4mwzo88umf5+KxDQEzqlVkPG7Vx8eLK2oDfWIs=
+github.com/LF-Engineering/lfx-event-schema v0.1.20-0.20220510142557-956ba192fade h1:YTBk0uQnUVrfEFcyHaR2hzVXDh6ebmeliV0f/O/jj8c=
+github.com/LF-Engineering/lfx-event-schema v0.1.20-0.20220510142557-956ba192fade/go.mod h1:CfFIZ4mwzo88umf5+KxDQEzqlVkPG7Vx8eLK2oDfWIs=
 github.com/alcortesm/tgz v0.0.0-20161220082320-9c5fe88206d7/go.mod h1:6zEj6s6u/ghQa61ZWa/C2Aw3RkjiTBOix7dkqa1VLIs=
 github.com/alecthomas/jsonschema v0.0.0-20210920000243-787cd8204a0d/go.mod h1:/n6+1/DWPltRLWL/VKyUxg6tzsl5kHUCcraimt4vr60=
 github.com/anmitsu/go-shlex v0.0.0-20161002113705-648efa622239/go.mod h1:2FmKhYUyUczH0OGQWaF5ceTx0UBShxjsH6f8oGKYe2c=
@@ -126,6 +130,7 @@ github.com/go-git/go-git/v5 v5.2.0/go.mod h1:kh02eMX+wdqqxgNMEyq8YgwlIOsDOa9homk
 github.com/go-gl/glfw v0.0.0-20190409004039-e6da0acd62b1/go.mod h1:vR7hzQXu2zJy9AVAgeJqvqgH9Q5CA+iKCZ2gyEVpxRU=
 github.com/go-gl/glfw/v3.3/glfw v0.0.0-20191125211704-12ad95a8df72/go.mod h1:tQ2UAYgL5IevRw8kRxooKSPJfGvJ9fJQFa0TUsXzTg8=
 github.com/go-gl/glfw/v3.3/glfw v0.0.0-20200222043503-6f7a984d4dc4/go.mod h1:tQ2UAYgL5IevRw8kRxooKSPJfGvJ9fJQFa0TUsXzTg8=
+github.com/golang-jwt/jwt v3.2.2+incompatible/go.mod h1:8pz2t5EyA70fFQQSrl6XZXzqecmYZeUEB8OUGHkxJ+I=
 github.com/golang-jwt/jwt/v4 v4.0.0/go.mod h1:/xlHOz8bRuivTWchD4jCa+NbatV+wEUSzwAxVc6locg=
 github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b/go.mod h1:SBH7ygxi8pfUlaOkMMuAQtPIUF8ecWP5IEl/CR7VP2Q=
 github.com/golang/groupcache v0.0.0-20190702054246-869f871628b6/go.mod h1:cIg4eruTrX1D+g88fzRXU5OdNfaM+9IcxsU14FzY7Hc=
