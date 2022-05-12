@@ -6055,9 +6055,9 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					continue
 				}
 				assigneeSID := sIID + ":" + username
-				pullRequestAssigneeID, err = igh.GenerateGithubAssigneeID(repoID, assigneeSID)
+				pullRequestAssigneeID, err = igh.GenerateGithubAssigneeID(repoID, pullRequestID, assigneeSID)
 				if err != nil {
-					shared.Printf("GenerateGithubAssigneeID(%s,%s): %+v for %+v\n", repoID, assigneeSID, err, doc)
+					shared.Printf("GenerateGithubAssigneeID(%s,%s,%s): %+v for %+v\n", repoID, pullRequestID, assigneeSID, err, doc)
 					return
 				}
 				pullRequestAssignee := igh.PullRequestAssignee{
@@ -6128,9 +6128,9 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					pullRequestContributors = append(pullRequestContributors, contributor)
 					possiblyAddOwnerContributor(role, contributor)
 					assigneeSID := sIID + ":" + username
-					pullRequestAssigneeID, err = igh.GenerateGithubAssigneeID(repoID, assigneeSID)
+					pullRequestAssigneeID, err = igh.GenerateGithubAssigneeID(repoID, pullRequestID, assigneeSID)
 					if err != nil {
-						shared.Printf("GenerateGithubAssigneeID(%s,%s): %+v for %+v\n", repoID, assigneeSID, err, doc)
+						shared.Printf("GenerateGithubAssigneeID(%s,%s,%s): %+v for %+v\n", repoID, pullRequestID, assigneeSID, err, doc)
 						return
 					}
 					pullRequestAssignee := igh.PullRequestAssignee{
@@ -6688,9 +6688,9 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					// If we want to have different reviewer ID for the same user in different repos
 					// reviewerSID := sIID + ":" + username
 					reviewerSID := username
-					pullRequestReviewerID, err = igh.GenerateGithubReviewerID(repoID, reviewerSID)
+					pullRequestReviewerID, err = igh.GenerateGithubReviewerID(repoID, pullRequestID, reviewerSID)
 					if err != nil {
-						shared.Printf("GenerateGithubReviewerID(%s,%s): %+v for %+v\n", repoID, reviewerSID, err, doc)
+						shared.Printf("GenerateGithubReviewerID(%s,%s,%s): %+v for %+v\n", repoID, pullRequestID, reviewerSID, err, doc)
 						return
 					}
 					pullRequestReview := igh.PullRequestReview{
@@ -6768,9 +6768,9 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					// If we want to have different reviewer ID for the same user in different repos
 					// reviewerSID := sIID + ":" + username
 					reviewerSID := username
-					pullRequestReviewerID, err = igh.GenerateGithubReviewerID(repoID, reviewerSID)
+					pullRequestReviewerID, err = igh.GenerateGithubReviewerID(repoID, pullRequestID, reviewerSID)
 					if err != nil {
-						shared.Printf("GenerateGithubReviewerID(%s,%s): %+v for %+v\n", repoID, reviewerSID, err, doc)
+						shared.Printf("GenerateGithubReviewerID(%s,%s,%s): %+v for %+v\n", repoID, pullRequestID, reviewerSID, err, doc)
 						return
 					}
 					pullRequestReviewer := igh.PullRequestReviewer{
@@ -7226,9 +7226,9 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 					continue
 				}
 				assigneeSID := sIID + ":" + username
-				issueAssigneeID, err = igh.GenerateGithubAssigneeID(repoID, assigneeSID)
+				issueAssigneeID, err = igh.GenerateGithubAssigneeID(repoID, issueID, assigneeSID)
 				if err != nil {
-					shared.Printf("GenerateGithubAssigneeID(%s,%s): %+v for %+v\n", repoID, assigneeSID, err, doc)
+					shared.Printf("GenerateGithubAssigneeID(%s,%s,%s): %+v for %+v\n", repoID, issueID, assigneeSID, err, doc)
 					return
 				}
 				issueAssignee := igh.IssueAssignee{
@@ -7299,9 +7299,9 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 					issueContributors = append(issueContributors, contributor)
 					possiblyAddOwnerContributor(role, contributor)
 					assigneeSID := sIID + ":" + username
-					issueAssigneeID, err = igh.GenerateGithubAssigneeID(repoID, assigneeSID)
+					issueAssigneeID, err = igh.GenerateGithubAssigneeID(repoID, issueID, assigneeSID)
 					if err != nil {
-						shared.Printf("GenerateGithubAssigneeID(%s,%s): %+v for %+v\n", repoID, assigneeSID, err, doc)
+						shared.Printf("GenerateGithubAssigneeID(%s,%s, %s): %+v for %+v\n", repoID, issueID, assigneeSID, err, doc)
 						return
 					}
 					issueAssignee := igh.IssueAssignee{
