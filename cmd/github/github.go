@@ -5954,6 +5954,8 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 			}
 		}
 	}()
+	addedAssignees := make(map[string]struct{})
+	addedReviewers := make(map[string]struct{})
 	// pullRequestID, repoID, userID, pullRequestAssigneeID, pullRequestReactionID, pullRequestCommentID, pullRequestCommentReactionID := "", "", "", "", "", "", ""
 	pullRequestID, repoID, userID, pullRequestAssigneeID, pullRequestCommentID, pullRequestCommentReactionID, pullRequestReviewID, pullRequestReviewerID := "", "", "", "", "", "", "", ""
 	source := GitHubDataSource
@@ -6070,14 +6072,18 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						SyncTimestamp:   time.Now(),
 					},
 				}
-				key := "assignee_added"
-				ary, ok := data[key]
+				_, ok := addedAssignees[pullRequestAssigneeID]
 				if !ok {
-					ary = []interface{}{pullRequestAssignee}
-				} else {
-					ary = append(ary, pullRequestAssignee)
+					key := "assignee_added"
+					ary, ok := data[key]
+					if !ok {
+						ary = []interface{}{pullRequestAssignee}
+					} else {
+						ary = append(ary, pullRequestAssignee)
+					}
+					data[key] = ary
+					addedAssignees[pullRequestAssigneeID] = struct{}{}
 				}
-				data[key] = ary
 			}
 		}
 		// Primary assignee end
@@ -6143,14 +6149,18 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 							SourceTimestamp: createdOn,
 						},
 					}
-					key := "assignee_added"
-					ary, ok := data[key]
+					_, ok := addedAssignees[pullRequestAssigneeID]
 					if !ok {
-						ary = []interface{}{pullRequestAssignee}
-					} else {
-						ary = append(ary, pullRequestAssignee)
+						key := "assignee_added"
+						ary, ok := data[key]
+						if !ok {
+							ary = []interface{}{pullRequestAssignee}
+						} else {
+							ary = append(ary, pullRequestAssignee)
+						}
+						data[key] = ary
+						addedAssignees[pullRequestAssigneeID] = struct{}{}
 					}
-					data[key] = ary
 				}
 			}
 		}
@@ -6783,14 +6793,18 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 							SourceTimestamp: createdOn,
 						},
 					}
-					key := "reviewer_added"
-					ary, ok := data[key]
+					_, ok := addedReviewers[pullRequestReviewerID]
 					if !ok {
-						ary = []interface{}{pullRequestReviewer}
-					} else {
-						ary = append(ary, pullRequestReviewer)
+						key := "reviewer_added"
+						ary, ok := data[key]
+						if !ok {
+							ary = []interface{}{pullRequestReviewer}
+						} else {
+							ary = append(ary, pullRequestReviewer)
+						}
+						data[key] = ary
+						addedReviewers[pullRequestReviewerID] = struct{}{}
 					}
-					data[key] = ary
 				}
 			}
 		}
@@ -7131,6 +7145,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 			}
 		}
 	}()
+	addedAssignees := make(map[string]struct{})
 	issueID, repoID, userID, issueAssigneeID, issueReactionID, issueCommentID, issueCommentReactionID := "", "", "", "", "", "", ""
 	source := GitHubDataSource
 	for _, iDoc := range docs {
@@ -7241,14 +7256,18 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 						SourceTimestamp: createdOn,
 					},
 				}
-				key := "assignee_added"
-				ary, ok := data[key]
+				_, ok := addedAssignees[issueAssigneeID]
 				if !ok {
-					ary = []interface{}{issueAssignee}
-				} else {
-					ary = append(ary, issueAssignee)
+					key := "assignee_added"
+					ary, ok := data[key]
+					if !ok {
+						ary = []interface{}{issueAssignee}
+					} else {
+						ary = append(ary, issueAssignee)
+					}
+					data[key] = ary
+					addedAssignees[issueAssigneeID] = struct{}{}
 				}
-				data[key] = ary
 			}
 		}
 		// Primary assignee end
@@ -7314,14 +7333,18 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 							SourceTimestamp: createdOn,
 						},
 					}
-					key := "assignee_added"
-					ary, ok := data[key]
+					_, ok := addedAssignees[issueAssigneeID]
 					if !ok {
-						ary = []interface{}{issueAssignee}
-					} else {
-						ary = append(ary, issueAssignee)
+						key := "assignee_added"
+						ary, ok := data[key]
+						if !ok {
+							ary = []interface{}{issueAssignee}
+						} else {
+							ary = append(ary, issueAssignee)
+						}
+						data[key] = ary
+						addedAssignees[issueAssigneeID] = struct{}{}
 					}
-					data[key] = ary
 				}
 			}
 		}
