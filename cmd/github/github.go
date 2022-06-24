@@ -7687,6 +7687,7 @@ func main() {
 
 // createStructuredLogger...
 func (j *DSGitHub) createStructuredLogger(ctx *shared.Ctx) {
+	logrus.SetFormatter(&logrus.JSONFormatter{})
 	log := logrus.WithFields(
 		logrus.Fields{
 			"environment": os.Getenv("STAGE"),
