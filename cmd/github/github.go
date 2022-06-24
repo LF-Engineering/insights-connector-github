@@ -4,6 +4,8 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/LF-Engineering/insights-datasource-github/build"
+	"github.com/sirupsen/logrus"
 	"io/ioutil"
 	"math/rand"
 	"os"
@@ -220,6 +222,7 @@ type DSGitHub struct {
 	// this field is required for github, gitlab and gerrit. For github and gitlab, this is typically a numeric value
 	// converted to a string such as 194341141. For gerrit this is the project (repository) slug.
 	SourceID string
+	log      *logrus.Entry
 }
 
 // AddPublisher - sets Kinesis publisher
@@ -231,7 +234,7 @@ func (j *DSGitHub) AddPublisher(publisher Publisher) {
 // FIXME: don't use when done implementing
 func (j *DSGitHub) PublisherPushEvents(ev, ori, src, cat, env string, v []interface{}) error {
 	data, err := jsoniter.Marshal(v)
-	shared.Printf("publish[ev=%s ori=%s src=%s cat=%s env=%s]: %d items: %+v -> %v\n", ev, ori, src, cat, env, len(v), string(data), err)
+	j.log.WithFields(logrus.Fields{"operation": "main"}).Infof("publish[ev=%s ori=%s src=%s cat=%s env=%s]: %d items: %+v -> %v\n", ev, ori, src, cat, env, len(v), string(data), err)
 	return nil
 }
 
@@ -549,10 +552,10 @@ func (j *DSGitHub) Init(ctx *shared.Ctx) (err error) {
 		r := &repository.RepositoryObjectBase{}
 		i := &igh.Issue{}
 		p := &igh.PullRequest{}
-		shared.Printf("GitHub: %+v\nshared context: %s\nModels: [%+v, %+v, %+v]\n", j, ctx.Info(), r, i, p)
+		j.log.WithFields(logrus.Fields{"operation": "Init"}).Debugf("GitHub: %+v\nshared context: %s\nModels: [%+v, %+v, %+v]", j, ctx.Info(), r, i, p)
 	}
 	if ctx.Debug > 0 {
-		shared.Printf("stream: '%s'\n", j.Stream)
+		j.log.WithFields(logrus.Fields{"operation": "Init"}).Debugf("stream: '%s'", j.Stream)
 	}
 	if j.Stream != "" {
 		sess, err := session.NewSession()
@@ -565,6 +568,7 @@ func (j *DSGitHub) Init(ctx *shared.Ctx) (err error) {
 		j.AddPublisher(&datalakeClient)
 	}
 	j.AddLogger(ctx)
+	j.createStructuredLogger(ctx)
 	return
 }
 
@@ -620,14 +624,14 @@ func (j *DSGitHub) getRateLimits(gctx context.Context, ctx *shared.Ctx, gcs []*g
 		if err != nil {
 			rem, ok := shared.PeriodParse(err.Error())
 			if ok {
-				shared.Printf("Parsed wait time from api non-success response message: %v: %s\n", rem, err.Error())
+				j.log.WithFields(logrus.Fields{"operation": "getRateLimits"}).Warningf("Parsed wait time from api non-success response message: %v: %s", rem, err.Error())
 				limits = append(limits, -1)
 				remainings = append(remainings, -1)
 				durations = append(durations, rem)
 				display = true
 				continue
 			}
-			shared.Printf("GetRateLimit(%d): %v\n", idx, err)
+			j.log.WithFields(logrus.Fields{"operation": "getRateLimits"}).Infof("GetRateLimit(%d): %v", idx, err)
 		}
 		if rl == nil {
 			limits = append(limits, -1)
@@ -654,7 +658,7 @@ func (j *DSGitHub) getRateLimits(gctx context.Context, ctx *shared.Ctx, gcs []*g
 		}
 	}
 	if display || ctx.Debug > 0 {
-		shared.Printf("GetRateLimits: hint: %d, limits: %+v, remaining: %+v, reset: %+v\n", hint, limits, remainings, durations)
+		j.log.WithFields(logrus.Fields{"operation": "getRateLimits"}).Debugf("GetRateLimits: hint: %d, limits: %+v, remaining: %+v, reset: %+v", hint, limits, remainings, durations)
 	}
 	return hint, limits, remainings, durations
 }
@@ -672,7 +676,7 @@ func (j *DSGitHub) handleRate(ctx *shared.Ctx) (aHint int, canCache bool) {
 		j.GitHubRateMtx.RUnlock()
 	}
 	if handled {
-		shared.Printf("%s/%s: rate is already handled elsewhere, returning #%d token\n", j.URL, j.CurrentCategory, aHint)
+		j.log.WithFields(logrus.Fields{"operation": "handleRate"}).Infof("%s/%s: rate is already handled elsewhere, returning #%d token", j.URL, j.CurrentCategory, aHint)
 		return
 	}
 	if j.GitHubRateMtx != nil {
@@ -682,10 +686,10 @@ func (j *DSGitHub) handleRate(ctx *shared.Ctx) (aHint int, canCache bool) {
 	h, _, rem, wait := j.getRateLimits(j.Context, ctx, j.Clients, true)
 	for {
 		if ctx.Debug > 1 {
-			shared.Printf("Checking token %d %+v %+v\n", h, rem, wait)
+			j.log.WithFields(logrus.Fields{"operation": "handleRate"}).Debugf("Checking token %d %+v %+v", h, rem, wait)
 		}
 		if rem[h] <= 5 {
-			shared.Printf("All GH API tokens are overloaded, maximum points %d, waiting %+v\n", rem[h], wait[h])
+			j.log.WithFields(logrus.Fields{"operation": "handleRate"}).Infof("All GH API tokens are overloaded, maximum points %d, waiting %+v", rem[h], wait[h])
 			time.Sleep(time.Duration(1) * time.Second)
 			time.Sleep(wait[h])
 			h, _, rem, wait = j.getRateLimits(j.Context, ctx, j.Clients, true)
@@ -700,10 +704,10 @@ func (j *DSGitHub) handleRate(ctx *shared.Ctx) (aHint int, canCache bool) {
 	j.Hint = aHint
 	j.CanCache = canCache
 	if ctx.Debug > 1 {
-		shared.Printf("Found usable token %d/%d/%v, cache enabled: %v\n", aHint, rem[h], wait[h], canCache)
+		j.log.WithFields(logrus.Fields{"operation": "handleRate"}).Debugf("Found usable token %d/%d/%v, cache enabled: %v", aHint, rem[h], wait[h], canCache)
 	}
 	j.RateHandled = true
-	shared.Printf("%s/%s: selected new token #%d\n", j.URL, j.CurrentCategory, j.Hint)
+	j.log.WithFields(logrus.Fields{"operation": "handleRate"}).Infof("%s/%s: selected new token #%d", j.URL, j.CurrentCategory, j.Hint)
 	return
 }
 
@@ -712,9 +716,10 @@ func (j *DSGitHub) isAbuse(e error) (abuse, rateLimit bool) {
 		return
 	}
 	defer func() {
-		// if abuse || rateLimit {
-		// Clear rate handled flag on every error - chances are that next rate handle will recover
-		shared.Printf("%s/%s: GitHub error: abuse:%v, rate limit:%v\n", j.URL, j.CurrentCategory, abuse, rateLimit)
+		if abuse || rateLimit {
+			// Clear rate handled flag on every error - chances are that next rate handle will recover
+			j.log.WithFields(logrus.Fields{"operation": "isAbuse"}).Infof("%s: GitHub warn processing %s: abuse:%v, rate limit:%v\n", j.URL, j.CurrentCategory, abuse, rateLimit)
+		}
 		if e != nil {
 			if j.GitHubRateMtx != nil {
 				j.GitHubRateMtx.Lock()
@@ -746,7 +751,7 @@ func (j *DSGitHub) githubUserOrgs(ctx *shared.Ctx, login string) (orgsData []map
 		}
 		if found {
 			if ctx.Debug > 2 {
-				shared.Printf("user orgs found in cache: %+v\n", orgsData)
+				j.log.WithFields(logrus.Fields{"operation": "githubUserOrgs"}).Debugf("user orgs found in cache: %+v", orgsData)
 			}
 			return
 		}
@@ -770,7 +775,7 @@ func (j *DSGitHub) githubUserOrgs(ctx *shared.Ctx, login string) (orgsData []map
 		)
 		organizations, response, e = c.Organizations.List(j.Context, login, opt)
 		if ctx.Debug > 2 {
-			shared.Printf("GET %s -> {%+v, %+v, %+v}\n", login, organizations, response, e)
+			j.log.WithFields(logrus.Fields{"operation": "githubUserOrgs"}).Debugf("GET %s -> {%+v, %+v, %+v}", login, organizations, response, e)
 		}
 		if e != nil && strings.Contains(e.Error(), "404 Not Found") {
 			if CacheGitHubUserOrgs {
@@ -783,21 +788,21 @@ func (j *DSGitHub) githubUserOrgs(ctx *shared.Ctx, login string) (orgsData []map
 				}
 			}
 			if ctx.Debug > 1 {
-				shared.Printf("githubUserOrgs: orgs not found %s: %v\n", login, e)
+				j.log.WithFields(logrus.Fields{"operation": "githubUserOrgs"}).Debugf("githubUserOrgs: orgs not found %s: %v", login, e)
 			}
 			return
 		}
 		if e != nil && !retry {
-			shared.Printf("Unable to get %s user orgs: response: %+v, because: %+v, retrying rate\n", login, response, e)
-			shared.Printf("githubUserOrgs: handle rate\n")
+			j.log.WithFields(logrus.Fields{"operation": "githubUserOrgs"}).Warningf("Unable to get %s user orgs: response: %+v, because: %+v, retrying rate", login, response, e)
+			j.log.WithFields(logrus.Fields{"operation": "githubUserOrgs"}).Info("githubUserOrgs: handle rate")
 			abuse, rateLimit := j.isAbuse(e)
 			if abuse {
 				sleepFor := AbuseWaitSeconds + rand.Intn(AbuseWaitSeconds)
-				shared.Printf("GitHub detected abuse (get user orgs %s), waiting for %ds\n", login, sleepFor)
+				j.log.WithFields(logrus.Fields{"operation": "githubUserOrgs"}).Infof("GitHub detected abuse (get user orgs %s), waiting for %ds", login, sleepFor)
 				time.Sleep(time.Duration(sleepFor) * time.Second)
 			}
 			if rateLimit {
-				shared.Printf("Rate limit reached on a token (get user orgs %s) waiting 1s before token switch\n", login)
+				j.log.WithFields(logrus.Fields{"operation": "githubUserOrgs"}).Infof("Rate limit reached on a token (get user orgs %s) waiting 1s before token switch", login)
 				time.Sleep(time.Duration(1) * time.Second)
 			}
 			if j.GitHubMtx != nil {
@@ -828,12 +833,12 @@ func (j *DSGitHub) githubUserOrgs(ctx *shared.Ctx, login string) (orgsData []map
 		}
 		opt.Page = response.NextPage
 		if ctx.Debug > 0 {
-			shared.Printf("processing next user orgs page: %d\n", opt.Page)
+			j.log.WithFields(logrus.Fields{"operation": "githubUserOrgs"}).Debugf("processing next user orgs page: %d", opt.Page)
 		}
 		retry = false
 	}
 	if ctx.Debug > 2 {
-		shared.Printf("user orgs got from API: %+v\n", orgsData)
+		j.log.WithFields(logrus.Fields{"operation": "githubUserOrgs"}).Debugf("user orgs got from API: %+v", orgsData)
 	}
 	if CacheGitHubUserOrgs {
 		if j.GitHubUserOrgsMtx != nil {
@@ -861,7 +866,7 @@ func (j *DSGitHub) githubUser(ctx *shared.Ctx, login string) (user map[string]in
 		if ok {
 			found = len(user) > 0
 			if ctx.Debug > 1 {
-				shared.Printf("user found in memory cache: %+v\n", user)
+				j.log.WithFields(logrus.Fields{"operation": "githubUser"}).Debugf("user found in memory cache: %+v", user)
 			}
 			return
 		}
@@ -876,7 +881,7 @@ func (j *DSGitHub) githubUser(ctx *shared.Ctx, login string) (user map[string]in
 					_, e := os.Stat(lockPath)
 					if e == nil {
 						if ctx.Debug > 0 {
-							shared.Printf("user %s lock file %s present, waiting 1s\n", user, lockPath)
+							j.log.WithFields(logrus.Fields{"operation": "githubUser"}).Debugf("user %s lock file %s present, waiting 1s", user, lockPath)
 						}
 						time.Sleep(time.Duration(1) * time.Second)
 						waited++
@@ -884,7 +889,7 @@ func (j *DSGitHub) githubUser(ctx *shared.Ctx, login string) (user map[string]in
 					}
 					if waited > 0 {
 						if ctx.Debug > 0 {
-							shared.Printf("user %s lock file %s was present, waited %ds\n", user, lockPath, waited)
+							j.log.WithFields(logrus.Fields{"operation": "githubUser"}).Debugf("user %s lock file %s was present, waited %ds", user, lockPath, waited)
 						}
 					}
 					file, _ = os.Stat(path)
@@ -909,28 +914,28 @@ func (j *DSGitHub) githubUser(ctx *shared.Ctx, login string) (user map[string]in
 									j.GitHubUserMtx.Unlock()
 								}
 								if ctx.Debug > 1 {
-									shared.Printf("user found in files cache: %+v\n", user)
+									j.log.WithFields(logrus.Fields{"operation": "githubUser"}).Debugf("user found in files cache: %+v", user)
 								}
 								return
 							}
-							shared.Printf("githubUser: unmarshaled %s cache file is empty\n", path)
+							j.log.WithFields(logrus.Fields{"operation": "githubUser"}).Warningf("unmarshaled %s cache file is empty", path)
 						}
-						shared.Printf("githubUser: cannot unmarshal %s cache file: %v\n", path, e)
+						j.log.WithFields(logrus.Fields{"operation": "githubUser"}).Warningf("cannot unmarshal %s cache file: %v", path, e)
 					} else {
-						shared.Printf("githubUser: cannot read %s user cache file: %v\n", path, e)
+						j.log.WithFields(logrus.Fields{"operation": "githubUser"}).Warningf("cannot read %s user cache file: %v", path, e)
 					}
 				} else {
-					shared.Printf("githubUser: %s user cache file is too old: %v (allowed %v)\n", path, time.Duration(age)*time.Second, time.Duration(allowedAge)*time.Second)
+					j.log.WithFields(logrus.Fields{"operation": "githubUser"}).Warningf("%s user cache file is too old: %v (allowed %v)", path, time.Duration(age)*time.Second, time.Duration(allowedAge)*time.Second)
 				}
 			} else {
 				if ctx.Debug > 1 {
-					shared.Printf("githubUser: no %s user cache file: %v\n", path, e)
+					j.log.WithFields(logrus.Fields{"operation": "githubUser"}).Debugf("no %s user cache file: %v", path, e)
 				}
 			}
 			locked := false
 			lockFile, e := os.Create(lockPath)
 			if e != nil {
-				shared.Printf("githubUser: create %s lock file failed: %v\n", lockPath, e)
+				j.log.WithFields(logrus.Fields{"operation": "githubUser"}).Errorf("create %s lock file failed: %v", lockPath, e)
 			} else {
 				locked = true
 				_ = lockFile.Close()
@@ -939,7 +944,7 @@ func (j *DSGitHub) githubUser(ctx *shared.Ctx, login string) (user map[string]in
 				if locked {
 					defer func() {
 						if ctx.Debug > 1 {
-							shared.Printf("remove lock file %s\n", lockPath)
+							j.log.WithFields(logrus.Fields{"operation": "githubUser"}).Debugf("remove lock file %s", lockPath)
 						}
 						_ = os.Remove(lockPath)
 					}()
@@ -950,16 +955,16 @@ func (j *DSGitHub) githubUser(ctx *shared.Ctx, login string) (user map[string]in
 				// path := j.CacheDir + login + ".json"
 				bts, err := jsoniter.Marshal(user)
 				if err != nil {
-					shared.Printf("githubUser: cannot marshal user %s to file %s\n", login, path)
+					j.log.WithFields(logrus.Fields{"operation": "githubUser"}).Errorf("cannot marshal user %s to file %s", login, path)
 					return
 				}
 				err = ioutil.WriteFile(path, bts, 0644)
 				if err != nil {
-					shared.Printf("githubUser: cannot write file %s, %d bytes: %v\n", path, len(bts), err)
+					j.log.WithFields(logrus.Fields{"operation": "githubUser"}).Errorf("cannot write file %s, %d bytes: %v", path, len(bts), err)
 					return
 				}
 				if ctx.Debug > 0 {
-					shared.Printf("githubUser: saved %s user file\n", path)
+					j.log.WithFields(logrus.Fields{"operation": "githubUser"}).Debugf("saved %s user file", path)
 				}
 			}()
 		}
@@ -982,7 +987,7 @@ func (j *DSGitHub) githubUser(ctx *shared.Ctx, login string) (user map[string]in
 		)
 		usr, response, e = c.Users.Get(j.Context, login)
 		if ctx.Debug > 2 {
-			shared.Printf("GET %s -> {%+v, %+v, %+v}\n", login, usr, response, e)
+			j.log.WithFields(logrus.Fields{"operation": "githubUser"}).Debugf("GET %s -> {%+v, %+v, %+v}\n", login, usr, response, e)
 		}
 		if e != nil && strings.Contains(e.Error(), "404 Not Found") {
 			if CacheGitHubUser {
@@ -990,7 +995,7 @@ func (j *DSGitHub) githubUser(ctx *shared.Ctx, login string) (user map[string]in
 					j.GitHubUserMtx.Lock()
 				}
 				if ctx.Debug > 0 {
-					shared.Printf("user not found using API: %s\n", login)
+					j.log.WithFields(logrus.Fields{"operation": "githubUser"}).Debugf("user not found using API: %s", login)
 				}
 				j.GitHubUser[login] = map[string]interface{}{}
 				if j.GitHubUserMtx != nil {
@@ -1000,16 +1005,16 @@ func (j *DSGitHub) githubUser(ctx *shared.Ctx, login string) (user map[string]in
 			return
 		}
 		if e != nil && !retry {
-			shared.Printf("Unable to get %s user: response: %+v, because: %+v, retrying rate\n", login, response, e)
-			shared.Printf("githubUser: handle rate\n")
+			j.log.WithFields(logrus.Fields{"operation": "githubUser"}).Warningf("Unable to get %s user: response: %+v, because: %+v, retrying rate", login, response, e)
+			j.log.WithFields(logrus.Fields{"operation": "githubUser"}).Info("handle rate")
 			abuse, rateLimit := j.isAbuse(e)
 			if abuse {
 				sleepFor := AbuseWaitSeconds + rand.Intn(AbuseWaitSeconds)
-				shared.Printf("GitHub detected abuse (get user %s), waiting for %ds\n", login, sleepFor)
+				j.log.WithFields(logrus.Fields{"operation": "githubUser"}).Infof("GitHub detected abuse (get user %s), waiting for %ds", login, sleepFor)
 				time.Sleep(time.Duration(sleepFor) * time.Second)
 			}
 			if rateLimit {
-				shared.Printf("Rate limit reached on a token (get user %s) waiting 1s before token switch\n", login)
+				j.log.WithFields(logrus.Fields{"operation": "githubUser"}).Infof("Rate limit reached on a token (get user %s) waiting 1s before token switch", login)
 				time.Sleep(time.Duration(1) * time.Second)
 			}
 			if j.GitHubMtx != nil {
@@ -1037,7 +1042,7 @@ func (j *DSGitHub) githubUser(ctx *shared.Ctx, login string) (user map[string]in
 				return
 			}
 			if ctx.Debug > 1 {
-				shared.Printf("user found using API: %+v\n", user)
+				j.log.WithFields(logrus.Fields{"operation": "githubUser"}).Debugf("user found using API: %+v", user)
 			}
 			found = true
 		}
@@ -1069,7 +1074,8 @@ func (j *DSGitHub) githubRepo(ctx *shared.Ctx, org, repo string) (repoData map[s
 		}
 		if found {
 			if ctx.Debug > 2 {
-				shared.Printf("repos found in cache: %+v\n", repoData)
+				j.log.WithFields(logrus.Fields{"operation": "githubRepo" +
+					""}).Errorf("repos found in cache: %+v", repoData)
 			}
 			return
 		}
@@ -1091,7 +1097,7 @@ func (j *DSGitHub) githubRepo(ctx *shared.Ctx, org, repo string) (repoData map[s
 		)
 		rep, response, e = c.Repositories.Get(j.Context, org, repo)
 		if ctx.Debug > 2 {
-			shared.Printf("GET %s/%s -> {%+v, %+v, %+v}\n", org, repo, rep, response, e)
+			j.log.WithFields(logrus.Fields{"operation": "githubRepo"}).Debugf("GET url: %s/%s -> { repo: %+v, response: %+v, error: %+v}", org, repo, rep, response, e)
 		}
 		if e != nil && strings.Contains(e.Error(), "404 Not Found") {
 			if CacheGitHubRepo {
@@ -1104,21 +1110,21 @@ func (j *DSGitHub) githubRepo(ctx *shared.Ctx, org, repo string) (repoData map[s
 				}
 			}
 			if ctx.Debug > 1 {
-				shared.Printf("githubRepos: repo not found %s: %v\n", origin, e)
+				j.log.WithFields(logrus.Fields{"operation": "githubRepo"}).Debugf("repo not found %s: %v", origin, e)
 			}
 			return
 		}
 		if e != nil && !retry {
-			shared.Printf("Unable to get %s repo: response: %+v, because: %+v, retrying rate\n", origin, response, e)
-			shared.Printf("githubRepos: handle rate\n")
+			j.log.WithFields(logrus.Fields{"operation": "githubRepo"}).Warningf("Unable to get %s repo: response: %+v, because: %+v, retrying rate", origin, response, e)
+			j.log.WithFields(logrus.Fields{"operation": "githubRepo"}).Info("handle rate")
 			abuse, rateLimit := j.isAbuse(e)
 			if abuse {
 				sleepFor := AbuseWaitSeconds + rand.Intn(AbuseWaitSeconds)
-				shared.Printf("GitHub detected abuse (get repo %s), waiting for %ds\n", origin, sleepFor)
+				j.log.WithFields(logrus.Fields{"operation": "githubRepo"}).Infof("GitHub detected abuse (get repo %s), waiting for %ds", origin, sleepFor)
 				time.Sleep(time.Duration(sleepFor) * time.Second)
 			}
 			if rateLimit {
-				shared.Printf("Rate limit reached on a token (get repo %s) waiting 1s before token switch\n", origin)
+				j.log.WithFields(logrus.Fields{"operation": "githubRepo"}).Infof("Rate limit reached on a token (get repo %s) waiting 1s before token switch", origin)
 				time.Sleep(time.Duration(1) * time.Second)
 			}
 			if j.GitHubMtx != nil {
@@ -1141,7 +1147,7 @@ func (j *DSGitHub) githubRepo(ctx *shared.Ctx, org, repo string) (repoData map[s
 		jm, _ := jsoniter.Marshal(rep)
 		_ = jsoniter.Unmarshal(jm, &repoData)
 		if ctx.Debug > 2 {
-			shared.Printf("repos got from API: %+v\n", repoData)
+			j.log.WithFields(logrus.Fields{"operation": "githubRepo"}).Debugf("repos got from API: %+v", repoData)
 		}
 		break
 	}
@@ -1171,7 +1177,7 @@ func (j *DSGitHub) githubIssues(ctx *shared.Ctx, org, repo string, since, until 
 		}
 		if found {
 			if ctx.Debug > 2 {
-				shared.Printf("issues found in cache: %+v\n", issuesData)
+				j.log.WithFields(logrus.Fields{"operation": "githubIssues"}).Debugf("issues found in cache: %+v", issuesData)
 			}
 			return
 		}
@@ -1203,7 +1209,7 @@ func (j *DSGitHub) githubIssues(ctx *shared.Ctx, org, repo string, since, until 
 		)
 		issues, response, e = c.Issues.ListByRepo(j.Context, org, repo, opt)
 		if ctx.Debug > 2 {
-			shared.Printf("GET %s/%s -> {%+v, %+v, %+v}\n", org, repo, issues, response, e)
+			j.log.WithFields(logrus.Fields{"operation": "githubIssues"}).Debugf("GET %s/%s -> {%+v, %+v, %+v}", org, repo, issues, response, e)
 		}
 		if e != nil && strings.Contains(e.Error(), "404 Not Found") {
 			if CacheGitHubIssues {
@@ -1216,21 +1222,21 @@ func (j *DSGitHub) githubIssues(ctx *shared.Ctx, org, repo string, since, until 
 				}
 			}
 			if ctx.Debug > 1 {
-				shared.Printf("githubIssues: issues not found %s: %v\n", origin, e)
+				j.log.WithFields(logrus.Fields{"operation": "githubIssues"}).Debugf("issues not found %s: %v", origin, e)
 			}
 			return
 		}
 		if e != nil && !retry {
-			shared.Printf("Unable to get %s issues: response: %+v, because: %+v, retrying rate\n", origin, response, e)
-			shared.Printf("githubIssues: handle rate\n")
+			j.log.WithFields(logrus.Fields{"operation": "githubIssues"}).Warningf("Unable to get %s issues: response: %+v, because: %+v, retrying rate\n", origin, response, e)
+			j.log.WithFields(logrus.Fields{"operation": "githubIssues"}).Info("handle rate")
 			abuse, rateLimit := j.isAbuse(e)
 			if abuse {
 				sleepFor := AbuseWaitSeconds + rand.Intn(AbuseWaitSeconds)
-				shared.Printf("GitHub detected abuse (get issues %s), waiting for %ds\n", origin, sleepFor)
+				j.log.WithFields(logrus.Fields{"operation": "githubIssues"}).Info("GitHub detected abuse (get issues %s), waiting for %ds", origin, sleepFor)
 				time.Sleep(time.Duration(sleepFor) * time.Second)
 			}
 			if rateLimit {
-				shared.Printf("Rate limit reached on a token (get issues %s) waiting 1s before token switch\n", origin)
+				j.log.WithFields(logrus.Fields{"operation": "githubIssues"}).Info("Rate limit reached on a token (get issues %s) waiting 1s before token switch", origin)
 				time.Sleep(time.Duration(1) * time.Second)
 			}
 			if j.GitHubMtx != nil {
@@ -1271,12 +1277,12 @@ func (j *DSGitHub) githubIssues(ctx *shared.Ctx, org, repo string, since, until 
 		opt.Page = response.NextPage
 		if ctx.Debug > 0 {
 			runtime.GC()
-			shared.Printf("%s/%s: processing next issues page: %d\n", j.URL, j.CurrentCategory, opt.Page)
+			j.log.WithFields(logrus.Fields{"operation": "githubIssues"}).Debugf("%s/%s: processing next issues page: %d", j.URL, j.CurrentCategory, opt.Page)
 		}
 		retry = false
 	}
 	if ctx.Debug > 2 {
-		shared.Printf("issues got from API: %+v\n", issuesData)
+		j.log.WithFields(logrus.Fields{"operation": "githubIssues"}).Debugf("issues got from API: %+v", issuesData)
 	}
 	if CacheGitHubIssues {
 		if j.GitHubIssuesMtx != nil {
@@ -1304,7 +1310,7 @@ func (j *DSGitHub) githubIssueComments(ctx *shared.Ctx, org, repo string, number
 		}
 		if found {
 			if ctx.Debug > 2 {
-				shared.Printf("issue comments found in cache: %+v\n", comments)
+				j.log.WithFields(logrus.Fields{"operation": "githubIssueComments"}).Debugf("issue comments found in cache: %+v", comments)
 			}
 			return
 		}
@@ -1328,7 +1334,7 @@ func (j *DSGitHub) githubIssueComments(ctx *shared.Ctx, org, repo string, number
 		)
 		comms, response, e = c.Issues.ListComments(j.Context, org, repo, number, opt)
 		if ctx.Debug > 2 {
-			shared.Printf("GET %s/%s -> {%+v, %+v, %+v}\n", org, repo, comms, response, e)
+			j.log.WithFields(logrus.Fields{"operation": "githubIssueComments"}).Debugf("GET %s/%s -> {%+v, %+v, %+v}", org, repo, comms, response, e)
 		}
 		if e != nil && strings.Contains(e.Error(), "404 Not Found") {
 			if CacheGitHubIssueComments {
@@ -1341,21 +1347,21 @@ func (j *DSGitHub) githubIssueComments(ctx *shared.Ctx, org, repo string, number
 				}
 			}
 			if ctx.Debug > 1 {
-				shared.Printf("githubIssueComments: comments not found %s: %v\n", key, e)
+				j.log.WithFields(logrus.Fields{"operation": "githubIssueComments"}).Debugf("comments not found %s: %v", key, e)
 			}
 			return
 		}
 		if e != nil && !retry {
-			shared.Printf("Unable to get %s issue comments: response: %+v, because: %+v, retrying rate\n", key, response, e)
-			shared.Printf("githubIssueComments: handle rate\n")
+			j.log.WithFields(logrus.Fields{"operation": "githubIssueComments"}).Warningf("Unable to get %s issue comments: response: %+v, because: %+v, retrying rate", key, response, e)
+			j.log.WithFields(logrus.Fields{"operation": "githubIssueComments"}).Infof("handle rate")
 			abuse, rateLimit := j.isAbuse(e)
 			if abuse {
 				sleepFor := AbuseWaitSeconds + rand.Intn(AbuseWaitSeconds)
-				shared.Printf("GitHub detected abuse (get issue comments %s), waiting for %ds\n", key, sleepFor)
+				j.log.WithFields(logrus.Fields{"operation": "githubIssueComments"}).Infof("GitHub detected abuse (get issue comments %s), waiting for %ds", key, sleepFor)
 				time.Sleep(time.Duration(sleepFor) * time.Second)
 			}
 			if rateLimit {
-				shared.Printf("Rate limit reached on a token (get issue comments %s) waiting 1s before token switch\n", key)
+				j.log.WithFields(logrus.Fields{"operation": "githubIssueComments"}).Infof("Rate limit reached on a token (get issue comments %s) waiting 1s before token switch", key)
 				time.Sleep(time.Duration(1) * time.Second)
 			}
 			if j.GitHubMtx != nil {
@@ -1415,12 +1421,12 @@ func (j *DSGitHub) githubIssueComments(ctx *shared.Ctx, org, repo string, number
 		}
 		opt.Page = response.NextPage
 		if ctx.Debug > 0 {
-			shared.Printf("processing next issue comments page: %d\n", opt.Page)
+			j.log.WithFields(logrus.Fields{"operation": "githubIssueComments"}).Debugf("processing next issue comments page: %d", opt.Page)
 		}
 		retry = false
 	}
 	if ctx.Debug > 2 {
-		shared.Printf("issue comments got from API: %+v\n", comments)
+		j.log.WithFields(logrus.Fields{"operation": "githubIssueComments"}).Debugf("issue comments got from API: %+v", comments)
 	}
 	if CacheGitHubIssueComments {
 		if j.GitHubIssueCommentsMtx != nil {
@@ -1438,7 +1444,7 @@ func (j *DSGitHub) githubCommentReactions(ctx *shared.Ctx, org, repo string, cid
 	var found bool
 	key := fmt.Sprintf("%s/%s/%d", org, repo, cid)
 	if ctx.Debug > 1 {
-		shared.Printf("githubCommentReactions %s\n", key)
+		j.log.WithFields(logrus.Fields{"operation": "githubCommentReactions"}).Debugf("get reaction key: %s", key)
 	}
 	// Try memory cache 1st
 	if CacheGitHubCommentReactions {
@@ -1451,7 +1457,7 @@ func (j *DSGitHub) githubCommentReactions(ctx *shared.Ctx, org, repo string, cid
 		}
 		if found {
 			if ctx.Debug > 2 {
-				shared.Printf("comment reactions found in cache: %+v\n", reactions)
+				j.log.WithFields(logrus.Fields{"operation": "githubCommentReactions"}).Debugf("comment reactions found in cache: %+v", reactions)
 			}
 			return
 		}
@@ -1475,7 +1481,7 @@ func (j *DSGitHub) githubCommentReactions(ctx *shared.Ctx, org, repo string, cid
 		)
 		reacts, response, e = c.Reactions.ListIssueCommentReactions(j.Context, org, repo, cid, opt)
 		if ctx.Debug > 2 {
-			shared.Printf("GET %s/%s/%d -> {%+v, %+v, %+v}\n", org, repo, cid, reacts, response, e)
+			j.log.WithFields(logrus.Fields{"operation": "githubCommentReactions"}).Debugf("GET %s/%s/%d -> {%+v, %+v, %+v}", org, repo, cid, reacts, response, e)
 		}
 		if e != nil && strings.Contains(e.Error(), "404 Not Found") {
 			if CacheGitHubCommentReactions {
@@ -1488,21 +1494,21 @@ func (j *DSGitHub) githubCommentReactions(ctx *shared.Ctx, org, repo string, cid
 				}
 			}
 			if ctx.Debug > 1 {
-				shared.Printf("githubCommentReactions: reactions not found %s: %v\n", key, e)
+				j.log.WithFields(logrus.Fields{"operation": "githubCommentReactions"}).Debugf("reactions not found %s: %v", key, e)
 			}
 			return
 		}
 		if e != nil && !retry {
-			shared.Printf("Unable to get %s comment reactions: response: %+v, because: %+v, retrying rate\n", key, response, e)
-			shared.Printf("githubCommentReactions: handle rate\n")
+			j.log.WithFields(logrus.Fields{"operation": "githubCommentReactions"}).Warningf("Unable to get %s comment reactions: response: %+v, because: %+v, retrying rate", key, response, e)
+			j.log.WithFields(logrus.Fields{"operation": "githubCommentReactions"}).Infof("handle rate")
 			abuse, rateLimit := j.isAbuse(e)
 			if abuse {
 				sleepFor := AbuseWaitSeconds + rand.Intn(AbuseWaitSeconds)
-				shared.Printf("GitHub detected abuse (get comment reactions %s), waiting for %ds\n", key, sleepFor)
+				j.log.WithFields(logrus.Fields{"operation": "githubCommentReactions"}).Infof("GitHub detected abuse (get comment reactions %s), waiting for %ds", key, sleepFor)
 				time.Sleep(time.Duration(sleepFor) * time.Second)
 			}
 			if rateLimit {
-				shared.Printf("Rate limit reached on a token (get comment reactions %s) waiting 1s before token switch\n", key)
+				j.log.WithFields(logrus.Fields{"operation": "githubCommentReactions"}).Infof("Rate limit reached on a token (get comment reactions %s) waiting 1s before token switch", key)
 				time.Sleep(time.Duration(1) * time.Second)
 			}
 			if j.GitHubMtx != nil {
@@ -1540,12 +1546,12 @@ func (j *DSGitHub) githubCommentReactions(ctx *shared.Ctx, org, repo string, cid
 		}
 		opt.Page = response.NextPage
 		if ctx.Debug > 0 {
-			shared.Printf("processing next comment reactions page: %d\n", opt.Page)
+			j.log.WithFields(logrus.Fields{"operation": "githubCommentReactions"}).Debugf("processing next comment reactions page: %d", opt.Page)
 		}
 		retry = false
 	}
 	if ctx.Debug > 2 {
-		shared.Printf("comment reactions got from API: %+v\n", reactions)
+		j.log.WithFields(logrus.Fields{"operation": "githubCommentReactions"}).Debugf("comment reactions got from API: %+v", reactions)
 	}
 	if CacheGitHubCommentReactions {
 		if j.GitHubCommentReactionsMtx != nil {
@@ -1563,7 +1569,7 @@ func (j *DSGitHub) githubIssueReactions(ctx *shared.Ctx, org, repo string, numbe
 	var found bool
 	key := fmt.Sprintf("%s/%s/%d", org, repo, number)
 	if ctx.Debug > 1 {
-		shared.Printf("githubIssueReactions %s\n", key)
+		j.log.WithFields(logrus.Fields{"operation": "githubIssueReactions"}).Debugf("reaction key: %s", key)
 	}
 	// Try memory cache 1st
 	if CacheGitHubIssueReactions {
@@ -1576,7 +1582,7 @@ func (j *DSGitHub) githubIssueReactions(ctx *shared.Ctx, org, repo string, numbe
 		}
 		if found {
 			if ctx.Debug > 2 {
-				shared.Printf("issue reactions found in cache: %+v\n", reactions)
+				j.log.WithFields(logrus.Fields{"operation": "githubIssueReactions"}).Debugf("issue reactions found in cache: %+v", reactions)
 			}
 			return
 		}
@@ -1600,7 +1606,7 @@ func (j *DSGitHub) githubIssueReactions(ctx *shared.Ctx, org, repo string, numbe
 		)
 		reacts, response, e = c.Reactions.ListIssueReactions(j.Context, org, repo, number, opt)
 		if ctx.Debug > 2 {
-			shared.Printf("GET %s/%s/%d -> {%+v, %+v, %+v}\n", org, repo, number, reacts, response, e)
+			j.log.WithFields(logrus.Fields{"operation": "githubIssueReactions"}).Debugf("GET %s/%s/%d -> {%+v, %+v, %+v}", org, repo, number, reacts, response, e)
 		}
 		if e != nil && strings.Contains(e.Error(), "404 Not Found") {
 			if CacheGitHubIssueReactions {
@@ -1613,21 +1619,21 @@ func (j *DSGitHub) githubIssueReactions(ctx *shared.Ctx, org, repo string, numbe
 				}
 			}
 			if ctx.Debug > 1 {
-				shared.Printf("githubIssueReactions: reactions not found %s: %v\n", key, e)
+				j.log.WithFields(logrus.Fields{"operation": "githubIssueReactions"}).Debugf("reactions not found %s: %v", key, e)
 			}
 			return
 		}
 		if e != nil && !retry {
-			shared.Printf("Unable to get %s issue reactions: response: %+v, because: %+v, retrying rate\n", key, response, e)
-			shared.Printf("githubIssueReactions: handle rate\n")
+			j.log.WithFields(logrus.Fields{"operation": "githubIssueReactions"}).Warningf("Unable to get %s issue reactions: response: %+v, because: %+v, retrying rate", key, response, e)
+			j.log.WithFields(logrus.Fields{"operation": "githubIssueReactions"}).Infof("handle rate")
 			abuse, rateLimit := j.isAbuse(e)
 			if abuse {
 				sleepFor := AbuseWaitSeconds + rand.Intn(AbuseWaitSeconds)
-				shared.Printf("GitHub detected abuse (get issue reactions %s), waiting for %ds\n", key, sleepFor)
+				j.log.WithFields(logrus.Fields{"operation": "githubIssueReactions"}).Infof("GitHub detected abuse (get issue reactions %s), waiting for %ds", key, sleepFor)
 				time.Sleep(time.Duration(sleepFor) * time.Second)
 			}
 			if rateLimit {
-				shared.Printf("Rate limit reached on a token (get issue reactions %s) waiting 1s before token switch\n", key)
+				j.log.WithFields(logrus.Fields{"operation": "githubIssueReactions"}).Infof("Rate limit reached on a token (get issue reactions %s) waiting 1s before token switch", key)
 				time.Sleep(time.Duration(1) * time.Second)
 			}
 			if j.GitHubMtx != nil {
@@ -1665,12 +1671,12 @@ func (j *DSGitHub) githubIssueReactions(ctx *shared.Ctx, org, repo string, numbe
 		}
 		opt.Page = response.NextPage
 		if ctx.Debug > 0 {
-			shared.Printf("processing next issue reactions page: %d\n", opt.Page)
+			j.log.WithFields(logrus.Fields{"operation": "githubIssueReactions"}).Debugf("processing next issue reactions page: %d", opt.Page)
 		}
 		retry = false
 	}
 	if ctx.Debug > 2 {
-		shared.Printf("issue reactions got from API: %+v\n", reactions)
+		j.log.WithFields(logrus.Fields{"operation": "githubIssueReactions"}).Debugf("issue reactions got from API: %+v", reactions)
 	}
 	if CacheGitHubIssueReactions {
 		if j.GitHubIssueReactionsMtx != nil {
@@ -1698,7 +1704,7 @@ func (j *DSGitHub) githubPull(ctx *shared.Ctx, org, repo string, number int) (pu
 		}
 		if found {
 			if ctx.Debug > 2 {
-				shared.Printf("pull found in cache: %+v\n", pullData)
+				j.log.WithFields(logrus.Fields{"operation": "githubPull"}).Debugf("pull found in cache: %+v", pullData)
 			}
 			return
 		}
@@ -1720,7 +1726,7 @@ func (j *DSGitHub) githubPull(ctx *shared.Ctx, org, repo string, number int) (pu
 		)
 		pull, response, e = c.PullRequests.Get(j.Context, org, repo, number)
 		if ctx.Debug > 2 {
-			shared.Printf("GET %s/%s/%d -> {%+v, %+v, %+v}\n", org, repo, number, pull, response, e)
+			j.log.WithFields(logrus.Fields{"operation": "githubPull"}).Debugf("GET %s/%s/%d -> {%+v, %+v, %+v}", org, repo, number, pull, response, e)
 		}
 		if e != nil && strings.Contains(e.Error(), "404 Not Found") {
 			if CacheGitHubPull {
@@ -1733,21 +1739,21 @@ func (j *DSGitHub) githubPull(ctx *shared.Ctx, org, repo string, number int) (pu
 				}
 			}
 			if ctx.Debug > 1 {
-				shared.Printf("githubPull: pull not found %s: %v\n", key, e)
+				j.log.WithFields(logrus.Fields{"operation": "githubPull"}).Debugf("githubPull: pull not found %s: %v", key, e)
 			}
 			return
 		}
 		if e != nil && !retry {
-			shared.Printf("Unable to get %s pull: response: %+v, because: %+v, retrying rate\n", key, response, e)
-			shared.Printf("githubPull: handle rate\n")
+			j.log.WithFields(logrus.Fields{"operation": "githubPull"}).Warningf("Unable to get %s pull: response: %+v, because: %+v, retrying rate", key, response, e)
+			j.log.WithFields(logrus.Fields{"operation": "githubPull"}).Infof("handle rate")
 			abuse, rateLimit := j.isAbuse(e)
 			if abuse {
 				sleepFor := AbuseWaitSeconds + rand.Intn(AbuseWaitSeconds)
-				shared.Printf("GitHub detected abuse (get pull %s), waiting for %ds\n", key, sleepFor)
+				j.log.WithFields(logrus.Fields{"operation": "githubPull"}).Infof("GitHub detected abuse (get pull %s), waiting for %ds", key, sleepFor)
 				time.Sleep(time.Duration(sleepFor) * time.Second)
 			}
 			if rateLimit {
-				shared.Printf("Rate limit reached on a token (get pull %s) waiting 1s before token switch\n", key)
+				j.log.WithFields(logrus.Fields{"operation": "githubPull"}).Infof("Rate limit reached on a token (get pull %s) waiting 1s before token switch", key)
 				time.Sleep(time.Duration(1) * time.Second)
 			}
 			if j.GitHubMtx != nil {
@@ -1778,7 +1784,7 @@ func (j *DSGitHub) githubPull(ctx *shared.Ctx, org, repo string, number int) (pu
 		}
 		pullData["body_analyzed"], _ = pullData["body"]
 		if ctx.Debug > 2 {
-			shared.Printf("pull got from API: %+v\n", pullData)
+			j.log.WithFields(logrus.Fields{"operation": "githubPull"}).Debugf("pull got from API: %+v", pullData)
 		}
 		break
 	}
@@ -1807,7 +1813,7 @@ func (j *DSGitHub) githubPullsFromIssues(ctx *shared.Ctx, org, repo string, sinc
 	}
 	i, pulls := 0, 0
 	nIssues := len(issues)
-	shared.Printf("%s/%s: processing %d issues (to filter for PRs)\n", j.URL, j.CurrentCategory, nIssues)
+	j.log.WithFields(logrus.Fields{"operation": "githubPullsFromIssues"}).Infof("%s/%s: processing %d issues (to filter for PRs)", j.URL, j.CurrentCategory, nIssues)
 	if j.ThrN > 1 {
 		nThreads := 0
 		ch := make(chan interface{})
@@ -1815,7 +1821,7 @@ func (j *DSGitHub) githubPullsFromIssues(ctx *shared.Ctx, org, repo string, sinc
 			i++
 			if i%ItemsPerPage == 0 {
 				runtime.GC()
-				shared.Printf("%s/%s: processing %d/%d issues, %d pulls so far\n", j.URL, j.CurrentCategory, i, nIssues, pulls)
+				j.log.WithFields(logrus.Fields{"operation": "githubPullsFromIssues"}).Infof("%s/%s: processing %d/%d issues, %d pulls so far", j.URL, j.CurrentCategory, i, nIssues, pulls)
 			}
 			isPR, _ := issue["is_pull"]
 			if !isPR.(bool) {
@@ -1856,7 +1862,7 @@ func (j *DSGitHub) githubPullsFromIssues(ctx *shared.Ctx, org, repo string, sinc
 			i++
 			if i%ItemsPerPage == 0 {
 				runtime.GC()
-				shared.Printf("%s/%s: processed %d/%d issues, %d pulls so far\n", j.URL, j.CurrentCategory, i, nIssues, pulls)
+				j.log.WithFields(logrus.Fields{"operation": "githubPullsFromIssues"}).Infof("%s/%s: processed %d/%d issues, %d pulls so far", j.URL, j.CurrentCategory, i, nIssues, pulls)
 			}
 			isPR, _ := issue["is_pull"]
 			if !isPR.(bool) {
@@ -1890,7 +1896,7 @@ func (j *DSGitHub) githubPulls(ctx *shared.Ctx, org, repo string, since, until *
 		}
 		if found {
 			if ctx.Debug > 2 {
-				shared.Printf("pulls found in cache: %+v\n", pullsData)
+				j.log.WithFields(logrus.Fields{"operation": "githubPulls"}).Debugf("pulls found in cache: %+v", pullsData)
 			}
 			return
 		}
@@ -1918,7 +1924,7 @@ func (j *DSGitHub) githubPulls(ctx *shared.Ctx, org, repo string, since, until *
 		)
 		pulls, response, e = c.PullRequests.List(j.Context, org, repo, opt)
 		if ctx.Debug > 2 {
-			shared.Printf("GET %s/%s -> {%+v, %+v, %+v}\n", org, repo, pulls, response, e)
+			j.log.WithFields(logrus.Fields{"operation": "githubPulls"}).Debugf("GET %s/%s -> {%+v, %+v, %+v}", org, repo, pulls, response, e)
 		}
 		if e != nil && strings.Contains(e.Error(), "404 Not Found") {
 			if CacheGitHubPulls {
@@ -1931,21 +1937,22 @@ func (j *DSGitHub) githubPulls(ctx *shared.Ctx, org, repo string, since, until *
 				}
 			}
 			if ctx.Debug > 1 {
-				shared.Printf("githubPulls: pulls not found %s: %v\n", origin, e)
+				j.log.WithFields(logrus.Fields{"operation": "githubPulls"}).Debugf("pulls not found %s: %v", origin, e)
 			}
 			return
 		}
 		if e != nil && !retry {
-			shared.Printf("Unable to get %s pulls: response: %+v, because: %+v, retrying rate\n", origin, response, e)
-			shared.Printf("githubPulls: handle rate\n")
+			j.log.WithFields(logrus.Fields{"operation": "githubPulls"}).Warningf("Unable to get %s pulls: response: %+v, because: %+v, retrying rate", origin, response, e)
+			j.log.WithFields(logrus.Fields{"operation": "githubPulls"}).Infof("handle rate")
+
 			abuse, rateLimit := j.isAbuse(e)
 			if abuse {
 				sleepFor := AbuseWaitSeconds + rand.Intn(AbuseWaitSeconds)
-				shared.Printf("GitHub detected abuse (get pulls %s), waiting for %ds\n", origin, sleepFor)
+				j.log.WithFields(logrus.Fields{"operation": "githubPulls"}).Infof("GitHub detected abuse (get pulls %s), waiting for %ds", origin, sleepFor)
 				time.Sleep(time.Duration(sleepFor) * time.Second)
 			}
 			if rateLimit {
-				shared.Printf("Rate limit reached on a token (get pulls %s) waiting 1s before token switch\n", origin)
+				j.log.WithFields(logrus.Fields{"operation": "githubPulls"}).Infof("Rate limit reached on a token (get pulls %s) waiting 1s before token switch", origin)
 				time.Sleep(time.Duration(1) * time.Second)
 			}
 			if j.GitHubMtx != nil {
@@ -1984,12 +1991,12 @@ func (j *DSGitHub) githubPulls(ctx *shared.Ctx, org, repo string, since, until *
 		}
 		opt.Page = response.NextPage
 		if ctx.Debug > 0 {
-			shared.Printf("%s/%s: processing next pulls page: %d\n", j.URL, j.CurrentCategory, opt.Page)
+			j.log.WithFields(logrus.Fields{"operation": "githubPulls"}).Debugf("%s/%s: processing next pulls page: %d", j.URL, j.CurrentCategory, opt.Page)
 		}
 		retry = false
 	}
 	if ctx.Debug > 2 {
-		shared.Printf("pulls got from API: %+v\n", pullsData)
+		j.log.WithFields(logrus.Fields{"operation": "githubPulls"}).Debugf("pulls got from API: %+v", pullsData)
 	}
 	if CacheGitHubPulls {
 		if j.GitHubPullsMtx != nil {
@@ -2017,7 +2024,7 @@ func (j *DSGitHub) githubPullReviews(ctx *shared.Ctx, org, repo string, number i
 		}
 		if found {
 			if ctx.Debug > 2 {
-				shared.Printf("pull reviews found in cache: %+v\n", reviews)
+				j.log.WithFields(logrus.Fields{"operation": "githubPullReviews"}).Debugf("pull reviews found in cache: %+v", reviews)
 			}
 			return
 		}
@@ -2041,7 +2048,7 @@ func (j *DSGitHub) githubPullReviews(ctx *shared.Ctx, org, repo string, number i
 		)
 		revs, response, e = c.PullRequests.ListReviews(j.Context, org, repo, number, opt)
 		if ctx.Debug > 2 {
-			shared.Printf("GET %s/%s/%d -> {%+v, %+v, %+v}\n", org, repo, number, revs, response, e)
+			j.log.WithFields(logrus.Fields{"operation": "githubPullReviews"}).Debugf("GET %s/%s/%d -> {%+v, %+v, %+v}", org, repo, number, revs, response, e)
 		}
 		if e != nil && strings.Contains(e.Error(), "404 Not Found") {
 			if CacheGitHubPullReviews {
@@ -2054,21 +2061,21 @@ func (j *DSGitHub) githubPullReviews(ctx *shared.Ctx, org, repo string, number i
 				}
 			}
 			if ctx.Debug > 1 {
-				shared.Printf("githubPullReviews: reviews not found %s: %v\n", key, e)
+				j.log.WithFields(logrus.Fields{"operation": "githubPullReviews"}).Debugf("reviews not found %s: %v", key, e)
 			}
 			return
 		}
 		if e != nil && !retry {
-			shared.Printf("Unable to get %s pull reviews: response: %+v, because: %+v, retrying rate\n", key, response, e)
-			shared.Printf("githubPullReviews: handle rate\n")
+			j.log.WithFields(logrus.Fields{"operation": "githubPullReviews"}).Warningf("Unable to get %s pull reviews: response: %+v, because: %+v, retrying rate", key, response, e)
+			j.log.WithFields(logrus.Fields{"operation": "githubPullReviews"}).Infof("handle rate")
 			abuse, rateLimit := j.isAbuse(e)
 			if abuse {
 				sleepFor := AbuseWaitSeconds + rand.Intn(AbuseWaitSeconds)
-				shared.Printf("GitHub detected abuse (get pull reviews %s), waiting for %ds\n", key, sleepFor)
+				j.log.WithFields(logrus.Fields{"operation": "githubPullReviews"}).Infof("GitHub detected abuse (get pull reviews %s), waiting for %ds", key, sleepFor)
 				time.Sleep(time.Duration(sleepFor) * time.Second)
 			}
 			if rateLimit {
-				shared.Printf("Rate limit reached on a token (get pull reviews %s) waiting 1s before token switch\n", key)
+				j.log.WithFields(logrus.Fields{"operation": "githubPullReviews"}).Infof("Rate limit reached on a token (get pull reviews %s) waiting 1s before token switch", key)
 				time.Sleep(time.Duration(1) * time.Second)
 			}
 			if j.GitHubMtx != nil {
@@ -2114,12 +2121,12 @@ func (j *DSGitHub) githubPullReviews(ctx *shared.Ctx, org, repo string, number i
 		}
 		opt.Page = response.NextPage
 		if ctx.Debug > 0 {
-			shared.Printf("processing next pull reviews page: %d\n", opt.Page)
+			j.log.WithFields(logrus.Fields{"operation": "githubPullReviews"}).Debugf("processing next pull reviews page: %d", opt.Page)
 		}
 		retry = false
 	}
 	if ctx.Debug > 2 {
-		shared.Printf("pull reviews got from API: %+v\n", reviews)
+		j.log.WithFields(logrus.Fields{"operation": "githubPullReviews"}).Debugf("pull reviews got from API: %+v", reviews)
 	}
 	if CacheGitHubPullReviews {
 		if j.GitHubPullReviewsMtx != nil {
@@ -2147,7 +2154,7 @@ func (j *DSGitHub) githubPullReviewComments(ctx *shared.Ctx, org, repo string, n
 		}
 		if found {
 			if ctx.Debug > 2 {
-				shared.Printf("pull review comments found in cache: %+v\n", reviewComments)
+				j.log.WithFields(logrus.Fields{"operation": "githubPullReviewComments"}).Debugf("pull review comments found in cache: %+v", reviewComments)
 			}
 			return
 		}
@@ -2174,7 +2181,7 @@ func (j *DSGitHub) githubPullReviewComments(ctx *shared.Ctx, org, repo string, n
 		)
 		revComms, response, e = c.PullRequests.ListComments(j.Context, org, repo, number, opt)
 		if ctx.Debug > 2 {
-			shared.Printf("GET %s/%s/%d -> {%+v, %+v, %+v}\n", org, repo, number, revComms, response, e)
+			j.log.WithFields(logrus.Fields{"operation": "githubPullReviewComments"}).Debugf("GET %s/%s/%d -> {%+v, %+v, %+v}", org, repo, number, revComms, response, e)
 		}
 		if e != nil && strings.Contains(e.Error(), "404 Not Found") {
 			if CacheGitHubPullReviewComments {
@@ -2187,21 +2194,21 @@ func (j *DSGitHub) githubPullReviewComments(ctx *shared.Ctx, org, repo string, n
 				}
 			}
 			if ctx.Debug > 1 {
-				shared.Printf("githubPullReviewComments: review comments not found %s: %v\n", key, e)
+				j.log.WithFields(logrus.Fields{"operation": "githubPullReviewComments"}).Debugf("githubPullReviewComments: review comments not found %s: %v", key, e)
 			}
 			return
 		}
 		if e != nil && !retry {
-			shared.Printf("Unable to get %s pull review comments: response: %+v, because: %+v, retrying rate\n", key, response, e)
-			shared.Printf("githubPullReviewComments: handle rate\n")
+			j.log.WithFields(logrus.Fields{"operation": "githubPullReviewComments"}).Warningf("Unable to get %s pull review comments: response: %+v, because: %+v, retrying rate", key, response, e)
+			j.log.WithFields(logrus.Fields{"operation": "githubPullReviewComments"}).Infof("handle rate")
 			abuse, rateLimit := j.isAbuse(e)
 			if abuse {
 				sleepFor := AbuseWaitSeconds + rand.Intn(AbuseWaitSeconds)
-				shared.Printf("GitHub detected abuse (get pull review comments %s), waiting for %ds\n", key, sleepFor)
+				j.log.WithFields(logrus.Fields{"operation": "githubPullReviewComments"}).Infof("GitHub detected abuse (get pull review comments %s), waiting for %ds", key, sleepFor)
 				time.Sleep(time.Duration(sleepFor) * time.Second)
 			}
 			if rateLimit {
-				shared.Printf("Rate limit reached on a token (get pull review comments %s) waiting 1s before token switch\n", key)
+				j.log.WithFields(logrus.Fields{"operation": "githubPullReviewComments"}).Infof("Rate limit reached on a token (get pull review comments %s) waiting 1s before token switch", key)
 				time.Sleep(time.Duration(1) * time.Second)
 			}
 			if j.GitHubMtx != nil {
@@ -2261,12 +2268,12 @@ func (j *DSGitHub) githubPullReviewComments(ctx *shared.Ctx, org, repo string, n
 		}
 		opt.Page = response.NextPage
 		if ctx.Debug > 0 {
-			shared.Printf("processing next pull review comments page: %d\n", opt.Page)
+			j.log.WithFields(logrus.Fields{"operation": "githubPullReviewComments"}).Debugf("processing next pull review comments page: %d", opt.Page)
 		}
 		retry = false
 	}
 	if ctx.Debug > 2 {
-		shared.Printf("pull review comments got from API: %+v\n", reviewComments)
+		j.log.WithFields(logrus.Fields{"operation": "githubPullReviewComments"}).Debugf("pull review comments got from API: %+v", reviewComments)
 	}
 	if CacheGitHubPullReviewComments {
 		if j.GitHubPullReviewCommentsMtx != nil {
@@ -2284,7 +2291,7 @@ func (j *DSGitHub) githubReviewCommentReactions(ctx *shared.Ctx, org, repo strin
 	var found bool
 	key := fmt.Sprintf("%s/%s/%d", org, repo, cid)
 	if ctx.Debug > 1 {
-		shared.Printf("githubReviewCommentReactions %s\n", key)
+		j.log.WithFields(logrus.Fields{"operation": "githubReviewCommentReactions"}).Debugf("key: %s", key)
 	}
 	// Try memory cache 1st
 	if CacheGitHubReviewCommentReactions {
@@ -2297,7 +2304,7 @@ func (j *DSGitHub) githubReviewCommentReactions(ctx *shared.Ctx, org, repo strin
 		}
 		if found {
 			if ctx.Debug > 2 {
-				shared.Printf("comment reactions found in cache: %+v\n", reactions)
+				j.log.WithFields(logrus.Fields{"operation": "githubReviewCommentReactions"}).Debugf("comment reactions found in cache: %+v", reactions)
 			}
 			return
 		}
@@ -2321,7 +2328,7 @@ func (j *DSGitHub) githubReviewCommentReactions(ctx *shared.Ctx, org, repo strin
 		)
 		reacts, response, e = c.Reactions.ListPullRequestCommentReactions(j.Context, org, repo, cid, opt)
 		if ctx.Debug > 2 {
-			shared.Printf("GET %s/%s/%d -> {%+v, %+v, %+v}\n", org, repo, cid, reacts, response, e)
+			j.log.WithFields(logrus.Fields{"operation": "githubReviewCommentReactions"}).Debugf("GET %s/%s/%d -> {%+v, %+v, %+v}", org, repo, cid, reacts, response, e)
 		}
 		if e != nil && strings.Contains(e.Error(), "404 Not Found") {
 			if CacheGitHubReviewCommentReactions {
@@ -2334,21 +2341,21 @@ func (j *DSGitHub) githubReviewCommentReactions(ctx *shared.Ctx, org, repo strin
 				}
 			}
 			if ctx.Debug > 1 {
-				shared.Printf("githubReviewCommentReactions: reactions not found %s: %v\n", key, e)
+				j.log.WithFields(logrus.Fields{"operation": "githubReviewCommentReactions"}).Debugf("reactions not found %s: %v", key, e)
 			}
 			return
 		}
 		if e != nil && !retry {
-			shared.Printf("Unable to get %s comment reactions: response: %+v, because: %+v, retrying rate\n", key, response, e)
-			shared.Printf("githubReviewCommentReactions: handle rate\n")
+			j.log.WithFields(logrus.Fields{"operation": "githubReviewCommentReactions"}).Warningf("Unable to get %s comment reactions: response: %+v, because: %+v, retrying rate", key, response, e)
+			j.log.WithFields(logrus.Fields{"operation": "githubReviewCommentReactions"}).Infof("handle rate")
 			abuse, rateLimit := j.isAbuse(e)
 			if abuse {
 				sleepFor := AbuseWaitSeconds + rand.Intn(AbuseWaitSeconds)
-				shared.Printf("GitHub detected abuse (get pull comment reactions %s), waiting for %ds\n", key, sleepFor)
+				j.log.WithFields(logrus.Fields{"operation": "githubReviewCommentReactions"}).Infof("GitHub detected abuse (get pull comment reactions %s), waiting for %ds", key, sleepFor)
 				time.Sleep(time.Duration(sleepFor) * time.Second)
 			}
 			if rateLimit {
-				shared.Printf("Rate limit reached on a token (get pull comment reactions %s) waiting 1s before token switch\n", key)
+				j.log.WithFields(logrus.Fields{"operation": "githubReviewCommentReactions"}).Infof("Rate limit reached on a token (get pull comment reactions %s) waiting 1s before token switch", key)
 				time.Sleep(time.Duration(1) * time.Second)
 			}
 			if j.GitHubMtx != nil {
@@ -2386,12 +2393,12 @@ func (j *DSGitHub) githubReviewCommentReactions(ctx *shared.Ctx, org, repo strin
 		}
 		opt.Page = response.NextPage
 		if ctx.Debug > 0 {
-			shared.Printf("processing next pull review comment reactions page: %d\n", opt.Page)
+			j.log.WithFields(logrus.Fields{"operation": "githubReviewCommentReactions"}).Debugf("processing next pull review comment reactions page: %d", opt.Page)
 		}
 		retry = false
 	}
 	if ctx.Debug > 2 {
-		shared.Printf("review comment reactions got from API: %+v\n", reactions)
+		j.log.WithFields(logrus.Fields{"operation": "githubReviewCommentReactions"}).Debugf("review comment reactions got from API: %+v\n", reactions)
 	}
 	if CacheGitHubReviewCommentReactions {
 		if j.GitHubReviewCommentReactionsMtx != nil {
@@ -2419,7 +2426,7 @@ func (j *DSGitHub) githubPullRequestedReviewers(ctx *shared.Ctx, org, repo strin
 		}
 		if found {
 			if ctx.Debug > 2 {
-				shared.Printf("pull requested reviewers found in cache: %+v\n", reviewers)
+				j.log.WithFields(logrus.Fields{"operation": "githubPullRequestedReviewers"}).Debugf("pull requested reviewers found in cache: %+v", reviewers)
 			}
 			return
 		}
@@ -2443,7 +2450,7 @@ func (j *DSGitHub) githubPullRequestedReviewers(ctx *shared.Ctx, org, repo strin
 		)
 		revsObj, response, e = c.PullRequests.ListReviewers(j.Context, org, repo, number, opt)
 		if ctx.Debug > 2 {
-			shared.Printf("GET %s/%s/%d -> {%+v, %+v, %+v}\n", org, repo, number, revsObj, response, e)
+			j.log.WithFields(logrus.Fields{"operation": "githubPullRequestedReviewers"}).Debugf("GET %s/%s/%d -> {%+v, %+v, %+v}", org, repo, number, revsObj, response, e)
 		}
 		if e != nil && strings.Contains(e.Error(), "404 Not Found") {
 			if CacheGitHubPullRequestedReviewers {
@@ -2456,21 +2463,21 @@ func (j *DSGitHub) githubPullRequestedReviewers(ctx *shared.Ctx, org, repo strin
 				}
 			}
 			if ctx.Debug > 1 {
-				shared.Printf("githubPullRequestedReviewers: reviewers not found %s: %v\n", key, e)
+				j.log.WithFields(logrus.Fields{"operation": "githubPullRequestedReviewers"}).Debugf("githubPullRequestedReviewers: reviewers not found %s: %v", key, e)
 			}
 			return
 		}
 		if e != nil && !retry {
-			shared.Printf("Unable to get %s pull requested reviewers: response: %+v, because: %+v, retrying rate\n", key, response, e)
-			shared.Printf("githubPullRequestedReviewers: handle rate\n")
+			j.log.WithFields(logrus.Fields{"operation": "githubPullRequestedReviewers"}).Warningf("Unable to get %s pull requested reviewers: response: %+v, because: %+v, retrying rate", key, response, e)
+			j.log.WithFields(logrus.Fields{"operation": "githubPullRequestedReviewers"}).Infof("handle rate")
 			abuse, rateLimit := j.isAbuse(e)
 			if abuse {
 				sleepFor := AbuseWaitSeconds + rand.Intn(AbuseWaitSeconds)
-				shared.Printf("GitHub detected abuse (get pull requested reviewers %s), waiting for %ds\n", key, sleepFor)
+				j.log.WithFields(logrus.Fields{"operation": "githubPullRequestedReviewers"}).Infof("GitHub detected abuse (get pull requested reviewers %s), waiting for %ds", key, sleepFor)
 				time.Sleep(time.Duration(sleepFor) * time.Second)
 			}
 			if rateLimit {
-				shared.Printf("Rate limit reached on a token (get pull requested reviewers %s) waiting 1s before token switch\n", key)
+				j.log.WithFields(logrus.Fields{"operation": "githubPullRequestedReviewers"}).Infof("Rate limit reached on a token (get pull requested reviewers %s) waiting 1s before token switch", key)
 				time.Sleep(time.Duration(1) * time.Second)
 			}
 			if j.GitHubMtx != nil {
@@ -2507,12 +2514,12 @@ func (j *DSGitHub) githubPullRequestedReviewers(ctx *shared.Ctx, org, repo strin
 		}
 		opt.Page = response.NextPage
 		if ctx.Debug > 0 {
-			shared.Printf("processing next pull requested reviewers page: %d\n", opt.Page)
+			j.log.WithFields(logrus.Fields{"operation": "githubPullRequestedReviewers"}).Debugf("processing next pull requested reviewers page: %d", opt.Page)
 		}
 		retry = false
 	}
 	if ctx.Debug > 2 {
-		shared.Printf("pull requested reviewers got from API: %+v\n", reviewers)
+		j.log.WithFields(logrus.Fields{"operation": "githubPullRequestedReviewers"}).Debugf("pull requested reviewers got from API: %+v", reviewers)
 	}
 	if CacheGitHubPullRequestedReviewers {
 		if j.GitHubPullRequestedReviewersMtx != nil {
@@ -2540,7 +2547,7 @@ func (j *DSGitHub) githubPullCommits(ctx *shared.Ctx, org, repo string, number i
 		}
 		if found {
 			if ctx.Debug > 2 {
-				shared.Printf("pull commits found in cache: %+v\n", commits)
+				j.log.WithFields(logrus.Fields{"operation": "githubPullCommits"}).Debugf("pull commits found in cache: %+v", commits)
 			}
 			return
 		}
@@ -2564,7 +2571,7 @@ func (j *DSGitHub) githubPullCommits(ctx *shared.Ctx, org, repo string, number i
 		)
 		comms, response, e = c.PullRequests.ListCommits(j.Context, org, repo, number, opt)
 		if ctx.Debug > 2 {
-			shared.Printf("GET %s/%s/%d -> {%+v, %+v, %+v}\n", org, repo, number, comms, response, e)
+			j.log.WithFields(logrus.Fields{"operation": "githubPullCommits"}).Debugf("GET %s/%s/%d -> {%+v, %+v, %+v}", org, repo, number, comms, response, e)
 		}
 		if e != nil && strings.Contains(e.Error(), "404 Not Found") {
 			if CacheGitHubPullCommits {
@@ -2577,21 +2584,21 @@ func (j *DSGitHub) githubPullCommits(ctx *shared.Ctx, org, repo string, number i
 				}
 			}
 			if ctx.Debug > 1 {
-				shared.Printf("githubPullCommits: commits not found %s: %v\n", key, e)
+				j.log.WithFields(logrus.Fields{"operation": "githubPullCommits"}).Debugf("commits not found %s: %v", key, e)
 			}
 			return
 		}
 		if e != nil && !retry {
-			shared.Printf("Unable to get %s pull commits: response: %+v, because: %+v, retrying rate\n", key, response, e)
-			shared.Printf("githubPullCommits: handle rate\n")
+			j.log.WithFields(logrus.Fields{"operation": "githubPullCommits"}).Warningf("Unable to get %s pull commits: response: %+v, because: %+v, retrying rate\n", key, response, e)
+			j.log.WithFields(logrus.Fields{"operation": "githubPullCommits"}).Infof("handle rate")
 			abuse, rateLimit := j.isAbuse(e)
 			if abuse {
 				sleepFor := AbuseWaitSeconds + rand.Intn(AbuseWaitSeconds)
-				shared.Printf("GitHub detected abuse (get pull commits %s), waiting for %ds\n", key, sleepFor)
+				j.log.WithFields(logrus.Fields{"operation": "githubPullCommits"}).Infof("GitHub detected abuse (get pull commits %s), waiting for %ds", key, sleepFor)
 				time.Sleep(time.Duration(sleepFor) * time.Second)
 			}
 			if rateLimit {
-				shared.Printf("Rate limit reached on a token (get pull commits %s) waiting 1s before token switch\n", key)
+				j.log.WithFields(logrus.Fields{"operation": "githubPullCommits"}).Infof("Rate limit reached on a token (get pull commits %s) waiting 1s before token switch", key)
 				time.Sleep(time.Duration(1) * time.Second)
 			}
 			if j.GitHubMtx != nil {
@@ -2638,12 +2645,12 @@ func (j *DSGitHub) githubPullCommits(ctx *shared.Ctx, org, repo string, number i
 		}
 		opt.Page = response.NextPage
 		if ctx.Debug > 0 {
-			shared.Printf("processing next pull commits page: %d\n", opt.Page)
+			j.log.WithFields(logrus.Fields{"operation": "githubPullCommits"}).Debugf("processing next pull commits page: %d", opt.Page)
 		}
 		retry = false
 	}
 	if ctx.Debug > 2 {
-		shared.Printf("pull commits got from API: %+v\n", commits)
+		j.log.WithFields(logrus.Fields{"operation": "githubPullCommits"}).Debugf("pull commits got from API: %+v", commits)
 	}
 	if CacheGitHubPullCommits {
 		if j.GitHubPullCommitsMtx != nil {
@@ -2904,7 +2911,7 @@ func (j *DSGitHub) FetchItemsRepository(ctx *shared.Ctx) (err error) {
 	// err = SendToQueue(ctx, j, true, UUID, items)
 	err = j.GitHubEnrichItems(ctx, items, &docs, true)
 	if err != nil {
-		shared.Printf("%s/%s: Error %v sending %d repo stats to queue\n", j.URL, j.CurrentCategory, err, len(items))
+		j.log.WithFields(logrus.Fields{"operation": "FetchItemsRepository"}).Errorf("%s/%s: Error %v sending %d repo stats to queue", j.URL, j.CurrentCategory, err, len(items))
 	}
 	return
 }
@@ -2949,7 +2956,7 @@ func (j *DSGitHub) FetchItemsIssue(ctx *shared.Ctx) (err error) {
 		}
 		esItem["data"] = item
 		if issProc%ItemsPerPage == 0 {
-			shared.Printf("%s/%s: processed %d/%d issues\n", j.URL, j.CurrentCategory, issProc, nIss)
+			j.log.WithFields(logrus.Fields{"operation": "FetchItemsIssue"}).Infof("%s/%s: processed %d/%d issues", j.URL, j.CurrentCategory, issProc, nIss)
 		}
 		if allIssuesMtx != nil {
 			allIssuesMtx.Lock()
@@ -2966,7 +2973,7 @@ func (j *DSGitHub) FetchItemsIssue(ctx *shared.Ctx) (err error) {
 				ee = j.GitHubEnrichItems(ctx, allIssues, &allDocs, false)
 				//ee = SendToQueue(ctx, j, true, UUID, allIssues)
 				if ee != nil {
-					shared.Printf("%s/%s: error %v sending %d issues to queue\n", j.URL, j.CurrentCategory, ee, len(allIssues))
+					j.log.WithFields(logrus.Fields{"operation": "FetchItemsIssue"}).Errorf("%s/%s: error %v sending %d issues to queue", j.URL, j.CurrentCategory, ee, len(allIssues))
 				}
 				allIssues = []interface{}{}
 				if allIssuesMtx != nil {
@@ -2996,7 +3003,7 @@ func (j *DSGitHub) FetchItemsIssue(ctx *shared.Ctx) (err error) {
 	shared.FatalOnError(err)
 	runtime.GC()
 	nIss = len(issues)
-	shared.Printf("%s/%s: got %d issues\n", j.URL, j.CurrentCategory, nIss)
+	j.log.WithFields(logrus.Fields{"operation": "FetchItemsIssue"}).Infof("%s/%s: got %d issues", j.URL, j.CurrentCategory, nIss)
 	if j.ThrN > 1 {
 		for _, issue := range issues {
 			go func(iss map[string]interface{}) {
@@ -3006,7 +3013,7 @@ func (j *DSGitHub) FetchItemsIssue(ctx *shared.Ctx) (err error) {
 				)
 				esch, e = processIssue(ch, iss)
 				if e != nil {
-					shared.Printf("%s/%s: issues process error: %v\n", j.URL, j.CurrentCategory, e)
+					j.log.WithFields(logrus.Fields{"operation": "FetchItemsIssue"}).Errorf("%s/%s: issues process error: %v", j.URL, j.CurrentCategory, e)
 					return
 				}
 				if esch != nil {
@@ -3075,12 +3082,12 @@ func (j *DSGitHub) FetchItemsIssue(ctx *shared.Ctx) (err error) {
 	}
 	nIssues := len(allIssues)
 	if ctx.Debug > 0 {
-		shared.Printf("%d remaining issues to send to queue\n", nIssues)
+		j.log.WithFields(logrus.Fields{"operation": "FetchItemsIssue"}).Debugf("%d remaining issues to send to queue", nIssues)
 	}
 	// err = SendToQueue(ctx, j, true, UUID, allIssues)
 	err = j.GitHubEnrichItems(ctx, allIssues, &allDocs, true)
 	if err != nil {
-		shared.Printf("%s/%s: error %v sending %d issues to queue\n", j.URL, j.CurrentCategory, err, len(allIssues))
+		j.log.WithFields(logrus.Fields{"operation": "FetchItemsIssue"}).Errorf("%s/%s: error %v sending %d issues to queue", j.URL, j.CurrentCategory, err, len(allIssues))
 	}
 	return
 }
@@ -3125,7 +3132,7 @@ func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 		}
 		esItem["data"] = item
 		if pullsProc%ItemsPerPage == 0 {
-			shared.Printf("%s/%s: processed %d/%d pulls\n", j.URL, j.CurrentCategory, pullsProc, nPRs)
+			j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Infof("%s/%s: processed %d/%d pulls", j.URL, j.CurrentCategory, pullsProc, nPRs)
 		}
 		if allPullsMtx != nil {
 			allPullsMtx.Lock()
@@ -3142,7 +3149,7 @@ func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 				ee = j.GitHubEnrichItems(ctx, allPulls, &allDocs, false)
 				//ee = SendToQueue(ctx, j, true, UUID, allPulls)
 				if ee != nil {
-					shared.Printf("%s/%s: error %v sending %d pulls to queue\n", j.URL, j.CurrentCategory, ee, len(allPulls))
+					j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Errorf("%s/%s: error %v sending %d pulls to queue", j.URL, j.CurrentCategory, ee, len(allPulls))
 				}
 				allPulls = []interface{}{}
 				if allPullsMtx != nil {
@@ -3181,7 +3188,7 @@ func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 	shared.FatalOnError(err)
 	runtime.GC()
 	nPRs = len(pulls)
-	shared.Printf("%s/%s: got %d pulls\n", j.URL, j.CurrentCategory, nPRs)
+	j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Infof("%s/%s: got %d pulls", j.URL, j.CurrentCategory, nPRs)
 	if j.ThrN > 1 {
 		for _, pull := range pulls {
 			go func(pr map[string]interface{}) {
@@ -3191,7 +3198,7 @@ func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 				)
 				esch, e = processPull(ch, pr)
 				if e != nil {
-					shared.Printf("%s/%s: pulls process error: %v\n", j.URL, j.CurrentCategory, e)
+					j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Errorf("%s/%s: pulls process error: %v", j.URL, j.CurrentCategory, e)
 					return
 				}
 				if esch != nil {
@@ -3251,12 +3258,12 @@ func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 	}
 	nPulls := len(allPulls)
 	if ctx.Debug > 0 {
-		shared.Printf("%d remaining pulls to send to queue\n", nPulls)
+		j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Debugf("%d remaining pulls to send to queue", nPulls)
 	}
 	err = j.GitHubEnrichItems(ctx, allPulls, &allDocs, true)
 	//err = SendToQueue(ctx, j, true, UUID, allPulls)
 	if err != nil {
-		shared.Printf("%s/%s: error %v sending %d pulls to queue\n", j.URL, j.CurrentCategory, err, len(allPulls))
+		j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Errorf("%s/%s: error %v sending %d pulls to queue", j.URL, j.CurrentCategory, err, len(allPulls))
 	}
 	return
 }
@@ -3295,7 +3302,7 @@ func (j *DSGitHub) GetRoleIdentity(ctx *shared.Ctx, item map[string]interface{},
 func (j *DSGitHub) IdentityForObject(ctx *shared.Ctx, item map[string]interface{}) (identity [5]string) {
 	if ctx.Debug > 1 {
 		defer func() {
-			shared.Printf("%s/%s: IdentityForObject: %+v -> %+v\n", j.URL, j.CurrentCategory, item, identity)
+			j.log.WithFields(logrus.Fields{"operation": "IdentityForObject"}).Debugf("%s/%s: IdentityForObject: %+v -> %+v", j.URL, j.CurrentCategory, item, identity)
 		}()
 	}
 	for i, prop := range []string{"name", "login", "email", "avatar_url"} {
@@ -4955,7 +4962,7 @@ func (j *DSGitHub) EnrichIssueReactions(ctx *shared.Ctx, issue map[string]interf
 // docs is a pointer to where extracted identities will be stored
 func (j *DSGitHub) GitHubIssueEnrichItemsFunc(ctx *shared.Ctx, items []interface{}, docs *[]interface{}, final bool) (err error) {
 	if ctx.Debug > 0 {
-		shared.Printf("%s/%s: github enrich issue items %d/%d func\n", j.URL, j.CurrentCategory, len(items), len(*docs))
+		j.log.WithFields(logrus.Fields{"operation": "GitHubIssueEnrichItemsFunc"}).Debugf("%s/%s: github enrich issue items %d/%d func", j.URL, j.CurrentCategory, len(items), len(*docs))
 	}
 	var (
 		mtx *sync.RWMutex
@@ -5116,7 +5123,7 @@ func (j *DSGitHub) GitHubIssueEnrichItemsFunc(ctx *shared.Ctx, items []interface
 // docs is a pointer to where extracted identities will be stored
 func (j *DSGitHub) GitHubPullRequestEnrichItemsFunc(ctx *shared.Ctx, items []interface{}, docs *[]interface{}, final bool) (err error) {
 	if ctx.Debug > 0 {
-		shared.Printf("%s/%s: github enrich pull request items %d/%d func\n", j.URL, j.CurrentCategory, len(items), len(*docs))
+		j.log.WithFields(logrus.Fields{"operation": "GitHubPullRequestEnrichItemsFunc"}).Debugf("%s/%s: github enrich pull request items %d/%d func", j.URL, j.CurrentCategory, len(items), len(*docs))
 	}
 	var (
 		mtx *sync.RWMutex
@@ -5343,7 +5350,7 @@ func (j *DSGitHub) GitHubPullRequestEnrichItemsFunc(ctx *shared.Ctx, items []int
 // docs is a pointer to where extracted identities will be stored
 func (j *DSGitHub) GitHubRepositoryEnrichItemsFunc(ctx *shared.Ctx, items []interface{}, docs *[]interface{}, final bool) (err error) {
 	if ctx.Debug > 0 {
-		shared.Printf("%s/%s: github enrich repository items %d/%d func\n", j.URL, j.CurrentCategory, len(items), len(*docs))
+		j.log.WithFields(logrus.Fields{"operation": "GitHubRepositoryEnrichItemsFunc"}).Debugf("%s/%s: github enrich repository items %d/%d func", j.URL, j.CurrentCategory, len(items), len(*docs))
 	}
 	var (
 		mtx *sync.RWMutex
@@ -5475,7 +5482,7 @@ func (j *DSGitHub) EnrichItem(ctx *shared.Ctx, item map[string]interface{}) (ric
 func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]interface{}, final bool) {
 	if len(*docs) > 0 {
 		// actual output
-		shared.Printf("output processing(%d/%d/%v)\n", len(items), len(*docs), final)
+		j.log.WithFields(logrus.Fields{"operation": "OutputDocs"}).Infof("output processing(%d/%d/%v)\n", len(items), len(*docs), final)
 		var (
 			repos      []repository.RepositoryUpdatedEvent
 			issuesData map[string][]interface{}
@@ -5630,11 +5637,11 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 			err = fmt.Errorf("unknown category: '%s'", j.CurrentCategory)
 		}
 		if err != nil {
-			shared.Printf("Error: %+v\n", err)
+			j.log.WithFields(logrus.Fields{"operation": "OutputDocs"}).Errorf("Error: %+v\n", err)
 			return
 		}
 		if j.Publisher == nil {
-			shared.Printf("%s\n", string(jsonBytes))
+			j.log.WithFields(logrus.Fields{"operation": "OutputDocs"}).Infof("publisher does not exist.fetch data are: %s", string(jsonBytes))
 		}
 		*docs = []interface{}{}
 		gMaxUpstreamDtMtx.Lock()
@@ -5647,7 +5654,7 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 // items is a current pack of input items
 // docs is a pointer to where extracted identities will be stored
 func (j *DSGitHub) GitHubEnrichItems(ctx *shared.Ctx, items []interface{}, docs *[]interface{}, final bool) (err error) {
-	shared.Printf("input processing(%d/%d/%v)\n", len(items), len(*docs), final)
+	j.log.WithFields(logrus.Fields{"operation": "GitHubEnrichItems"}).Infof("input processing(%d/%d/%v)\n", len(items), len(*docs), final)
 	if final {
 		defer func() {
 			j.OutputDocs(ctx, items, docs, final)
@@ -5699,16 +5706,16 @@ func (j *DSGitHub) Sync(ctx *shared.Ctx, category string) (err error) {
 	gMaxUpstreamDt = zeroDt
 	gMaxUpstreamDtMtx.Unlock()
 	if ctx.DateFrom != nil {
-		shared.Printf("%s fetching from %v (%d threads)\n", j.Endpoint(), ctx.DateFrom, j.ThrN)
+		j.log.WithFields(logrus.Fields{"operation": "Sync"}).Infof("%s fetching from %v (%d threads)", j.Endpoint(), ctx.DateFrom, j.ThrN)
 	}
 	if ctx.DateFrom == nil {
 		ctx.DateFrom = shared.GetLastUpdate(ctx, j.Endpoint())
 		if ctx.DateFrom != nil {
-			shared.Printf("%s resuming from %v (%d threads)\n", j.Endpoint(), ctx.DateFrom, j.ThrN)
+			j.log.WithFields(logrus.Fields{"operation": "Sync"}).Infof("%s resuming from %v (%d threads)", j.Endpoint(), ctx.DateFrom, j.ThrN)
 		}
 	}
 	if ctx.DateTo != nil {
-		shared.Printf("%s fetching till %v (%d threads)\n", j.Endpoint(), ctx.DateTo, j.ThrN)
+		j.log.WithFields(logrus.Fields{"operation": "Sync"}).Infof("%s fetching till %v (%d threads)", j.Endpoint(), ctx.DateTo, j.ThrN)
 	}
 	// NOTE: Non-generic starts here
 	err = j.SyncCurrentCategory(ctx)
@@ -5972,7 +5979,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 		repoID, err = repository.GenerateRepositoryID(j.SourceID, j.URL, source)
 		// shared.Printf("repository.GenerateRepositoryID(%s, %s, %s) -> %s,%v\n", j.SourceID, j.URL, source, repoID, err)
 		if err != nil {
-			shared.Printf("GenerateRepositoryID(%s,%s,%s): %+v for %+v\n", j.SourceID, j.URL, source, err, doc)
+			j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GenerateRepositoryID(%s,%s,%s): %+v for %+v", j.SourceID, j.URL, source, err, doc)
 			return
 		}
 		fIID, _ := doc["pull_request_id"].(float64)
@@ -5980,7 +5987,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 		pullRequestID, err = igh.GenerateGithubPullRequestID(repoID, sIID)
 		// shared.Printf("igh.GenerateGithubPullRequestID(%s, %s) -> %s,%v\n", repoID, sIID, pullRequestID, err)
 		if err != nil {
-			shared.Printf("GenerateGithubPullRequestID(%s,%s): %+v for %+v\n", repoID, sIID, err, doc)
+			j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GenerateGithubPullRequestID(%s,%s): %+v for %+v", repoID, sIID, err, doc)
 			return
 		}
 		splitted := strings.Split(githubRepoName, "/")
@@ -6026,7 +6033,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 				// name, username = shared.PostprocessNameUsername(name, username, email)
 				userID, err = user.GenerateIdentity(&source, &email, &name, &username)
 				if err != nil {
-					shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v\n", source, email, name, username, err, doc)
+					j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 					return
 				}
 				roleValue := insights.AuthorRole
@@ -6059,7 +6066,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 				assigneeSID := sIID + ":" + username
 				pullRequestAssigneeID, err = igh.GenerateGithubAssigneeID(repoID, pullRequestID, assigneeSID)
 				if err != nil {
-					shared.Printf("GenerateGithubAssigneeID(%s,%s,%s): %+v for %+v\n", repoID, pullRequestID, assigneeSID, err, doc)
+					j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GenerateGithubAssigneeID(%s,%s,%s): %+v for %+v", repoID, pullRequestID, assigneeSID, err, doc)
 					return
 				}
 				pullRequestAssignee := igh.PullRequestAssignee{
@@ -6115,7 +6122,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					// name, username = shared.PostprocessNameUsername(name, username, email)
 					userID, err = user.GenerateIdentity(&source, &email, &name, &username)
 					if err != nil {
-						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v\n", source, email, name, username, err, doc)
+						j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 						return
 					}
 					contributor := insights.Contributor{
@@ -6136,7 +6143,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					assigneeSID := sIID + ":" + username
 					pullRequestAssigneeID, err = igh.GenerateGithubAssigneeID(repoID, pullRequestID, assigneeSID)
 					if err != nil {
-						shared.Printf("GenerateGithubAssigneeID(%s,%s,%s): %+v for %+v\n", repoID, pullRequestID, assigneeSID, err, doc)
+						j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GenerateGithubAssigneeID(%s,%s,%s): %+v for %+v", repoID, pullRequestID, assigneeSID, err, doc)
 						return
 					}
 					pullRequestAssignee := igh.PullRequestAssignee{
@@ -6197,12 +6204,12 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 				key2 := fmt.Sprintf("%s:%d", sAuthorLogin, ts2)
 				pullRequestReviewID, err = igh.GenerateGithubReviewID(repoID, sReviewID)
 				if err != nil {
-					shared.Printf("GenerateGithubReviewID(%s,%s): %+v for %+v\n", repoID, sReviewID, err, doc)
+					j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GenerateGithubReviewID(%s,%s): %+v for %+v", repoID, sReviewID, err, doc)
 					return
 				}
 				_, ok := correlation[key]
 				if ok && ctx.Debug > 0 {
-					shared.Printf("WARNING: non-unique key '%s'(%v) within a PR %s(%s)\ncomments=%s\nreviews=%s\n", key, reviewCreatedOn, url, sReviewID, shared.PrettyPrint(commentsAry), shared.PrettyPrint(reviewsAry))
+					j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Warningf("WARNING: non-unique key '%s'(%v) within a PR %s(%s)\ncomments=%s\nreviews=%s", key, reviewCreatedOn, url, sReviewID, shared.PrettyPrint(commentsAry), shared.PrettyPrint(reviewsAry))
 				}
 				correlation[key] = [4]string{pullRequestReviewID, "", sAuthorLogin, fmt.Sprintf("%d", ts)}
 				correlation2[key2] = [4]string{pullRequestReviewID, "", sAuthorLogin, fmt.Sprintf("%d", ts2)}
@@ -6230,7 +6237,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					ary, ok = correlation2[key2]
 					if !ok {
 						if ctx.Debug > 0 {
-							shared.Printf("WARNING: cannot find review data for key '%s'(%v) within a PR %s(%s)\ncomments=%s\nreviews=%s\n", key, commentCreatedOn, url, sBody, shared.PrettyPrint(commentsAry), shared.PrettyPrint(reviewsAry))
+							j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Warningf("WARNING: cannot find review data for key '%s'(%v) within a PR %s(%s)\ncomments=%s\nreviews=%s", key, commentCreatedOn, url, sBody, shared.PrettyPrint(commentsAry), shared.PrettyPrint(reviewsAry))
 						}
 						correlation[key] = [4]string{"", sBody, sAuthorLogin, fmt.Sprintf("%d", ts)}
 						correlation2[key2] = [4]string{"", sBody, sAuthorLogin, fmt.Sprintf("%d", ts2)}
@@ -6257,7 +6264,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 				key2 := fmt.Sprintf("%s:%d", author, ts2)
 				ary2, ok := correlation2[key2]
 				if !ok && ctx.Debug > 0 {
-					shared.Printf("WARNING: cannot find review data for key '%s'(%v) within a PR %s\ncomments=%s\nreviews=%s\n", key, ary, url, shared.PrettyPrint(commentsAry), shared.PrettyPrint(reviewsAry))
+					j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Warningf("WARNING: cannot find review data for key '%s'(%v) within a PR %s\ncomments=%s\nreviews=%s", key, ary, url, shared.PrettyPrint(commentsAry), shared.PrettyPrint(reviewsAry))
 				}
 				if reviewID == "" {
 					reviewID = ary2[0]
@@ -6314,7 +6321,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					// name, username = shared.PostprocessNameUsername(name, username, email)
 					userID, err = user.GenerateIdentity(&source, &email, &name, &username)
 					if err != nil {
-						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v\n", source, email, name, username, err, doc)
+						j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 						return
 					}
 					contributor := insights.Contributor{
@@ -6335,7 +6342,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					commentSID := sCommentID
 					pullRequestCommentID, err = igh.GenerateGithubCommentID(repoID, commentSID)
 					if err != nil {
-						shared.Printf("GenerateGithubCommentID(%s,%s): %+v for %+v\n", repoID, commentSID, err, doc)
+						j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GenerateGithubCommentID(%s,%s): %+v for %+v\n", repoID, commentSID, err, doc)
 						return
 					}
 					pullRequestComment := igh.PullRequestComment{
@@ -6396,7 +6403,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					// name, username = shared.PostprocessNameUsername(name, username, email)
 					userID, err = user.GenerateIdentity(&source, &email, &name, &username)
 					if err != nil {
-						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v\n", source, email, name, username, err, doc)
+						j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 						return
 					}
 					contributor := insights.Contributor{
@@ -6417,7 +6424,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					reactionSID := sCommentID + ":" + content
 					pullRequestCommentReactionID, err = igh.GenerateGithubReactionID(repoID, reactionSID)
 					if err != nil {
-						shared.Printf("GenerateGithubReactionID(%s,%s): %+v for %+v\n", repoID, reactionSID, err, doc)
+						j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GenerateGithubReactionID(%s,%s): %+v for %+v", repoID, reactionSID, err, doc)
 						return
 					}
 					pullRequestCommentReaction := igh.PullRequestCommentReaction{
@@ -6480,7 +6487,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					// name, username = shared.PostprocessNameUsername(name, username, email)
 					userID, err = user.GenerateIdentity(&source, &email, &name, &username)
 					if err != nil {
-						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v\n", source, email, name, username, err, doc)
+						j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 						return
 					}
 					contributor := insights.Contributor{
@@ -6501,7 +6508,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					commentSID := sCommentID
 					pullRequestCommentID, err = igh.GenerateGithubCommentID(repoID, commentSID)
 					if err != nil {
-						shared.Printf("GenerateGithubCommentID(%s,%s): %+v for %+v\n", repoID, commentSID, err, doc)
+						j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GenerateGithubCommentID(%s,%s): %+v for %+v", repoID, commentSID, err, doc)
 						return
 					}
 					pullRequestComment := igh.PullRequestComment{
@@ -6562,7 +6569,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					// name, username = shared.PostprocessNameUsername(name, username, email)
 					userID, err = user.GenerateIdentity(&source, &email, &name, &username)
 					if err != nil {
-						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v\n", source, email, name, username, err, doc)
+						j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v\n", source, email, name, username, err, doc)
 						return
 					}
 					contributor := insights.Contributor{
@@ -6583,7 +6590,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					reactionSID := sCommentID + ":" + content
 					pullRequestCommentReactionID, err = igh.GenerateGithubReactionID(repoID, reactionSID)
 					if err != nil {
-						shared.Printf("GenerateGithubReactionID(%s,%s): %+v for %+v\n", repoID, reactionSID, err, doc)
+						j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GenerateGithubReactionID(%s,%s): %+v for %+v", repoID, reactionSID, err, doc)
 						return
 					}
 					pullRequestCommentReaction := igh.PullRequestCommentReaction{
@@ -6655,7 +6662,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						}
 					}
 				default:
-					shared.Printf("WARNING: unknown review state '%s', skipping\n", sReviewState)
+					j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Warningf("WARNING: unknown review state '%s', skipping", sReviewState)
 					continue
 				}
 				for _, role := range roles {
@@ -6671,7 +6678,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					// name, username = shared.PostprocessNameUsername(name, username, email)
 					userID, err = user.GenerateIdentity(&source, &email, &name, &username)
 					if err != nil {
-						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v\n", source, email, name, username, err, doc)
+						j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 						return
 					}
 					contributor := insights.Contributor{
@@ -6692,7 +6699,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					reviewSID := sReviewID
 					pullRequestReviewID, err = igh.GenerateGithubReviewID(repoID, reviewSID)
 					if err != nil {
-						shared.Printf("GenerateGithubReviewID(%s,%s): %+v for %+v\n", repoID, reviewSID, err, doc)
+						j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GenerateGithubReviewID(%s,%s): %+v for %+v", repoID, reviewSID, err, doc)
 						return
 					}
 					// If we want to have different reviewer ID for the same user in different repos
@@ -6700,7 +6707,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					reviewerSID := username
 					pullRequestReviewerID, err = igh.GenerateGithubReviewerID(repoID, pullRequestID, reviewerSID)
 					if err != nil {
-						shared.Printf("GenerateGithubReviewerID(%s,%s,%s): %+v for %+v\n", repoID, pullRequestID, reviewerSID, err, doc)
+						j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GenerateGithubReviewerID(%s,%s,%s): %+v for %+v", repoID, pullRequestID, reviewerSID, err, doc)
 						return
 					}
 					pullRequestReview := igh.PullRequestReview{
@@ -6757,7 +6764,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					// name, username = shared.PostprocessNameUsername(name, username, email)
 					userID, err = user.GenerateIdentity(&source, &email, &name, &username)
 					if err != nil {
-						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v\n", source, email, name, username, err, doc)
+						j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 						return
 					}
 					contributor := insights.Contributor{
@@ -6780,7 +6787,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					reviewerSID := username
 					pullRequestReviewerID, err = igh.GenerateGithubReviewerID(repoID, pullRequestID, reviewerSID)
 					if err != nil {
-						shared.Printf("GenerateGithubReviewerID(%s,%s,%s): %+v for %+v\n", repoID, pullRequestID, reviewerSID, err, doc)
+						j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GenerateGithubReviewerID(%s,%s,%s): %+v for %+v", repoID, pullRequestID, reviewerSID, err, doc)
 						return
 					}
 					pullRequestReviewer := igh.PullRequestReviewer{
@@ -6935,7 +6942,7 @@ func (j *DSGitHub) GetModelDataRepository(ctx *shared.Ctx, docs []interface{}) (
 		repoID, err = repository.GenerateRepositoryID(j.SourceID, j.URL, GitHubDataSource)
 		// shared.Printf("repository.GenerateRepositoryID(%s, %s, %s) -> %s,%v (%s)\n", j.SourceID, j.URL, GitHubDataSource, repoID, err, sid)
 		if err != nil {
-			shared.Printf("GenerateRepositoryID(%s,%s,%s): %+v for %+v\n", j.SourceID, j.URL, GitHubDataSource, err, doc)
+			j.log.WithFields(logrus.Fields{"operation": "GetModelDataRepository"}).Errorf("GenerateRepositoryID(%s,%s,%s): %+v for %+v", j.SourceID, j.URL, GitHubDataSource, err, doc)
 			return
 		}
 		// Event
@@ -7163,7 +7170,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 		repoID, err = repository.GenerateRepositoryID(j.SourceID, j.URL, source)
 		// shared.Printf("repository.GenerateRepositoryID(%s, %s, %s) -> %s,%v\n", j.SourceID, j.URL, source, repoID, err)
 		if err != nil {
-			shared.Printf("GenerateRepositoryID(%s,%s,%s): %+v for %+v\n", j.SourceID, j.URL, source, err, doc)
+			j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("GenerateRepositoryID(%s,%s,%s): %+v for %+v", j.SourceID, j.URL, source, err, doc)
 			return
 		}
 		fIID, _ := doc["issue_id"].(float64)
@@ -7171,7 +7178,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 		issueID, err = igh.GenerateGithubIssueID(repoID, sIID)
 		// shared.Printf("igh.GenerateGithubIssueID(%s, %s) -> %s,%v\n", repoID, sIID, issueID, err)
 		if err != nil {
-			shared.Printf("GenerateGithubIssueID(%s,%s): %+v for %+v\n", repoID, sIID, err, doc)
+			j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("GenerateGithubIssueID(%s,%s): %+v for %+v", repoID, sIID, err, doc)
 			return
 		}
 		splitted := strings.Split(githubRepoName, "/")
@@ -7210,7 +7217,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 				// name, username = shared.PostprocessNameUsername(name, username, email)
 				userID, err = user.GenerateIdentity(&source, &email, &name, &username)
 				if err != nil {
-					shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v\n", source, email, name, username, err, doc)
+					j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 					return
 				}
 				roleValue := insights.AuthorRole
@@ -7243,7 +7250,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 				assigneeSID := sIID + ":" + username
 				issueAssigneeID, err = igh.GenerateGithubAssigneeID(repoID, issueID, assigneeSID)
 				if err != nil {
-					shared.Printf("GenerateGithubAssigneeID(%s,%s,%s): %+v for %+v\n", repoID, issueID, assigneeSID, err, doc)
+					j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("GenerateGithubAssigneeID(%s,%s,%s): %+v for %+v", repoID, issueID, assigneeSID, err, doc)
 					return
 				}
 				issueAssignee := igh.IssueAssignee{
@@ -7299,7 +7306,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 					// name, username = shared.PostprocessNameUsername(name, username, email)
 					userID, err = user.GenerateIdentity(&source, &email, &name, &username)
 					if err != nil {
-						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v\n", source, email, name, username, err, doc)
+						j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 						return
 					}
 					contributor := insights.Contributor{
@@ -7320,7 +7327,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 					assigneeSID := sIID + ":" + username
 					issueAssigneeID, err = igh.GenerateGithubAssigneeID(repoID, issueID, assigneeSID)
 					if err != nil {
-						shared.Printf("GenerateGithubAssigneeID(%s,%s, %s): %+v for %+v\n", repoID, issueID, assigneeSID, err, doc)
+						j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("GenerateGithubAssigneeID(%s,%s, %s): %+v for %+v", repoID, issueID, assigneeSID, err, doc)
 						return
 					}
 					issueAssignee := igh.IssueAssignee{
@@ -7377,7 +7384,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 					// name, username = shared.PostprocessNameUsername(name, username, email)
 					userID, err = user.GenerateIdentity(&source, &email, &name, &username)
 					if err != nil {
-						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v\n", source, email, name, username, err, doc)
+						j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 						return
 					}
 					contributor := insights.Contributor{
@@ -7398,7 +7405,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 					reactionSID := sIID + ":" + content
 					issueReactionID, err = igh.GenerateGithubReactionID(repoID, reactionSID)
 					if err != nil {
-						shared.Printf("GenerateGithubReactionID(%s,%s): %+v for %+v\n", repoID, reactionSID, err, doc)
+						j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("GenerateGithubReactionID(%s,%s): %+v for %+v", repoID, reactionSID, err, doc)
 						return
 					}
 					issueReaction := igh.IssueReaction{
@@ -7461,7 +7468,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 					// name, username = shared.PostprocessNameUsername(name, username, email)
 					userID, err = user.GenerateIdentity(&source, &email, &name, &username)
 					if err != nil {
-						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v\n", source, email, name, username, err, doc)
+						j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 						return
 					}
 					contributor := insights.Contributor{
@@ -7482,7 +7489,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 					commentSID := sCommentID
 					issueCommentID, err = igh.GenerateGithubCommentID(repoID, commentSID)
 					if err != nil {
-						shared.Printf("GenerateGithubCommentID(%s,%s): %+v for %+v\n", repoID, commentSID, err, doc)
+						j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("GenerateGithubCommentID(%s,%s): %+v for %+v", repoID, commentSID, err, doc)
 						return
 					}
 					issueComment := igh.IssueComment{
@@ -7541,7 +7548,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 					// name, username = shared.PostprocessNameUsername(name, username, email)
 					userID, err = user.GenerateIdentity(&source, &email, &name, &username)
 					if err != nil {
-						shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v\n", source, email, name, username, err, doc)
+						j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 						return
 					}
 					contributor := insights.Contributor{
@@ -7562,7 +7569,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 					reactionSID := sCommentID + ":" + content
 					issueCommentReactionID, err = igh.GenerateGithubReactionID(repoID, reactionSID)
 					if err != nil {
-						shared.Printf("GenerateGithubReactionID(%s,%s): %+v for %+v\n", repoID, reactionSID, err, doc)
+						j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("GenerateGithubReactionID(%s,%s): %+v for %+v", repoID, reactionSID, err, doc)
 						return
 					}
 					issueCommentReaction := igh.IssueCommentReaction{
@@ -7659,7 +7666,7 @@ func main() {
 	)
 	err := github.Init(&ctx)
 	if err != nil {
-		shared.Printf("Error: %+v\n", err)
+		github.log.WithFields(logrus.Fields{"operation": "main"}).Errorf("Error: %+v", err)
 		return
 	}
 	timestamp := time.Now()
@@ -7670,10 +7677,24 @@ func main() {
 		github.WriteLog(&ctx, timestamp, logger.InProgress, cat)
 		err = github.Sync(&ctx, cat)
 		if err != nil {
-			shared.Printf("Error: %+v\n", err)
+			github.log.WithFields(logrus.Fields{"operation": "main"}).Errorf("Error: %+v", err)
 			github.WriteLog(&ctx, timestamp, logger.Failed, cat+": "+err.Error())
 			return
 		}
 		github.WriteLog(&ctx, timestamp, logger.Done, cat)
 	}
+}
+
+// createStructuredLogger...
+func (j *DSGitHub) createStructuredLogger(ctx *shared.Ctx) {
+	log := logrus.WithFields(
+		logrus.Fields{
+			"environment": os.Getenv("STAGE"),
+			"commit":      build.GitCommit,
+			"version":     build.Version,
+			"service":     build.AppName,
+			"endpoint":    j.URL,
+			"project":     ctx.Project,
+		})
+	j.log = log
 }
