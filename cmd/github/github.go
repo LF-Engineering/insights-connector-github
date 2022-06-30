@@ -729,7 +729,11 @@ func (j *DSGitHub) isAbuse(e error) (abuse, rateLimit bool) {
 	// GitHub can return '401 Bad credentials' when token(s) was/were revoken
 	// abuse = strings.Contains(errStr, "403 You have triggered an abuse detection mechanism") || strings.Contains(errStr, "401 Bad credentials")
 	abuse = strings.Contains(errStr, "403 You have triggered an abuse detection mechanism")
-	rateLimit = strings.Contains(errStr, "403 API rate limit")
+	isRateLimited := strings.Contains(errStr, "403 API rate limit")
+	isSecondaryRateLimit := strings.Contains(errStr, "403 You have exceeded a secondary rate limit")
+	if isRateLimited || isSecondaryRateLimit {
+		rateLimit = true
+	}
 	return
 }
 
