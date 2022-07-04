@@ -6430,8 +6430,9 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GenerateGithubReactionID(%s,%s): %+v for %+v", repoID, reactionSID, err, doc)
 						return
 					}
-					pullRequestCommentID, err = igh.GenerateGithubPullRequestID(repoID, sCommentID)
+					pullRequestCommentID, err = igh.GenerateGithubCommentID(repoID, sCommentID)
 					if err != nil {
+						shared.Printf("GenerateGithubCommentID(%s,%s): %+v for %+v\n", repoID, sCommentID, err, doc)
 						return
 					}
 					pullRequestCommentReaction := igh.PullRequestCommentReaction{
@@ -6600,8 +6601,9 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GenerateGithubReactionID(%s,%s): %+v for %+v", repoID, reactionSID, err, doc)
 						return
 					}
-					pullRequestCommentID, err = igh.GenerateGithubPullRequestID(repoID, sCommentID)
+					pullRequestCommentID, err = igh.GenerateGithubCommentID(repoID, sCommentID)
 					if err != nil {
+						shared.Printf("GenerateGithubCommentID(%s,%s): %+v for %+v\n", repoID, sCommentID, err, doc)
 						return
 					}
 					pullRequestCommentReaction := igh.PullRequestCommentReaction{
