@@ -10,9 +10,13 @@ GO_VET=go vet
 GO_IMPORTS=goimports -w
 GO_ERRCHECK=errcheck -asserts -ignore '[FS]?[Pp]rint*'
 BINARIES=github encrypt
+COMMIT=`git rev-parse --short HEAD`
+VERSION=`git describe --tags --always | cut -d- -f1`
+LDFLAGS=-ldflags "-s -w -extldflags '-static' -X github.com/LF-Engineering/insights-datasource-github/build.GitCommit=$(COMMIT) \
+ -X github.com/LF-Engineering/insights-datasource-github/build.Version=$(VERSION)"
 all: check ${BINARIES}
 github: cmd/github/github.go
-	 ${GO_ENV} ${GO_BUILD} -o github cmd/github/github.go
+	 ${GO_ENV} ${GO_BUILD} -o github ${LDFLAGS} cmd/github/github.go
 encrypt: cmd/encrypt/encrypt.go
 	 ${GO_ENV} ${GO_BUILD} -o encrypt cmd/encrypt/encrypt.go
 fmt: ${GO_BIN_FILES}
