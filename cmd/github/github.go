@@ -6424,9 +6424,13 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						shared.Printf("GenerateGithubReactionID(%s,%s): %+v for %+v\n", repoID, reactionSID, err, doc)
 						return
 					}
+					pullRequestCommentID, err = igh.GenerateGithubPullRequestID(repoID, sCommentID)
+					if err != nil {
+						return
+					}
 					pullRequestCommentReaction := igh.PullRequestCommentReaction{
 						ID:        pullRequestCommentReactionID,
-						CommentID: sCommentID,
+						CommentID: pullRequestCommentID,
 						Reaction: insights.Reaction{
 							Emoji: service.Emoji{
 								ID:      content,
@@ -7569,9 +7573,14 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 						shared.Printf("GenerateGithubReactionID(%s,%s): %+v for %+v\n", repoID, reactionSID, err, doc)
 						return
 					}
+					issueCommentID, err = igh.GenerateGithubCommentID(repoID, sCommentID)
+					if err != nil {
+						shared.Printf("GenerateGithubCommentID(%s,%s): %+v for %+v\n", repoID, sCommentID, err, doc)
+						return
+					}
 					issueCommentReaction := igh.IssueCommentReaction{
 						ID:        issueCommentReactionID,
-						CommentID: sCommentID,
+						CommentID: issueCommentID,
 						Reaction: insights.Reaction{
 							Emoji: service.Emoji{
 								ID:      content,
