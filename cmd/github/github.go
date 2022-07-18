@@ -6739,6 +6739,9 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 							},
 						},
 					}
+					if state == "approved" {
+						pullRequestReview.Review.Reviewer.Role = insights.ApproverRole
+					}
 					key := "review_added"
 					ary, ok := data[key]
 					if !ok {
