@@ -6751,6 +6751,29 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					}
 					data[key] = ary
 					nReviews++
+					// add review creator to reviewers
+					pullRequestReviewer := igh.PullRequestReviewer{
+						ID:            pullRequestReviewerID,
+						PullRequestID: pullRequestID,
+						Reviewer: insights.Reviewer{
+							ReviewerID:      username,
+							Contributor:     contributor,
+							SyncTimestamp:   time.Now(),
+							SourceTimestamp: createdOn,
+						},
+					}
+					_, ok = addedReviewers[pullRequestReviewerID]
+					if !ok {
+						key := "reviewer_added"
+						ary, ok := data[key]
+						if !ok {
+							ary = []interface{}{pullRequestReviewer}
+						} else {
+							ary = append(ary, pullRequestReviewer)
+						}
+						data[key] = ary
+						addedReviewers[pullRequestReviewerID] = struct{}{}
+					}
 				}
 			}
 		}
