@@ -5652,7 +5652,7 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 		defer gMaxUpstreamDtMtx.Unlock()
 		err = j.cacheProvider.SetLastSync(fmt.Sprintf("%s/%s", j.Org, j.Repo), gMaxUpstreamDt)
 		if err != nil {
-			j.log.WithFields(logrus.Fields{"operation": "OutputDocs"}).Infof("unable to set last sync date to cache.error: %v", err)
+			j.log.WithFields(logrus.Fields{"operation": "OutputDocs"}).Errorf("unable to set last sync date to cache.error: %v", err)
 		}
 	}
 }
