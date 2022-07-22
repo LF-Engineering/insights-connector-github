@@ -4,9 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"github.com/LF-Engineering/insights-datasource-github/build"
-	"github.com/LF-Engineering/insights-datasource-shared/cache"
-	"github.com/sirupsen/logrus"
 	"io/ioutil"
 	"math/rand"
 	"os"
@@ -17,11 +14,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/LF-Engineering/insights-datasource-github/build"
+	"github.com/LF-Engineering/insights-datasource-shared/cache"
 	"github.com/LF-Engineering/insights-datasource-shared/cryptography"
 	"github.com/LF-Engineering/lfx-event-schema/service"
 	"github.com/LF-Engineering/lfx-event-schema/service/insights"
 	"github.com/LF-Engineering/lfx-event-schema/service/repository"
 	"github.com/LF-Engineering/lfx-event-schema/service/user"
+	"github.com/sirupsen/logrus"
 
 	"github.com/LF-Engineering/lfx-event-schema/utils/datalake"
 
@@ -36,7 +36,6 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/google/go-github/v43/github"
-
 	jsoniter "github.com/json-iterator/go"
 	"golang.org/x/oauth2"
 )
