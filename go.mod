@@ -4,12 +4,13 @@ go 1.17
 
 require (
 	github.com/LF-Engineering/dev-analytics-libraries v1.1.28
-	github.com/LF-Engineering/insights-datasource-shared v1.4.5-0.20220511063206-6754a12066b9
+	github.com/LF-Engineering/insights-datasource-shared v1.5.5
 	github.com/LF-Engineering/lfx-event-schema v0.1.20
 	github.com/aws/aws-lambda-go v1.28.0
 	github.com/aws/aws-sdk-go v1.43.22
 	github.com/google/go-github/v43 v43.0.0
 	github.com/json-iterator/go v1.1.12
+	github.com/sirupsen/logrus v1.8.1
 	golang.org/x/oauth2 v0.0.0-20220309155454-6242fa91716a
 )
 
@@ -35,7 +36,6 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421 // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
-	github.com/sirupsen/logrus v1.8.1 // indirect
 	golang.org/x/crypto v0.0.0-20211215153901-e495a2d5b3d3 // indirect
 	golang.org/x/net v0.0.0-20220127200216-cd36cc0744dd // indirect
 	golang.org/x/sys v0.0.0-20211216021012-1d35b9e2eb4e // indirect

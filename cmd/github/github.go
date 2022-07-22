@@ -4,8 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"github.com/LF-Engineering/insights-datasource-github/build"
-	"github.com/sirupsen/logrus"
 	"io/ioutil"
 	"math/rand"
 	"os"
@@ -16,11 +14,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/LF-Engineering/insights-datasource-github/build"
+	"github.com/LF-Engineering/insights-datasource-shared/cache"
 	"github.com/LF-Engineering/insights-datasource-shared/cryptography"
 	"github.com/LF-Engineering/lfx-event-schema/service"
 	"github.com/LF-Engineering/lfx-event-schema/service/insights"
 	"github.com/LF-Engineering/lfx-event-schema/service/repository"
 	"github.com/LF-Engineering/lfx-event-schema/service/user"
+	"github.com/sirupsen/logrus"
 
 	"github.com/LF-Engineering/lfx-event-schema/utils/datalake"
 
@@ -35,7 +36,6 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/google/go-github/v43/github"
-
 	jsoniter "github.com/json-iterator/go"
 	"golang.org/x/oauth2"
 )
@@ -221,8 +221,9 @@ type DSGitHub struct {
 	// SourceID: the optional external source identifier (such as the repo ID from github/gitlab, or gerrit project slug)
 	// this field is required for github, gitlab and gerrit. For github and gitlab, this is typically a numeric value
 	// converted to a string such as 194341141. For gerrit this is the project (repository) slug.
-	SourceID string
-	log      *logrus.Entry
+	SourceID      string
+	log           *logrus.Entry
+	cacheProvider cache.Manager
 }
 
 // AddPublisher - sets Kinesis publisher
@@ -5649,7 +5650,10 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 		*docs = []interface{}{}
 		gMaxUpstreamDtMtx.Lock()
 		defer gMaxUpstreamDtMtx.Unlock()
-		shared.SetLastUpdate(ctx, j.Endpoint(), gMaxUpstreamDt)
+		err = j.cacheProvider.SetLastSync(fmt.Sprintf("%s/%s", j.Org, j.Repo), gMaxUpstreamDt)
+		if err != nil {
+			j.log.WithFields(logrus.Fields{"operation": "OutputDocs"}).Infof("unable to set last sync date to cache.error: %v", err)
+		}
 	}
 }
 
@@ -5712,7 +5716,12 @@ func (j *DSGitHub) Sync(ctx *shared.Ctx, category string) (err error) {
 		j.log.WithFields(logrus.Fields{"operation": "Sync"}).Infof("%s fetching from %v (%d threads)", j.Endpoint(), ctx.DateFrom, j.ThrN)
 	}
 	if ctx.DateFrom == nil {
-		ctx.DateFrom = shared.GetLastUpdate(ctx, j.Endpoint())
+		cachedLastSync, er := j.cacheProvider.GetLastSync(fmt.Sprintf("%s/%s", j.Org, j.Repo))
+		if er != nil {
+			err = er
+			return
+		}
+		ctx.DateFrom = &cachedLastSync
 		if ctx.DateFrom != nil {
 			j.log.WithFields(logrus.Fields{"operation": "Sync"}).Infof("%s resuming from %v (%d threads)", j.Endpoint(), ctx.DateFrom, j.ThrN)
 		}
@@ -5725,7 +5734,7 @@ func (j *DSGitHub) Sync(ctx *shared.Ctx, category string) (err error) {
 	// NOTE: Non-generic ends here
 	gMaxUpstreamDtMtx.Lock()
 	defer gMaxUpstreamDtMtx.Unlock()
-	shared.SetLastUpdate(ctx, j.Endpoint(), gMaxUpstreamDt)
+	err = j.cacheProvider.SetLastSync(fmt.Sprintf("%s/%s", j.Org, j.Repo), gMaxUpstreamDt)
 	return
 }
 
@@ -7719,6 +7728,7 @@ func main() {
 	shared.SetSyncMode(true, false)
 	shared.SetLogLoggerError(false)
 	shared.AddLogger(&github.Logger, GitHubDataSource, logger.Internal, []map[string]string{{"GITHUB_ORG": github.Org, "GITHUB_REPO": github.Repo, "REPO_URL": github.URL, "ProjectSlug": ctx.Project}})
+	github.AddCacheProvider()
 	for cat := range ctx.Categories {
 		github.WriteLog(&ctx, timestamp, logger.InProgress, cat)
 		err = github.Sync(&ctx, cat)
@@ -7743,4 +7753,10 @@ func (j *DSGitHub) createStructuredLogger() {
 			"endpoint":    j.URL,
 		})
 	j.log = log
+}
+
+// AddCacheProvider - adds cache provider
+func (j *DSGitHub) AddCacheProvider() {
+	cacheProvider := cache.NewManager(GitHubDataSource, os.Getenv("STAGE"))
+	j.cacheProvider = *cacheProvider
 }
