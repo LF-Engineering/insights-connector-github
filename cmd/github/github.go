@@ -121,7 +121,9 @@ const (
 	// GitHubPullRequestDefaultStream - Stream To Publish pull requests
 	GitHubPullRequestDefaultStream = "PUT-S3-github-pull-requests"
 	// GitHubConnector ...
-	GitHubConnector = "github-connector"
+	GitHubConnector   = "github-connector"
+	GitHubPullrequest = "pullrequest"
+	GitHubIssue       = "issue"
 )
 
 var (
@@ -5517,11 +5519,19 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 					insightsStr := "insights"
 					issuesStr := "issues"
 					envStr := os.Getenv("STAGE")
+					data := make([]map[string]interface{}, 0)
 					for k, v := range issuesData {
 						switch k {
 						case "created":
 							ev, _ := v[0].(igh.IssueCreatedEvent)
 							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+							for _, val := range v {
+								id := fmt.Sprintf("%s-%s", "issue", val.(igh.IssueCreatedEvent).Payload.IssueID)
+								data = append(data, map[string]interface{}{
+									"id":   id,
+									"data": "",
+								})
+							}
 						case "updated":
 							ev, _ := v[0].(igh.IssueUpdatedEvent)
 							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
@@ -5562,6 +5572,10 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 							break
 						}
 					}
+					err = j.cacheProvider.Create(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), data)
+					if err != nil {
+						j.log.WithFields(logrus.Fields{"operation": "OutputDocs"}).Errorf("error creating cache for endpoint %s/%s/%s. Error: %+v", j.Org, j.Repo, GitHubIssue, err)
+					}
 				} else {
 					jsonBytes, err = jsoniter.Marshal(issuesData)
 				}
@@ -5573,12 +5587,20 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 					insightsStr := "insights"
 					pullsStr := "pull_requests"
 					envStr := os.Getenv("STAGE")
+					data := make([]map[string]interface{}, 0)
 					for k, v := range pullsData {
 						// shared.Printf("(k,len(v)) = ('%s',%d)\n", k, len(v))
 						switch k {
 						case "created":
 							ev, _ := v[0].(igh.PullRequestCreatedEvent)
 							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							for _, val := range v {
+								id := fmt.Sprintf("%s-%s", GitHubPullrequest, val.(igh.PullRequestCreatedEvent).Payload.ChangeRequestID)
+								data = append(data, map[string]interface{}{
+									"id":   id,
+									"data": "",
+								})
+							}
 						case "updated":
 							ev, _ := v[0].(igh.PullRequestUpdatedEvent)
 							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
@@ -5632,6 +5654,10 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 						if err != nil {
 							break
 						}
+					}
+					err = j.cacheProvider.Create(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), data)
+					if err != nil {
+						j.log.WithFields(logrus.Fields{"operation": "OutputDocs"}).Errorf("error creating cache for endpoint %s/%s/%s. Error: %+v", j.Org, j.Repo, GitHubPullrequest, err)
 					}
 				} else {
 					jsonBytes, err = jsoniter.Marshal(pullsData)
@@ -6902,12 +6928,13 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 				Orphaned:         false,
 			},
 		}
-		isNew := false
-		if !updatedOn.After(createdOn) || (nComments == 0 && nReactions == 0 && nReviews == 0) {
-			isNew = true
-		}
 		key := "updated"
-		if isNew {
+		cacheID := fmt.Sprintf("%s-%s", GitHubPullrequest, pullRequest.ChangeRequestID)
+		isCreated, err := j.cacheProvider.IsKeyCreated(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), cacheID)
+		if err != nil {
+
+		}
+		if !isCreated {
 			key = "created"
 		}
 		ary, ok := data[key]
@@ -7674,12 +7701,13 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 				Orphaned:        false,
 			},
 		}
-		isNew := false
-		if !updatedOn.After(createdOn) || (nComments == 0 && nReactions == 0) {
-			isNew = true
-		}
 		key := "updated"
-		if isNew {
+		cacheID := fmt.Sprintf("%s-%s", GitHubIssue, issue.IssueID)
+		isCreated, err := j.cacheProvider.IsKeyCreated(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), cacheID)
+		if err != nil {
+
+		}
+		if !isCreated {
 			key = "created"
 		}
 		ary, ok := data[key]
