@@ -6930,8 +6930,9 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 		}
 		key := "updated"
 		cacheID := fmt.Sprintf("%s-%s", GitHubPullrequest, pullRequest.ChangeRequestID)
-		isCreated, err := j.cacheProvider.IsKeyCreated(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), cacheID)
-		if err != nil {
+		isCreated, er := j.cacheProvider.IsKeyCreated(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), cacheID)
+		if er != nil {
+			err = er
 			j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("error getting cache for endpoint %s/%s/%s. error: %+v", j.Org, j.Repo, GitHubPullrequest, err)
 			return
 		}
@@ -7704,8 +7705,9 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 		}
 		key := "updated"
 		cacheID := fmt.Sprintf("%s-%s", GitHubIssue, issue.IssueID)
-		isCreated, err := j.cacheProvider.IsKeyCreated(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), cacheID)
-		if err != nil {
+		isCreated, er := j.cacheProvider.IsKeyCreated(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), cacheID)
+		if er != nil {
+			err = er
 			j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("error getting cache for endpoint %s/%s/%s. error: %+v", j.Org, j.Repo, GitHubIssue, err)
 			return
 		}
