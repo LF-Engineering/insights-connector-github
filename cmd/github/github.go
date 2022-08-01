@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -2812,6 +2813,10 @@ func (j *DSGitHub) ProcessIssue(ctx *shared.Ctx, inIssue map[string]interface{})
 			}
 		}
 	}
+	issue["all_reactions_data"], err = j.githubIssueReactions(ctx, j.Org, j.Repo, int(number.(float64)))
+	if err != nil {
+		return
+	}
 	return
 }
 
@@ -5052,6 +5057,18 @@ func (j *DSGitHub) GitHubIssueEnrichItemsFunc(ctx *shared.Ctx, items []interface
 					rich["reactions_array"] = riches
 				}
 			}
+			iAllReactions, ok := shared.Dig(data, []string{"all_reactions_data"}, false, true)
+			if ok && iAllReactions != nil {
+				reactions, ok := iAllReactions.([]map[string]interface{})
+				if ok && len(reactions) > 0 {
+					var riches []interface{}
+					riches, e = j.EnrichIssueReactions(ctx, rich, reactions)
+					if e != nil {
+						return
+					}
+					rich["all_reactions_array"] = riches
+				}
+			}
 		}
 		return
 	}
@@ -5667,7 +5684,7 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 			err = fmt.Errorf("unknown category: '%s'", j.CurrentCategory)
 		}
 		if err != nil {
-			j.log.WithFields(logrus.Fields{"operation": "OutputDocs"}).Errorf("Error: %+v\n", err)
+			j.log.WithFields(logrus.Fields{"operation": "OutputDocs"}).Errorf("Error: %+v", err)
 			return
 		}
 		if j.Publisher == nil {
@@ -7166,6 +7183,25 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 					})
 				}
 				data[k] = ary
+			case "assignee_removed":
+				baseEvent := service.BaseEvent{
+					Type: service.EventType(igh.IssueAssigneeRemovedEvent{}.Event()),
+					CRUDInfo: service.CRUDInfo{
+						CreatedBy: GitHubConnector,
+						UpdatedBy: GitHubConnector,
+						CreatedAt: time.Now().Unix(),
+						UpdatedAt: time.Now().Unix(),
+					},
+				}
+				var ary []interface{}
+				for _, issueAssignee := range v {
+					ary = append(ary, igh.IssueAssigneeRemovedEvent{
+						IssueAssigneeBaseEvent: issueAssigneeBaseEvent,
+						BaseEvent:              baseEvent,
+						Payload:                issueAssignee.(igh.RemoveIssueAssignee),
+					})
+				}
+				data[k] = ary
 			case "comment_added":
 				baseEvent := service.BaseEvent{
 					Type: service.EventType(igh.IssueCommentAddedEvent{}.Event()),
@@ -7182,6 +7218,44 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 						IssueCommentBaseEvent: issueCommentBaseEvent,
 						BaseEvent:             baseEvent,
 						Payload:               issueComment.(igh.IssueComment),
+					})
+				}
+				data[k] = ary
+			case "comment_edited":
+				baseEvent := service.BaseEvent{
+					Type: service.EventType(igh.IssueCommentEditedEvent{}.Event()),
+					CRUDInfo: service.CRUDInfo{
+						CreatedBy: GitHubConnector,
+						UpdatedBy: GitHubConnector,
+						CreatedAt: time.Now().Unix(),
+						UpdatedAt: time.Now().Unix(),
+					},
+				}
+				var ary []interface{}
+				for _, issueComment := range v {
+					ary = append(ary, igh.IssueCommentEditedEvent{
+						IssueCommentBaseEvent: issueCommentBaseEvent,
+						BaseEvent:             baseEvent,
+						Payload:               issueComment.(igh.IssueComment),
+					})
+				}
+				data[k] = ary
+			case "comment_deleted":
+				baseEvent := service.BaseEvent{
+					Type: service.EventType(igh.IssueCommentDeletedEvent{}.Event()),
+					CRUDInfo: service.CRUDInfo{
+						CreatedBy: GitHubConnector,
+						UpdatedBy: GitHubConnector,
+						CreatedAt: time.Now().Unix(),
+						UpdatedAt: time.Now().Unix(),
+					},
+				}
+				var ary []interface{}
+				for _, issueComment := range v {
+					ary = append(ary, igh.IssueCommentDeletedEvent{
+						IssueCommentBaseEvent: issueCommentBaseEvent,
+						BaseEvent:             baseEvent,
+						Payload:               issueComment.(igh.DeleteIssueComment),
 					})
 				}
 				data[k] = ary
@@ -7204,6 +7278,25 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 					})
 				}
 				data[k] = ary
+			case "reaction_removed":
+				baseEvent := service.BaseEvent{
+					Type: service.EventType(igh.IssueReactionRemovedEvent{}.Event()),
+					CRUDInfo: service.CRUDInfo{
+						CreatedBy: GitHubConnector,
+						UpdatedBy: GitHubConnector,
+						CreatedAt: time.Now().Unix(),
+						UpdatedAt: time.Now().Unix(),
+					},
+				}
+				var ary []interface{}
+				for _, issueReaction := range v {
+					ary = append(ary, igh.IssueReactionRemovedEvent{
+						IssueReactionBaseEvent: issueReactionBaseEvent,
+						BaseEvent:              baseEvent,
+						Payload:                issueReaction.(igh.RemoveIssueReaction),
+					})
+				}
+				data[k] = ary
 			case "comment_reaction_added":
 				baseEvent := service.BaseEvent{
 					Type: service.EventType(igh.IssueCommentReactionAddedEvent{}.Event()),
@@ -7220,6 +7313,25 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 						IssueCommentReactionBaseEvent: issueCommentReactionBaseEvent,
 						BaseEvent:                     baseEvent,
 						Payload:                       issueCommentReaction.(igh.IssueCommentReaction),
+					})
+				}
+				data[k] = ary
+			case "comment_reaction_removed":
+				baseEvent := service.BaseEvent{
+					Type: service.EventType(igh.IssueCommentReactionRemovedEvent{}.Event()),
+					CRUDInfo: service.CRUDInfo{
+						CreatedBy: GitHubConnector,
+						UpdatedBy: GitHubConnector,
+						CreatedAt: time.Now().Unix(),
+						UpdatedAt: time.Now().Unix(),
+					},
+				}
+				var ary []interface{}
+				for _, issueCommentReaction := range v {
+					ary = append(ary, igh.IssueCommentReactionRemovedEvent{
+						IssueCommentReactionBaseEvent: issueCommentReactionBaseEvent,
+						BaseEvent:                     baseEvent,
+						Payload:                       issueCommentReaction.(igh.RemoveIssueCommentReaction),
 					})
 				}
 				data[k] = ary
@@ -7279,6 +7391,22 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 		// Primary assignee start
 		primaryAssignee := ""
 		roles, okRoles := doc["roles"].([]map[string]interface{})
+		cacheID := fmt.Sprintf("%s-%s-assignees", GitHubIssue, issueID)
+		fileData, er := j.cacheProvider.GetFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), cacheID)
+		if er != nil {
+			err = er
+			j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("IsKeyCreated check if key created error: %v", err)
+			return
+		}
+		oldAssignees := IssueAssignees{}
+		if fileData != nil {
+			er = json.Unmarshal(fileData, &oldAssignees)
+			if er != nil {
+				err = er
+				j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("unmarshall old cached assaignees error: %v", err)
+				return
+			}
+		}
 		if okRoles {
 			for _, role := range roles {
 				roleType, _ := role["role"].(string)
@@ -7351,6 +7479,29 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 					}
 					data[key] = ary
 					addedAssignees[issueAssigneeID] = struct{}{}
+				}
+			}
+			for _, assID := range oldAssignees.Assignees {
+				found := false
+				for newAss := range addedAssignees {
+					if newAss == assID {
+						found = true
+						break
+					}
+				}
+				if !found {
+					rvAssignee := igh.RemoveIssueAssignee{
+						ID:      assID,
+						IssueID: issueID,
+					}
+					key := "assignee_removed"
+					ary, ok := data[key]
+					if !ok {
+						ary = []interface{}{rvAssignee}
+					} else {
+						ary = append(ary, rvAssignee)
+					}
+					data[key] = ary
 				}
 			}
 		}
@@ -7432,9 +7583,43 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 				}
 			}
 		}
+		if len(addedAssignees) > 0 {
+			var updatedAssignees IssueAssignees
+			for as := range addedAssignees {
+				updatedAssignees.Assignees = append(updatedAssignees.Assignees, as)
+			}
+			b, er := json.Marshal(updatedAssignees)
+			if er != nil {
+				err = er
+				j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("error marshal updated assignees cache. assignnes data: %+v, error: %v", updatedAssignees, err)
+				return
+			}
+			if err = j.cacheProvider.UpdateFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), cacheID, b); err != nil {
+				j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("UpdateFileByKey error updated assignees cache. path: %s, cache id: %s, assignnes data: %v, error: %v", fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), cacheID, b, err)
+				return
+			}
+		}
 		// Other assignees end
 		// Issue reactions start
 		reactionsAry, okReactions := doc["reactions_array"].([]interface{})
+		allReactionsAry, okAllReactions := doc["all_reactions_array"].([]interface{})
+		addedReactions := make(map[string]struct{})
+		reactionsCacheID := fmt.Sprintf("%s-%s-reactions", GitHubIssue, issueID)
+		reactionsFileData, er := j.cacheProvider.GetFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), reactionsCacheID)
+		if er != nil {
+			err = er
+			j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("IsKeyCreated check if issue reactions key created error: %v", err)
+			return
+		}
+		oldReactions := IssueReactions{Reactions: []string{}}
+		if reactionsFileData != nil {
+			er = json.Unmarshal(reactionsFileData, &oldReactions)
+			if er != nil {
+				err = er
+				j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("unmarshall old cached assaignees error: %v", err)
+				return
+			}
+		}
 		if okReactions {
 			for _, iReaction := range reactionsAry {
 				reaction, okReaction := iReaction.(map[string]interface{})
@@ -7507,13 +7692,100 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 						ary = append(ary, issueReaction)
 					}
 					data[key] = ary
+					//addedReactions[issueReactionID] = struct{}{}
 					nReactions++
 				}
+			}
+		}
+		if okAllReactions {
+			for _, iReaction := range allReactionsAry {
+				reaction, okReaction := iReaction.(map[string]interface{})
+				if !okReaction || reaction == nil {
+					continue
+				}
+				roles, okRoles := reaction["roles"].([]map[string]interface{})
+				if !okRoles || len(roles) == 0 {
+					continue
+				}
+				content, _ := reaction["content"].(string)
+				for _, role := range roles {
+					roleType, _ := role["role"].(string)
+					if roleType != "user_data" {
+						continue
+					}
+					reactionSID := sIID + ":" + content
+					issueReactionID, err = igh.GenerateGithubReactionID(repoID, reactionSID)
+					if err != nil {
+						j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("GenerateGithubReactionID(%s,%s): %+v for %+v", repoID, reactionSID, err, doc)
+						return
+					}
+					addedReactions[issueReactionID] = struct{}{}
+				}
+			}
+		}
+		for _, reID := range oldReactions.Reactions {
+			found := false
+			for newReaction := range addedReactions {
+				if newReaction == reID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				rvReaction := igh.RemoveIssueReaction{
+					ID:      reID,
+					IssueID: issueID,
+				}
+				key := "reaction_removed"
+				ary, ok := data[key]
+				if !ok {
+					ary = []interface{}{rvReaction}
+				} else {
+					ary = append(ary, rvReaction)
+				}
+				data[key] = ary
+			}
+		}
+
+		if len(addedReactions) > 0 || len(oldReactions.Reactions) > 0 {
+			var updatedReactions IssueReactions
+			for as := range addedReactions {
+				updatedReactions.Reactions = append(updatedReactions.Reactions, as)
+			}
+			fmt.Println("xxxx")
+			fmt.Printf("%+v \n", updatedReactions)
+			fmt.Println("xxxx22222")
+			b, er := json.Marshal(updatedReactions)
+			if er != nil {
+				err = er
+				j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("error marshal updated issue reactions cache. reactions data: %+v, error: %v", updatedReactions, err)
+				return
+			}
+			if err = j.cacheProvider.UpdateFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), reactionsCacheID, b); err != nil {
+				j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("UpdateFileByKey error update issue reactions cache. path: %s, cache id: %s, reactions data: %v, error: %v", fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), cacheID, b, err)
+				return
 			}
 		}
 		// Issue reactions end
 		// Comments start
 		commentsAry, okComments := doc["comments_array"].([]interface{})
+		comments := make(map[string]igh.IssueComment)
+		commentsCacheID := fmt.Sprintf("%s-%s-comments", GitHubIssue, issueID)
+		commentsFileData, er := j.cacheProvider.GetFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), commentsCacheID)
+		if er != nil {
+			err = er
+			j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("IsKeyCreated check if issue comments key created error: %v", err)
+			return
+		}
+		oldComments := IssueComments{}
+		if commentsFileData != nil {
+			er = json.Unmarshal(commentsFileData, &oldComments)
+			if er != nil {
+				err = er
+				j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("unmarshall old cached issue comments error: %v", err)
+				return
+			}
+		}
 		if okComments {
 			for _, iComment := range commentsAry {
 				comment, okComment := iComment.(map[string]interface{})
@@ -7590,13 +7862,92 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 						ary = append(ary, issueComment)
 					}
 					data[key] = ary
+					comments[issueCommentID] = issueComment
 					nComments++
 				}
+			}
+			for _, comm := range oldComments.Comments {
+				found := false
+				edited := false
+				for newCommID, commentVal := range comments {
+					if newCommID == comm.ID {
+						if commentVal.Body != comm.Body {
+							edited = true
+							break
+						}
+						found = true
+						break
+					}
+				}
+				if !found {
+					rvComm := igh.DeleteIssueComment{
+						ID:      comm.ID,
+						IssueID: issueID,
+					}
+					key := "comment_deleted"
+					ary, ok := data[key]
+					if !ok {
+						ary = []interface{}{rvComm}
+					} else {
+						ary = append(ary, rvComm)
+					}
+					data[key] = ary
+				}
+				if edited {
+					editedComment := igh.IssueComment{
+						ID:      comm.ID,
+						IssueID: issueID,
+					}
+					key := "comment_edited"
+					ary, ok := data[key]
+					if !ok {
+						ary = []interface{}{editedComment}
+					} else {
+						ary = append(ary, editedComment)
+					}
+					data[key] = ary
+				}
+			}
+		}
+		if len(comments) > 0 {
+			var updatedComments IssueComments
+			for _, comm := range comments {
+				updatedComments.Comments = append(updatedComments.Comments, IssueComment{
+					ID:   comm.ID,
+					Body: comm.Body,
+				})
+			}
+			b, er := json.Marshal(updatedComments)
+			if er != nil {
+				err = er
+				j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("error marshal updated issue comments cache. reactions data: %+v, error: %v", updatedComments, err)
+				return
+			}
+			if err = j.cacheProvider.UpdateFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), commentsCacheID, b); err != nil {
+				j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("UpdateFileByKey error update issue comments cache. path: %s, cache id: %s, comments data: %v, error: %v", fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), commentsCacheID, b, err)
+				return
 			}
 		}
 		// Comments end
 		// Comment reactions start
 		reactionsAry, okReactions = doc["comments_reactions_array"].([]interface{})
+		commentsReactions := make(map[string][]igh.IssueCommentReaction)
+		commentsReactionsCacheID := fmt.Sprintf("%s-%s-comment-reactions", GitHubIssue, issueID)
+		commentsReactionsFileData, er := j.cacheProvider.GetFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), commentsReactionsCacheID)
+		if er != nil {
+			err = er
+			j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("IsKeyCreated check if issue comments reactions key created error: %v", err)
+			return
+		}
+		oldCommentsReactions := IssueCommentReactions{}
+		if commentsReactionsFileData != nil {
+			er = json.Unmarshal(commentsReactionsFileData, &oldCommentsReactions)
+			if er != nil {
+				err = er
+				j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("unmarshall old cached issue comments reactions error: %v", err)
+				return
+			}
+		}
 		if okReactions {
 			for _, iReaction := range reactionsAry {
 				reaction, okReaction := iReaction.(map[string]interface{})
@@ -7676,8 +8027,70 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 						ary = append(ary, issueCommentReaction)
 					}
 					data[key] = ary
+
+					commRe, ok := commentsReactions[issueCommentID]
+					if !ok {
+						commRe = []igh.IssueCommentReaction{issueCommentReaction}
+					} else {
+						commRe = append(commRe, issueCommentReaction)
+					}
+					commentsReactions[issueCommentID] = commRe
 					nReactions++
 				}
+			}
+			for commID, reactions := range oldCommentsReactions.Reactions {
+				for oldCommID, oldRe := range commentsReactions {
+					if commID == oldCommID {
+						for _, ore := range oldRe {
+							found := false
+							for _, reID := range reactions {
+								if ore.ID == reID {
+									found = true
+									break
+								}
+							}
+							if !found {
+								rvReactions := igh.RemoveIssueCommentReaction{
+									ID:        ore.ID,
+									CommentID: issueID,
+								}
+								key := "comment_reaction_removed"
+								ary, ok := data[key]
+								if !ok {
+									ary = []interface{}{rvReactions}
+								} else {
+									ary = append(ary, rvReactions)
+								}
+								data[key] = ary
+							}
+						}
+					}
+				}
+			}
+		}
+
+		if len(commentsReactions) > 0 {
+			updatedCommentsReactions := IssueCommentReactions{Reactions: map[string][]string{}}
+			for k, commReactions := range commentsReactions {
+				for _, r := range commReactions {
+					commRe, ok := updatedCommentsReactions.Reactions[k]
+					if !ok {
+						commRe = []string{r.ID}
+					} else {
+						commRe = append(commRe, r.ID)
+					}
+					updatedCommentsReactions.Reactions[k] = commRe
+				}
+			}
+			b, er := json.Marshal(updatedCommentsReactions)
+			if er != nil {
+				err = er
+				j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("error marshal updated issue comments reactions cache. reactions data: %+v, error: %v", updatedCommentsReactions, err)
+				return
+			}
+			if err = j.cacheProvider.UpdateFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), commentsReactionsCacheID, b); err != nil {
+				j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("UpdateFileByKey error update issue comments reactions cache. path: %s, cache id: %s, reactions data: %v, error: %v", fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), commentsCacheID, b, err)
+				return
 			}
 		}
 		// Comment reactions end
@@ -7704,7 +8117,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 			},
 		}
 		key := "updated"
-		cacheID := fmt.Sprintf("%s-%s", GitHubIssue, issue.IssueID)
+		cacheID = fmt.Sprintf("%s-%s", GitHubIssue, issue.IssueID)
 		isCreated, er := j.cacheProvider.IsKeyCreated(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), cacheID)
 		if er != nil {
 			err = er
@@ -7791,4 +8204,25 @@ func (j *DSGitHub) createStructuredLogger() {
 func (j *DSGitHub) AddCacheProvider() {
 	cacheProvider := cache.NewManager(GitHubDataSource, os.Getenv("STAGE"))
 	j.cacheProvider = *cacheProvider
+}
+
+type IssueAssignees struct {
+	Assignees []string `json:"assignees"`
+}
+
+type IssueReactions struct {
+	Reactions []string `json:"reactions"`
+}
+
+type IssueComments struct {
+	Comments []IssueComment
+}
+
+type IssueComment struct {
+	ID   string `json:"id"`
+	Body string `json:"body"`
+}
+
+type IssueCommentReactions struct {
+	Reactions map[string][]string `json:"reactions"`
 }
