@@ -7752,9 +7752,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 			for as := range addedReactions {
 				updatedReactions.Reactions = append(updatedReactions.Reactions, as)
 			}
-			fmt.Println("xxxx")
-			fmt.Printf("%+v \n", updatedReactions)
-			fmt.Println("xxxx22222")
+
 			b, er := json.Marshal(updatedReactions)
 			if er != nil {
 				err = er
