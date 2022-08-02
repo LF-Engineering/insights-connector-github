@@ -5505,7 +5505,7 @@ func (j *DSGitHub) EnrichItem(ctx *shared.Ctx, item map[string]interface{}) (ric
 func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]interface{}, final bool) {
 	if len(*docs) > 0 {
 		// actual output
-		j.log.WithFields(logrus.Fields{"operation": "OutputDocs"}).Infof("output processing(%d/%d/%v)\n", len(items), len(*docs), final)
+		j.log.WithFields(logrus.Fields{"operation": "OutputDocs"}).Infof("output processing(%d/%d/%v)", len(items), len(*docs), final)
 		var (
 			repos      []repository.RepositoryUpdatedEvent
 			issuesData map[string][]interface{}
@@ -6371,7 +6371,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 				j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("error marshal updated assignees cache. assignnes data: %+v, error: %v", updatedAssignees, err)
 				return
 			}
-			if err = j.cacheProvider.UpdateFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), assigneeCacheID, b); err != nil {
+			if err = j.cacheProvider.UpdateFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), assigneeCacheID, b); err != nil {
 				j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("UpdateFileByKey error updated assignees cache. path: %s, cache id: %s, assignnes data: %v, error: %v", fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), assigneeCacheID, b, err)
 				return
 			}
@@ -6766,7 +6766,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 				}
 			}
 			for _, comm := range oldComments.Comments {
-				found := false
+				deleted := false
 				edited := false
 				for newCommID, commentVal := range uComments {
 					if newCommID == comm.ID {
@@ -6774,11 +6774,11 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 							edited = true
 							break
 						}
-						found = true
+						deleted = true
 						break
 					}
 				}
-				if !found {
+				if deleted {
 					rvComm := igh.DeletePullRequestComment{
 						ID:            comm.ID,
 						PullRequestID: pullRequestID,
@@ -6796,6 +6796,15 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					editedComment := igh.PullRequestComment{
 						ID:            comm.ID,
 						PullRequestID: pullRequestID,
+						Comment: insights.Comment{
+							Body:            uComments[comm.ID].Body,
+							CommentURL:      uComments[comm.ID].CommentURL,
+							SourceTimestamp: uComments[comm.ID].SourceTimestamp,
+							SyncTimestamp:   time.Now(),
+							CommentID:       uComments[comm.ID].CommentID,
+							Contributor:     uComments[comm.ID].Contributor,
+							Orphaned:        false,
+						},
 					}
 					key := "comment_edited"
 					ary, ok := data[key]
@@ -6823,8 +6832,8 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 				j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("error marshal updated issue comments cache. reactions data: %+v, error: %v", updatedComments, err)
 				return
 			}
-			if err = j.cacheProvider.UpdateFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), commentsCacheID, b); err != nil {
-				j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("UpdateFileByKey error update issue comments cache. path: %s, cache id: %s, comments data: %v, error: %v", fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), commentsCacheID, b, err)
+			if err = j.cacheProvider.UpdateFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), commentsCacheID, b); err != nil {
+				j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("UpdateFileByKey error update issue comments cache. path: %s, cache id: %s, comments data: %v, error: %v", fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), commentsCacheID, b, err)
 				return
 			}
 		}
@@ -6936,6 +6945,60 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					commentsReactions[pullRequestCommentID] = commRe
 					nReactions++
 				}
+			}
+			for commID, reactions := range oldCommentsReactions.Reactions {
+				for newCommID, nRes := range commentsReactions {
+					if commID == newCommID {
+						for _, oRe := range reactions {
+							found := false
+							for _, nRe := range nRes {
+								if nRe.ID == oRe {
+									found = true
+									break
+								}
+							}
+							if !found {
+								rvReactions := igh.RemovePullRequestCommentReaction{
+									ID:        oRe,
+									CommentID: pullRequestCommentID,
+								}
+								key := "comment_reaction_removed"
+								ary, ok := data[key]
+								if !ok {
+									ary = []interface{}{rvReactions}
+								} else {
+									ary = append(ary, rvReactions)
+								}
+								data[key] = ary
+							}
+						}
+					}
+				}
+			}
+		}
+
+		if len(commentsReactions) > 0 {
+			updatedCommentsReactions := IssueCommentReactions{Reactions: map[string][]string{}}
+			for k, commReactions := range commentsReactions {
+				for _, r := range commReactions {
+					commRe, ok := updatedCommentsReactions.Reactions[k]
+					if !ok {
+						commRe = []string{r.ID}
+					} else {
+						commRe = append(commRe, r.ID)
+					}
+					updatedCommentsReactions.Reactions[k] = commRe
+				}
+			}
+			b, er := json.Marshal(updatedCommentsReactions)
+			if er != nil {
+				err = er
+				j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("error marshal updated pullrequest comments reactions cache. reactions data: %+v, error: %v", updatedCommentsReactions, err)
+				return
+			}
+			if err = j.cacheProvider.UpdateFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), commentsReactionsCacheID, b); err != nil {
+				j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("UpdateFileByKey error update pullrequest comments reactions cache. path: %s, cache id: %s, reactions data: %v, error: %v", fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), commentsCacheID, b, err)
+				return
 			}
 		}
 		// Comment reactions end (reactions to comments stored on the issue part of PR)
@@ -8118,7 +8181,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 				}
 			}
 			for _, comm := range oldComments.Comments {
-				found := false
+				deleted := false
 				edited := false
 				for newCommID, commentVal := range comments {
 					if newCommID == comm.ID {
@@ -8126,11 +8189,11 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 							edited = true
 							break
 						}
-						found = true
+						deleted = true
 						break
 					}
 				}
-				if !found {
+				if deleted {
 					rvComm := igh.DeleteIssueComment{
 						ID:      comm.ID,
 						IssueID: issueID,
@@ -8148,6 +8211,14 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 					editedComment := igh.IssueComment{
 						ID:      comm.ID,
 						IssueID: issueID,
+						Comment: insights.Comment{
+							Body:            comments[comm.ID].Body,
+							CommentURL:      comments[comm.ID].CommentURL,
+							CommentID:       comments[comm.ID].CommentID,
+							Contributor:     comments[comm.ID].Contributor,
+							SyncTimestamp:   time.Now(),
+							SourceTimestamp: comments[comm.ID].SourceTimestamp,
+						},
 					}
 					key := "comment_edited"
 					ary, ok := data[key]
@@ -8290,20 +8361,20 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 				}
 			}
 			for commID, reactions := range oldCommentsReactions.Reactions {
-				for oldCommID, oldRe := range commentsReactions {
-					if commID == oldCommID {
-						for _, ore := range oldRe {
+				for newCommID, nRes := range commentsReactions {
+					if commID == newCommID {
+						for _, oRe := range reactions {
 							found := false
-							for _, reID := range reactions {
-								if ore.ID == reID {
+							for _, nRe := range nRes {
+								if nRe.ID == oRe {
 									found = true
 									break
 								}
 							}
 							if !found {
 								rvReactions := igh.RemoveIssueCommentReaction{
-									ID:        ore.ID,
-									CommentID: issueID,
+									ID:        oRe,
+									CommentID: issueCommentID,
 								}
 								key := "comment_reaction_removed"
 								ary, ok := data[key]
