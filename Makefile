@@ -22,6 +22,7 @@ encrypt: cmd/encrypt/encrypt.go
 fmt: ${GO_BIN_FILES}
 	${GO_FMT} ${GO_BIN_FILES}
 lint: ${GO_BIN_FILES}
+	go get -u golang.org/x/lint/golint
 	${GO_LINT} ${GO_BIN_FILES}
 vet: ${GO_BIN_FILES}
 	${GO_VET} cmd/github/github.go
@@ -29,6 +30,7 @@ vet: ${GO_BIN_FILES}
 imports: ${GO_BIN_FILES}
 	${GO_IMPORTS} ${GO_BIN_FILES}
 errcheck: ${GO_BIN_FILES}
+	go install github.com/kisielk/errcheck@latest
 	${GO_ERRCHECK} cmd/github/github.go
 	${GO_ERRCHECK} cmd/encrypt/encrypt.go
 check: fmt lint imports vet errcheck
