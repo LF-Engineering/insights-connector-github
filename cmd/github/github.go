@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/LF-Engineering/insights-datasource-github/build"
+	"github.com/LF-Engineering/insights-connector-github/build"
 	"github.com/LF-Engineering/insights-datasource-shared/cache"
 	"github.com/LF-Engineering/insights-datasource-shared/cryptography"
 	"github.com/LF-Engineering/lfx-event-schema/service"
@@ -122,9 +122,11 @@ const (
 	// GitHubPullRequestDefaultStream - Stream To Publish pull requests
 	GitHubPullRequestDefaultStream = "PUT-S3-github-pull-requests"
 	// GitHubConnector ...
-	GitHubConnector   = "github-connector"
+	GitHubConnector = "github-connector"
+	// GitHubPullrequest ...
 	GitHubPullrequest = "pullrequest"
-	GitHubIssue       = "issue"
+	// GitHubIssue ...
+	GitHubIssue = "issue"
 )
 
 var (
@@ -1239,11 +1241,11 @@ func (j *DSGitHub) githubIssues(ctx *shared.Ctx, org, repo string, since, until 
 			abuse, rateLimit := j.isAbuse(e)
 			if abuse {
 				sleepFor := AbuseWaitSeconds + rand.Intn(AbuseWaitSeconds)
-				j.log.WithFields(logrus.Fields{"operation": "githubIssues"}).Info("GitHub detected abuse (get issues %s), waiting for %ds", origin, sleepFor)
+				j.log.WithFields(logrus.Fields{"operation": "githubIssues"}).Infof("GitHub detected abuse (get issues %s), waiting for %ds", origin, sleepFor)
 				time.Sleep(time.Duration(sleepFor) * time.Second)
 			}
 			if rateLimit {
-				j.log.WithFields(logrus.Fields{"operation": "githubIssues"}).Info("Rate limit reached on a token (get issues %s) waiting 1s before token switch", origin)
+				j.log.WithFields(logrus.Fields{"operation": "githubIssues"}).Infof("Rate limit reached on a token (get issues %s) waiting 1s before token switch", origin)
 				time.Sleep(time.Duration(1) * time.Second)
 			}
 			if j.GitHubMtx != nil {
@@ -8528,23 +8530,28 @@ func (j *DSGitHub) AddCacheProvider() {
 	j.cacheProvider = *cacheProvider
 }
 
+// IssueAssignees ...
 type IssueAssignees struct {
 	Assignees []string `json:"assignees"`
 }
 
+// IssueReactions ...
 type IssueReactions struct {
 	Reactions []string `json:"reactions"`
 }
 
+// IssueComments ...
 type IssueComments struct {
 	Comments []IssueComment
 }
 
+// IssueComment ...
 type IssueComment struct {
 	ID   string `json:"id"`
 	Body string `json:"body"`
 }
 
+// IssueCommentReactions ...
 type IssueCommentReactions struct {
 	Reactions map[string][]string `json:"reactions"`
 }

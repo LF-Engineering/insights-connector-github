@@ -12,8 +12,8 @@ GO_ERRCHECK=errcheck -asserts -ignore '[FS]?[Pp]rint*'
 BINARIES=github encrypt
 COMMIT=`git rev-parse --short HEAD`
 VERSION=`git describe --tags --always | cut -d- -f1`
-LDFLAGS=-ldflags "-s -w -extldflags '-static' -X github.com/LF-Engineering/insights-datasource-github/build.GitCommit=$(COMMIT) \
- -X github.com/LF-Engineering/insights-datasource-github/build.Version=$(VERSION)"
+LDFLAGS=-ldflags "-s -w -extldflags '-static' -X github.com/LF-Engineering/insights-connector-github/build.GitCommit=$(COMMIT) \
+ -X github.com/LF-Engineering/insights-connector-github/build.Version=$(VERSION)"
 all: check ${BINARIES}
 github: cmd/github/github.go
 	 ${GO_ENV} ${GO_BUILD} -o github ${LDFLAGS} cmd/github/github.go
