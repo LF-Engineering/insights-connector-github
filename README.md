@@ -1,4 +1,4 @@
-# insights-datasource-github
+# insights-connector-github
 GitHub data source V2
 
 # Environment Variables
