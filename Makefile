@@ -25,9 +25,11 @@ lint: ${GO_BIN_FILES}
 	go get -u golang.org/x/lint/golint
 	${GO_LINT} ${GO_BIN_FILES}
 vet: ${GO_BIN_FILES}
+	go mod vendor
 	${GO_VET} cmd/github/github.go
 	${GO_VET} cmd/encrypt/encrypt.go
 imports: ${GO_BIN_FILES}
+	go install golang.org/x/tools/cmd/goimports@latest
 	${GO_IMPORTS} ${GO_BIN_FILES}
 errcheck: ${GO_BIN_FILES}
 	go install github.com/kisielk/errcheck@latest
