@@ -5545,7 +5545,7 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 							ev, _ := v[0].(igh.IssueCreatedEvent)
 							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
 							for _, val := range v {
-								id := fmt.Sprintf("%s-%s", "issue", val.(igh.IssueCreatedEvent).Payload.IssueID)
+								id := fmt.Sprintf("%s-%s", "issue", val.(igh.IssueCreatedEvent).Payload.ID)
 								data = append(data, map[string]interface{}{
 									"id":   id,
 									"data": "",
@@ -5614,7 +5614,7 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 							ev, _ := v[0].(igh.PullRequestCreatedEvent)
 							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 							for _, val := range v {
-								id := fmt.Sprintf("%s-%s", GitHubPullrequest, val.(igh.PullRequestCreatedEvent).Payload.ChangeRequestID)
+								id := fmt.Sprintf("%s-%s", GitHubPullrequest, val.(igh.PullRequestCreatedEvent).Payload.ID)
 								data = append(data, map[string]interface{}{
 									"id":   id,
 									"data": "",
@@ -5699,6 +5699,7 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 		if err != nil {
 			j.log.WithFields(logrus.Fields{"operation": "OutputDocs"}).Errorf("unable to set last sync date to cache.error: %v", err)
 		}
+		j.log.WithFields(logrus.Fields{"operation": "SetLastSync"}).Info("OutputDocs: last sync date has been updated successfully")
 	}
 }
 
@@ -5780,6 +5781,7 @@ func (j *DSGitHub) Sync(ctx *shared.Ctx, category string) (err error) {
 	gMaxUpstreamDtMtx.Lock()
 	defer gMaxUpstreamDtMtx.Unlock()
 	err = j.cacheProvider.SetLastSync(fmt.Sprintf("%s/%s", j.Org, j.Repo), gMaxUpstreamDt)
+	j.log.WithFields(logrus.Fields{"operation": "SetLastSync"}).Info("Sync: last sync date has been updated successfully")
 	return
 }
 
@@ -6123,6 +6125,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 		nReactions := 0
 		nComments := 0
 		nReviews := 0
+		pullAssignees := make(map[string]struct{})
 		doc, _ := iDoc.(map[string]interface{})
 		createdOn, _ := doc["created_at"].(time.Time)
 		updatedOn := j.ItemUpdatedOn(doc)
@@ -6258,12 +6261,13 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					}
 					data[key] = ary
 					addedAssignees[pullRequestAssigneeID] = struct{}{}
+					pullAssignees[pullRequestAssigneeID] = struct{}{}
 				}
 			}
 		}
 		for _, assID := range oldAssignees.Assignees {
 			found := false
-			for newAss := range addedAssignees {
+			for newAss := range pullAssignees {
 				if newAss == assID {
 					found = true
 					break
@@ -6362,9 +6366,9 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 				}
 			}
 		}
-		if len(addedAssignees) > 0 {
+		if len(pullAssignees) > 0 || oldAssignees.Assignees != nil {
 			var updatedAssignees IssueAssignees
-			for as := range addedAssignees {
+			for as := range pullAssignees {
 				updatedAssignees.Assignees = append(updatedAssignees.Assignees, as)
 			}
 			b, er := json.Marshal(updatedAssignees)
@@ -6768,15 +6772,14 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 				}
 			}
 			for _, comm := range oldComments.Comments {
-				deleted := false
+				deleted := true
 				edited := false
 				for newCommID, commentVal := range uComments {
 					if newCommID == comm.ID {
+						deleted = false
 						if commentVal.Body != comm.Body {
 							edited = true
-							break
 						}
-						deleted = true
 						break
 					}
 				}
@@ -7265,7 +7268,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 			},
 		}
 		key := "updated"
-		cacheID := fmt.Sprintf("%s-%s", GitHubPullrequest, pullRequest.ChangeRequestID)
+		cacheID := fmt.Sprintf("%s-%s", GitHubPullrequest, pullRequest.ID)
 		isCreated, er := j.cacheProvider.IsKeyCreated(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), cacheID)
 		if er != nil {
 			err = er
@@ -7666,6 +7669,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 	for _, iDoc := range docs {
 		nReactions := 0
 		nComments := 0
+		issueAssignees := make(map[string]struct{})
 		doc, _ := iDoc.(map[string]interface{})
 		createdOn, _ := doc["created_at"].(time.Time)
 		updatedOn := j.ItemUpdatedOn(doc)
@@ -7798,11 +7802,12 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 					}
 					data[key] = ary
 					addedAssignees[issueAssigneeID] = struct{}{}
+					issueAssignees[issueAssigneeID] = struct{}{}
 				}
 			}
 			for _, assID := range oldAssignees.Assignees {
 				found := false
-				for newAss := range addedAssignees {
+				for newAss := range issueAssignees {
 					if newAss == assID {
 						found = true
 						break
@@ -7902,7 +7907,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 				}
 			}
 		}
-		if len(addedAssignees) > 0 {
+		if len(addedAssignees) > 0 || oldAssignees.Assignees != nil {
 			var updatedAssignees IssueAssignees
 			for as := range addedAssignees {
 				updatedAssignees.Assignees = append(updatedAssignees.Assignees, as)
@@ -8183,15 +8188,14 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 				}
 			}
 			for _, comm := range oldComments.Comments {
-				deleted := false
+				deleted := true
 				edited := false
 				for newCommID, commentVal := range comments {
 					if newCommID == comm.ID {
+						deleted = false
 						if commentVal.Body != comm.Body {
 							edited = true
-							break
 						}
-						deleted = true
 						break
 					}
 				}
@@ -8441,7 +8445,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 			},
 		}
 		key := "updated"
-		cacheID = fmt.Sprintf("%s-%s", GitHubIssue, issue.IssueID)
+		cacheID = fmt.Sprintf("%s-%s", GitHubIssue, issue.ID)
 		isCreated, er := j.cacheProvider.IsKeyCreated(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), cacheID)
 		if er != nil {
 			err = er
