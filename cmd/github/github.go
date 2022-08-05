@@ -270,7 +270,7 @@ func (j *DSGitHub) WriteLog(ctx *shared.Ctx, timestamp time.Time, status, messag
 	if err != nil {
 		return err
 	}
-	_ = j.Logger.Write(&logger.Log{
+	err = j.Logger.Write(&logger.Log{
 		Connector: GitHubDataSource,
 		Configuration: []map[string]string{
 			{
@@ -283,7 +283,7 @@ func (j *DSGitHub) WriteLog(ctx *shared.Ctx, timestamp time.Time, status, messag
 		CreatedAt: timestamp,
 		Message:   message,
 	})
-	return nil
+	return err
 }
 
 // AddFlags - add GitHub specific flags
