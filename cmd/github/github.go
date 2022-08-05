@@ -264,20 +264,26 @@ func (j *DSGitHub) AddLogger(ctx *shared.Ctx) {
 }
 
 // WriteLog - writes to log
-func (j *DSGitHub) WriteLog(ctx *shared.Ctx, timestamp time.Time, status, message string) {
-	_ = j.Logger.Write(&logger.Log{
+func (j *DSGitHub) WriteLog(ctx *shared.Ctx, timestamp time.Time, status, message string) error {
+	source := GitHubDataSource
+	repoID, err := repository.GenerateRepositoryID(j.SourceID, j.URL, source)
+	if err != nil {
+		return err
+	}
+	err = j.Logger.Write(&logger.Log{
 		Connector: GitHubDataSource,
 		Configuration: []map[string]string{
 			{
-				"GITHUB_ORG":  j.Org,
-				"GITHUB_REPO": j.Repo,
-				"REPO_URL":    j.URL,
-				"ProjectSlug": ctx.Project,
+				"source_id":   j.SourceID,
+				"endpoint_id": repoID,
+				"repo_url":    j.URL,
+				"category":    j.Categories[0],
 			}},
 		Status:    status,
 		CreatedAt: timestamp,
 		Message:   message,
 	})
+	return err
 }
 
 // AddFlags - add GitHub specific flags
@@ -530,7 +536,10 @@ func (j *DSGitHub) Validate(ctx *shared.Ctx) (err error) {
 		}
 		j.EmojisMtx = &sync.RWMutex{}
 	}
-	j.Hint, _ = j.handleRate(ctx)
+	j.Hint, _, err = j.handleRate(ctx)
+	if err != nil {
+		return
+	}
 	j.CacheDir = os.ExpandEnv(j.CacheDir)
 	if strings.HasSuffix(j.CacheDir, "/") {
 		j.CacheDir = j.CacheDir[:len(j.CacheDir)-1]
@@ -668,7 +677,7 @@ func (j *DSGitHub) getRateLimits(gctx context.Context, ctx *shared.Ctx, gcs []*g
 	return hint, limits, remainings, durations
 }
 
-func (j *DSGitHub) handleRate(ctx *shared.Ctx) (aHint int, canCache bool) {
+func (j *DSGitHub) handleRate(ctx *shared.Ctx) (aHint int, canCache bool, err error) {
 	if j.GitHubRateMtx != nil {
 		j.GitHubRateMtx.RLock()
 	}
@@ -694,11 +703,9 @@ func (j *DSGitHub) handleRate(ctx *shared.Ctx) (aHint int, canCache bool) {
 			j.log.WithFields(logrus.Fields{"operation": "handleRate"}).Debugf("Checking token %d %+v %+v", h, rem, wait)
 		}
 		if rem[h] <= 5 {
-			j.log.WithFields(logrus.Fields{"operation": "handleRate"}).Infof("All GH API tokens are overloaded, maximum points %d, waiting %+v", rem[h], wait[h])
-			time.Sleep(time.Duration(1) * time.Second)
-			time.Sleep(wait[h])
-			h, _, rem, wait = j.getRateLimits(j.Context, ctx, j.Clients, true)
-			continue
+			err = fmt.Errorf("all GH API tokens are overloaded, maximum points %d, waiting %+v", rem[h], wait[h])
+			j.log.WithFields(logrus.Fields{"operation": "handleRate"}).Errorf("All GH API tokens are overloaded, maximum points %d, waiting %+v", rem[h], wait[h])
+			return
 		}
 		if rem[h] >= 500 {
 			canCache = true
@@ -817,7 +824,11 @@ func (j *DSGitHub) githubUserOrgs(ctx *shared.Ctx, login string) (orgsData []map
 			if j.GitHubMtx != nil {
 				j.GitHubMtx.Lock()
 			}
-			j.Hint, _ = j.handleRate(ctx)
+			j.Hint, _, e = j.handleRate(ctx)
+			if e != nil {
+				err = e
+				return
+			}
 			c = j.Clients[j.Hint]
 			if j.GitHubMtx != nil {
 				j.GitHubMtx.Unlock()
@@ -1029,7 +1040,11 @@ func (j *DSGitHub) githubUser(ctx *shared.Ctx, login string) (user map[string]in
 			if j.GitHubMtx != nil {
 				j.GitHubMtx.Lock()
 			}
-			j.Hint, _ = j.handleRate(ctx)
+			j.Hint, _, e = j.handleRate(ctx)
+			if e != nil {
+				err = e
+				return
+			}
 			c = j.Clients[j.Hint]
 			if j.GitHubMtx != nil {
 				j.GitHubMtx.Unlock()
@@ -1139,7 +1154,11 @@ func (j *DSGitHub) githubRepo(ctx *shared.Ctx, org, repo string) (repoData map[s
 			if j.GitHubMtx != nil {
 				j.GitHubMtx.Lock()
 			}
-			j.Hint, _ = j.handleRate(ctx)
+			j.Hint, _, e = j.handleRate(ctx)
+			if e != nil {
+				err = e
+				return
+			}
 			c = j.Clients[j.Hint]
 			if j.GitHubMtx != nil {
 				j.GitHubMtx.Unlock()
@@ -1251,7 +1270,11 @@ func (j *DSGitHub) githubIssues(ctx *shared.Ctx, org, repo string, since, until 
 			if j.GitHubMtx != nil {
 				j.GitHubMtx.Lock()
 			}
-			j.Hint, _ = j.handleRate(ctx)
+			j.Hint, _, e = j.handleRate(ctx)
+			if e != nil {
+				err = e
+				return
+			}
 			c = j.Clients[j.Hint]
 			if j.GitHubMtx != nil {
 				j.GitHubMtx.Unlock()
@@ -1376,7 +1399,11 @@ func (j *DSGitHub) githubIssueComments(ctx *shared.Ctx, org, repo string, number
 			if j.GitHubMtx != nil {
 				j.GitHubMtx.Lock()
 			}
-			j.Hint, _ = j.handleRate(ctx)
+			j.Hint, _, e = j.handleRate(ctx)
+			if e != nil {
+				err = e
+				return
+			}
 			c = j.Clients[j.Hint]
 			if j.GitHubMtx != nil {
 				j.GitHubMtx.Unlock()
@@ -1523,7 +1550,11 @@ func (j *DSGitHub) githubCommentReactions(ctx *shared.Ctx, org, repo string, cid
 			if j.GitHubMtx != nil {
 				j.GitHubMtx.Lock()
 			}
-			j.Hint, _ = j.handleRate(ctx)
+			j.Hint, _, e = j.handleRate(ctx)
+			if e != nil {
+				err = e
+				return
+			}
 			c = j.Clients[j.Hint]
 			if j.GitHubMtx != nil {
 				j.GitHubMtx.Unlock()
@@ -1648,7 +1679,11 @@ func (j *DSGitHub) githubIssueReactions(ctx *shared.Ctx, org, repo string, numbe
 			if j.GitHubMtx != nil {
 				j.GitHubMtx.Lock()
 			}
-			j.Hint, _ = j.handleRate(ctx)
+			j.Hint, _, e = j.handleRate(ctx)
+			if e != nil {
+				err = e
+				return
+			}
 			c = j.Clients[j.Hint]
 			if j.GitHubMtx != nil {
 				j.GitHubMtx.Unlock()
@@ -1768,7 +1803,11 @@ func (j *DSGitHub) githubPull(ctx *shared.Ctx, org, repo string, number int) (pu
 			if j.GitHubMtx != nil {
 				j.GitHubMtx.Lock()
 			}
-			j.Hint, _ = j.handleRate(ctx)
+			j.Hint, _, e = j.handleRate(ctx)
+			if e != nil {
+				err = e
+				return
+			}
 			c = j.Clients[j.Hint]
 			if j.GitHubMtx != nil {
 				j.GitHubMtx.Unlock()
@@ -1967,7 +2006,11 @@ func (j *DSGitHub) githubPulls(ctx *shared.Ctx, org, repo string, since, until *
 			if j.GitHubMtx != nil {
 				j.GitHubMtx.Lock()
 			}
-			j.Hint, _ = j.handleRate(ctx)
+			j.Hint, _, e = j.handleRate(ctx)
+			if e != nil {
+				err = e
+				return
+			}
 			c = j.Clients[j.Hint]
 			if j.GitHubMtx != nil {
 				j.GitHubMtx.Unlock()
@@ -2090,7 +2133,11 @@ func (j *DSGitHub) githubPullReviews(ctx *shared.Ctx, org, repo string, number i
 			if j.GitHubMtx != nil {
 				j.GitHubMtx.Lock()
 			}
-			j.Hint, _ = j.handleRate(ctx)
+			j.Hint, _, e = j.handleRate(ctx)
+			if e != nil {
+				err = e
+				return
+			}
 			c = j.Clients[j.Hint]
 			if j.GitHubMtx != nil {
 				j.GitHubMtx.Unlock()
@@ -2223,7 +2270,11 @@ func (j *DSGitHub) githubPullReviewComments(ctx *shared.Ctx, org, repo string, n
 			if j.GitHubMtx != nil {
 				j.GitHubMtx.Lock()
 			}
-			j.Hint, _ = j.handleRate(ctx)
+			j.Hint, _, e = j.handleRate(ctx)
+			if e != nil {
+				err = e
+				return
+			}
 			c = j.Clients[j.Hint]
 			if j.GitHubMtx != nil {
 				j.GitHubMtx.Unlock()
@@ -2370,7 +2421,11 @@ func (j *DSGitHub) githubReviewCommentReactions(ctx *shared.Ctx, org, repo strin
 			if j.GitHubMtx != nil {
 				j.GitHubMtx.Lock()
 			}
-			j.Hint, _ = j.handleRate(ctx)
+			j.Hint, _, e = j.handleRate(ctx)
+			if e != nil {
+				err = e
+				return
+			}
 			c = j.Clients[j.Hint]
 			if j.GitHubMtx != nil {
 				j.GitHubMtx.Unlock()
@@ -2492,7 +2547,11 @@ func (j *DSGitHub) githubPullRequestedReviewers(ctx *shared.Ctx, org, repo strin
 			if j.GitHubMtx != nil {
 				j.GitHubMtx.Lock()
 			}
-			j.Hint, _ = j.handleRate(ctx)
+			j.Hint, _, e = j.handleRate(ctx)
+			if e != nil {
+				err = e
+				return
+			}
 			c = j.Clients[j.Hint]
 			if j.GitHubMtx != nil {
 				j.GitHubMtx.Unlock()
@@ -2613,7 +2672,11 @@ func (j *DSGitHub) githubPullCommits(ctx *shared.Ctx, org, repo string, number i
 			if j.GitHubMtx != nil {
 				j.GitHubMtx.Lock()
 			}
-			j.Hint, _ = j.handleRate(ctx)
+			j.Hint, _, e = j.handleRate(ctx)
+			if e != nil {
+				err = e
+				return
+			}
 			c = j.Clients[j.Hint]
 			if j.GitHubMtx != nil {
 				j.GitHubMtx.Unlock()
@@ -8503,14 +8566,21 @@ func main() {
 	shared.AddLogger(&github.Logger, GitHubDataSource, logger.Internal, []map[string]string{{"GITHUB_ORG": github.Org, "GITHUB_REPO": github.Repo, "REPO_URL": github.URL, "ProjectSlug": ctx.Project}})
 	github.AddCacheProvider()
 	for cat := range ctx.Categories {
-		github.WriteLog(&ctx, timestamp, logger.InProgress, cat)
+		err = github.WriteLog(&ctx, timestamp, logger.InProgress, cat)
+		if err != nil {
+			github.log.WithFields(logrus.Fields{"operation": "main"}).Errorf("WriteLog Error : %+v", err)
+			return
+		}
 		err = github.Sync(&ctx, cat)
 		if err != nil {
 			github.log.WithFields(logrus.Fields{"operation": "main"}).Errorf("Error: %+v", err)
-			github.WriteLog(&ctx, timestamp, logger.Failed, cat+": "+err.Error())
+			er := github.WriteLog(&ctx, timestamp, logger.Failed, cat+": "+err.Error())
+			if er != nil {
+				err = er
+			}
 			return
 		}
-		github.WriteLog(&ctx, timestamp, logger.Done, cat)
+		err = github.WriteLog(&ctx, timestamp, logger.Done, cat)
 	}
 }
 
