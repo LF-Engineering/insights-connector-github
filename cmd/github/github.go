@@ -264,20 +264,26 @@ func (j *DSGitHub) AddLogger(ctx *shared.Ctx) {
 }
 
 // WriteLog - writes to log
-func (j *DSGitHub) WriteLog(ctx *shared.Ctx, timestamp time.Time, status, message string) {
+func (j *DSGitHub) WriteLog(ctx *shared.Ctx, timestamp time.Time, status, message string) error {
+	source := GitHubDataSource
+	repoID, err := repository.GenerateRepositoryID(j.SourceID, j.URL, source)
+	if err != nil {
+		return err
+	}
 	_ = j.Logger.Write(&logger.Log{
 		Connector: GitHubDataSource,
 		Configuration: []map[string]string{
 			{
-				"GITHUB_ORG":  j.Org,
-				"GITHUB_REPO": j.Repo,
-				"REPO_URL":    j.URL,
-				"ProjectSlug": ctx.Project,
+				"source_id":   j.SourceID,
+				"endpoint_id": repoID,
+				"repo_url":    j.URL,
+				"category":    j.Categories[0],
 			}},
 		Status:    status,
 		CreatedAt: timestamp,
 		Message:   message,
 	})
+	return nil
 }
 
 // AddFlags - add GitHub specific flags
@@ -8503,14 +8509,21 @@ func main() {
 	shared.AddLogger(&github.Logger, GitHubDataSource, logger.Internal, []map[string]string{{"GITHUB_ORG": github.Org, "GITHUB_REPO": github.Repo, "REPO_URL": github.URL, "ProjectSlug": ctx.Project}})
 	github.AddCacheProvider()
 	for cat := range ctx.Categories {
-		github.WriteLog(&ctx, timestamp, logger.InProgress, cat)
+		err = github.WriteLog(&ctx, timestamp, logger.InProgress, cat)
+		if err != nil {
+			github.log.WithFields(logrus.Fields{"operation": "main"}).Errorf("WriteLog Error : %+v", err)
+			return
+		}
 		err = github.Sync(&ctx, cat)
 		if err != nil {
 			github.log.WithFields(logrus.Fields{"operation": "main"}).Errorf("Error: %+v", err)
-			github.WriteLog(&ctx, timestamp, logger.Failed, cat+": "+err.Error())
+			er := github.WriteLog(&ctx, timestamp, logger.Failed, cat+": "+err.Error())
+			if er != nil {
+				err = er
+			}
 			return
 		}
-		github.WriteLog(&ctx, timestamp, logger.Done, cat)
+		err = github.WriteLog(&ctx, timestamp, logger.Done, cat)
 	}
 }
 
