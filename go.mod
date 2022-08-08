@@ -4,7 +4,7 @@ go 1.17
 
 require (
 	github.com/LF-Engineering/dev-analytics-libraries v1.1.28
-	github.com/LF-Engineering/insights-datasource-shared v1.5.10-0.20220728234810-b5126c436c39
+	github.com/LF-Engineering/insights-datasource-shared v1.5.12-0.20220808192022-c66d3d9867cd
 	github.com/LF-Engineering/lfx-event-schema v0.1.20
 	github.com/aws/aws-lambda-go v1.28.0
 	github.com/aws/aws-sdk-go v1.43.22
@@ -37,11 +37,9 @@ require (
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	golang.org/x/crypto v0.0.0-20211215153901-e495a2d5b3d3 // indirect
-	golang.org/x/lint v0.0.0-20210508222113-6edffad5e616 // indirect
 	golang.org/x/net v0.0.0-20220722155237-a158d28d115b // indirect
 	golang.org/x/sys v0.0.0-20220722155257-8c9f86f7a55f // indirect
 	golang.org/x/text v0.3.7 // indirect
-	golang.org/x/tools v0.1.12 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
 	google.golang.org/protobuf v1.25.0 // indirect
 )

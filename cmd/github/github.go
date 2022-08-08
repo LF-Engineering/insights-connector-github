@@ -278,13 +278,13 @@ func (j *DSGitHub) WriteLog(ctx *shared.Ctx, timestamp time.Time, status, messag
 	}
 	err = j.Logger.Write(&logger.Log{
 		Connector: GitHubDataSource,
+		TaskARN:   arn,
 		Configuration: []map[string]string{
 			{
 				"source_id":   j.SourceID,
 				"endpoint_id": repoID,
 				"repo_url":    j.URL,
 				"category":    j.Categories[0],
-				"task_arn":    arn,
 			}},
 		Status:    status,
 		CreatedAt: timestamp,
@@ -8579,12 +8579,7 @@ func main() {
 	shared.AddLogger(&github.Logger, GitHubDataSource, logger.Internal, []map[string]string{{"GITHUB_ORG": github.Org, "GITHUB_REPO": github.Repo, "REPO_URL": github.URL, "ProjectSlug": ctx.Project}})
 	github.AddCacheProvider()
 	for cat := range ctx.Categories {
-		arn, err := getContainerMetadata()
-		if err != nil {
-			github.log.WithFields(logrus.Fields{"operation": "main"}).Errorf("getContainerMetadata Error : %+v", err)
-			return
-		}
-		err = github.WriteLog(&ctx, timestamp, logger.InProgress, arn)
+		err = github.WriteLog(&ctx, timestamp, logger.InProgress, cat)
 		if err != nil {
 			github.log.WithFields(logrus.Fields{"operation": "main"}).Errorf("WriteLog Error : %+v", err)
 			return

@@ -90,7 +90,7 @@ workflows:
             - build
           filters:
             branches:
-              only: handle-exit-with-panic #main
+              only: main
             tags:
               ignore: /.*/
       - approve_prod:
