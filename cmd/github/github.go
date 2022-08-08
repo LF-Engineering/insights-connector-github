@@ -8667,6 +8667,7 @@ type IssueCommentReactions struct {
 	Reactions map[string][]string `json:"reactions"`
 }
 
+// ContainerMetadata ...
 type ContainerMetadata struct {
 	TaskARN string `json:"TaskARN"`
 }
