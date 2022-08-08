@@ -6350,9 +6350,9 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 				}
 			}
 			if !found {
-				rvAssignee := igh.RemoveIssueAssignee{
-					ID:      assID,
-					IssueID: pullRequestID,
+				rvAssignee := igh.RemovePullRequestAssignee{
+					ID:            assID,
+					PullRequestID: pullRequestID,
 				}
 				key := "assignee_removed"
 				ary, ok := data[key]
