@@ -3085,7 +3085,9 @@ func (j *DSGitHub) FetchItemsIssue(ctx *shared.Ctx) (err error) {
 		return
 	}
 	issues, err := j.githubIssues(ctx, j.Org, j.Repo, ctx.DateFrom, ctx.DateTo)
-	shared.FatalOnError(err)
+	if err != nil {
+		return
+	}
 	runtime.GC()
 	nIss = len(issues)
 	j.log.WithFields(logrus.Fields{"operation": "FetchItemsIssue"}).Infof("%s/%s: got %d issues", j.URL, j.CurrentCategory, nIss)
