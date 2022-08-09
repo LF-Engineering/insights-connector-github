@@ -18,6 +18,7 @@ import (
 	"github.com/LF-Engineering/insights-connector-github/build"
 	"github.com/LF-Engineering/insights-datasource-shared/cache"
 	"github.com/LF-Engineering/insights-datasource-shared/cryptography"
+	"github.com/LF-Engineering/insights-datasource-shared/http"
 	"github.com/LF-Engineering/lfx-event-schema/service"
 	"github.com/LF-Engineering/lfx-event-schema/service/insights"
 	"github.com/LF-Engineering/lfx-event-schema/service/repository"
@@ -270,8 +271,14 @@ func (j *DSGitHub) WriteLog(ctx *shared.Ctx, timestamp time.Time, status, messag
 	if err != nil {
 		return err
 	}
+	arn, err := getContainerMetadata()
+	if err != nil {
+		j.log.WithFields(logrus.Fields{"operation": "WriteLog"}).Errorf("getContainerMetadata Error : %+v", err)
+		return err
+	}
 	err = j.Logger.Write(&logger.Log{
 		Connector: GitHubDataSource,
+		TaskARN:   arn,
 		Configuration: []map[string]string{
 			{
 				"source_id":   j.SourceID,
@@ -3018,7 +3025,9 @@ func (j *DSGitHub) FetchItemsIssue(ctx *shared.Ctx) (err error) {
 			}
 		}()
 		item, err := j.ProcessIssue(ctx, issue)
-		shared.FatalOnError(err)
+		if err != nil {
+			return
+		}
 		esItem := j.AddMetadata(ctx, item)
 		if ctx.Project != "" {
 			item["project"] = ctx.Project
@@ -3076,7 +3085,9 @@ func (j *DSGitHub) FetchItemsIssue(ctx *shared.Ctx) (err error) {
 		return
 	}
 	issues, err := j.githubIssues(ctx, j.Org, j.Repo, ctx.DateFrom, ctx.DateTo)
-	shared.FatalOnError(err)
+	if err != nil {
+		return
+	}
 	runtime.GC()
 	nIss = len(issues)
 	j.log.WithFields(logrus.Fields{"operation": "FetchItemsIssue"}).Infof("%s/%s: got %d issues", j.URL, j.CurrentCategory, nIss)
@@ -3194,7 +3205,9 @@ func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 			}
 		}()
 		item, err := j.ProcessPull(ctx, pull)
-		shared.FatalOnError(err)
+		if err != nil {
+			return
+		}
 		esItem := j.AddMetadata(ctx, item)
 		if ctx.Project != "" {
 			item["project"] = ctx.Project
@@ -3261,7 +3274,9 @@ func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 	} else {
 		pulls, err = j.githubPulls(ctx, j.Org, j.Repo, ctx.DateFrom, ctx.DateTo)
 	}
-	shared.FatalOnError(err)
+	if err != nil {
+		return
+	}
 	runtime.GC()
 	nPRs = len(pulls)
 	j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Infof("%s/%s: got %d pulls", j.URL, j.CurrentCategory, nPRs)
@@ -6337,9 +6352,9 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 				}
 			}
 			if !found {
-				rvAssignee := igh.RemoveIssueAssignee{
-					ID:      assID,
-					IssueID: pullRequestID,
+				rvAssignee := igh.RemovePullRequestAssignee{
+					ID:            assID,
+					PullRequestID: pullRequestID,
 				}
 				key := "assignee_removed"
 				ary, ok := data[key]
@@ -7781,7 +7796,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 		fileData, er := j.cacheProvider.GetFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), cacheID)
 		if er != nil {
 			err = er
-			j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("IsKeyCreated check if key created error: %v", err)
+			j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("GetFileByKey get cached assignees error: %v", err)
 			return
 		}
 		oldAssignees := IssueAssignees{}
@@ -7995,7 +8010,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 		reactionsFileData, er := j.cacheProvider.GetFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), reactionsCacheID)
 		if er != nil {
 			err = er
-			j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("IsKeyCreated check if issue reactions key created error: %v", err)
+			j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("GetFileByKey get issue reactions cached error: %v", err)
 			return
 		}
 		oldReactions := IssueReactions{Reactions: []string{}}
@@ -8158,7 +8173,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 		commentsFileData, er := j.cacheProvider.GetFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), commentsCacheID)
 		if er != nil {
 			err = er
-			j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("IsKeyCreated check if issue comments key created error: %v", err)
+			j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("GetFileByKey get issue comments cached error: %v", err)
 			return
 		}
 		oldComments := IssueComments{}
@@ -8327,7 +8342,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 		commentsReactionsFileData, er := j.cacheProvider.GetFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), commentsReactionsCacheID)
 		if er != nil {
 			err = er
-			j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("IsKeyCreated check if issue comments reactions key created error: %v", err)
+			j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("GetFileByKey get issue comments reactions cached error: %v", err)
 			return
 		}
 		oldCommentsReactions := IssueCommentReactions{}
@@ -8604,6 +8619,25 @@ func (j *DSGitHub) AddCacheProvider() {
 	j.cacheProvider = *cacheProvider
 }
 
+func getContainerMetadata() (string, error) {
+	httpClient := http.NewClientProvider(60*time.Second, true)
+	statusCode, res, err := httpClient.Request(fmt.Sprintf("%s/task", os.Getenv("ECS_CONTAINER_METADATA_URI_V4")), "GET", nil, nil, nil)
+	if err != nil {
+		return "", err
+	}
+	if statusCode > 200 {
+		return "", fmt.Errorf("getContainerMetadata error: status code is %d", statusCode)
+	}
+
+	metaResponse := ContainerMetadata{}
+	err = json.Unmarshal(res, &metaResponse)
+	if err != nil {
+		return "", err
+	}
+
+	return metaResponse.TaskARN, nil
+}
+
 // IssueAssignees ...
 type IssueAssignees struct {
 	Assignees []string `json:"assignees"`
@@ -8628,4 +8662,9 @@ type IssueComment struct {
 // IssueCommentReactions ...
 type IssueCommentReactions struct {
 	Reactions map[string][]string `json:"reactions"`
+}
+
+// ContainerMetadata ...
+type ContainerMetadata struct {
+	TaskARN string `json:"TaskARN"`
 }
