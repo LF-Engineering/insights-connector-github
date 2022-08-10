@@ -18,7 +18,6 @@ import (
 	"github.com/LF-Engineering/insights-connector-github/build"
 	"github.com/LF-Engineering/insights-datasource-shared/cache"
 	"github.com/LF-Engineering/insights-datasource-shared/cryptography"
-	"github.com/LF-Engineering/insights-datasource-shared/http"
 	"github.com/LF-Engineering/lfx-event-schema/service"
 	"github.com/LF-Engineering/lfx-event-schema/service/insights"
 	"github.com/LF-Engineering/lfx-event-schema/service/repository"
@@ -32,9 +31,9 @@ import (
 	"github.com/LF-Engineering/dev-analytics-libraries/emoji"
 
 	shared "github.com/LF-Engineering/insights-datasource-shared"
+	"github.com/LF-Engineering/insights-datasource-shared/aws"
 	elastic "github.com/LF-Engineering/insights-datasource-shared/elastic"
 	logger "github.com/LF-Engineering/insights-datasource-shared/ingestjob"
-
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/google/go-github/v43/github"
@@ -271,7 +270,7 @@ func (j *DSGitHub) WriteLog(ctx *shared.Ctx, timestamp time.Time, status, messag
 	if err != nil {
 		return err
 	}
-	arn, err := getContainerMetadata()
+	arn, err := aws.GetContainerARN()
 	if err != nil {
 		j.log.WithFields(logrus.Fields{"operation": "WriteLog"}).Errorf("getContainerMetadata Error : %+v", err)
 		return err
@@ -5773,7 +5772,11 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 		*docs = []interface{}{}
 		gMaxUpstreamDtMtx.Lock()
 		defer gMaxUpstreamDtMtx.Unlock()
-		err = j.cacheProvider.SetLastSync(fmt.Sprintf("%s/%s", j.Org, j.Repo), gMaxUpstreamDt)
+		cat := j.CurrentCategory
+		if cat == "pull_request" {
+			cat = GitHubPullrequest
+		}
+		err = j.cacheProvider.SetLastSync(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, cat), gMaxUpstreamDt)
 		if err != nil {
 			j.log.WithFields(logrus.Fields{"operation": "OutputDocs"}).Errorf("unable to set last sync date to cache.error: %v", err)
 		}
@@ -5840,7 +5843,11 @@ func (j *DSGitHub) Sync(ctx *shared.Ctx, category string) (err error) {
 		j.log.WithFields(logrus.Fields{"operation": "Sync"}).Infof("%s fetching from %v (%d threads)", j.Endpoint(), ctx.DateFrom, j.ThrN)
 	}
 	if ctx.DateFrom == nil {
-		cachedLastSync, er := j.cacheProvider.GetLastSync(fmt.Sprintf("%s/%s", j.Org, j.Repo))
+		cat := j.CurrentCategory
+		if cat == "pull_request" {
+			cat = GitHubPullrequest
+		}
+		cachedLastSync, er := j.cacheProvider.GetLastSync(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, cat))
 		if er != nil {
 			err = er
 			return
@@ -5858,7 +5865,11 @@ func (j *DSGitHub) Sync(ctx *shared.Ctx, category string) (err error) {
 	// NOTE: Non-generic ends here
 	gMaxUpstreamDtMtx.Lock()
 	defer gMaxUpstreamDtMtx.Unlock()
-	err = j.cacheProvider.SetLastSync(fmt.Sprintf("%s/%s", j.Org, j.Repo), gMaxUpstreamDt)
+	cat := j.CurrentCategory
+	if cat == "pull_request" {
+		cat = GitHubPullrequest
+	}
+	err = j.cacheProvider.SetLastSync(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, cat), gMaxUpstreamDt)
 	j.log.WithFields(logrus.Fields{"operation": "SetLastSync"}).Info("Sync: last sync date has been updated successfully")
 	return
 }
@@ -6330,40 +6341,26 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 				}
 				_, ok := addedAssignees[pullRequestAssigneeID]
 				if !ok {
-					key := "assignee_added"
-					ary, ok := data[key]
-					if !ok {
-						ary = []interface{}{pullRequestAssignee}
-					} else {
-						ary = append(ary, pullRequestAssignee)
+					found := false
+					for _, olds := range oldAssignees.Assignees {
+						if olds == pullRequestAssigneeID {
+							found = true
+							break
+						}
 					}
-					data[key] = ary
+					if !found {
+						key := "assignee_added"
+						ary, ok := data[key]
+						if !ok {
+							ary = []interface{}{pullRequestAssignee}
+						} else {
+							ary = append(ary, pullRequestAssignee)
+						}
+						data[key] = ary
+					}
 					addedAssignees[pullRequestAssigneeID] = struct{}{}
 					pullAssignees[pullRequestAssigneeID] = struct{}{}
 				}
-			}
-		}
-		for _, assID := range oldAssignees.Assignees {
-			found := false
-			for newAss := range pullAssignees {
-				if newAss == assID {
-					found = true
-					break
-				}
-			}
-			if !found {
-				rvAssignee := igh.RemovePullRequestAssignee{
-					ID:            assID,
-					PullRequestID: pullRequestID,
-				}
-				key := "assignee_removed"
-				ary, ok := data[key]
-				if !ok {
-					ary = []interface{}{rvAssignee}
-				} else {
-					ary = append(ary, rvAssignee)
-				}
-				data[key] = ary
 			}
 		}
 		// Primary assignee end
@@ -6431,17 +6428,50 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					}
 					_, ok := addedAssignees[pullRequestAssigneeID]
 					if !ok {
-						key := "assignee_added"
-						ary, ok := data[key]
-						if !ok {
-							ary = []interface{}{pullRequestAssignee}
-						} else {
-							ary = append(ary, pullRequestAssignee)
+						found := false
+						for _, olds := range oldAssignees.Assignees {
+							if olds == pullRequestAssigneeID {
+								found = true
+								break
+							}
 						}
-						data[key] = ary
+						if !found {
+							key := "assignee_added"
+							ary, ok := data[key]
+							if !ok {
+								ary = []interface{}{pullRequestAssignee}
+							} else {
+								ary = append(ary, pullRequestAssignee)
+							}
+							data[key] = ary
+						}
 						addedAssignees[pullRequestAssigneeID] = struct{}{}
+						pullAssignees[pullRequestAssigneeID] = struct{}{}
 					}
 				}
+			}
+		}
+		for _, assID := range oldAssignees.Assignees {
+			found := false
+			for newAss := range pullAssignees {
+				if newAss == assID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				rvAssignee := igh.RemovePullRequestAssignee{
+					ID:            assID,
+					PullRequestID: pullRequestID,
+				}
+				key := "assignee_removed"
+				ary, ok := data[key]
+				if !ok {
+					ary = []interface{}{rvAssignee}
+				} else {
+					ary = append(ary, rvAssignee)
+				}
+				data[key] = ary
 			}
 		}
 		if len(pullAssignees) > 0 || oldAssignees.Assignees != nil {
@@ -6837,67 +6867,76 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 							Orphaned:        false,
 						},
 					}
-					key := "comment_added"
-					ary, ok := data[key]
-					if !ok {
-						ary = []interface{}{pullRequestComment}
-					} else {
-						ary = append(ary, pullRequestComment)
+					found := false
+					for _, oldc := range oldComments.Comments {
+						if oldc.ID == pullRequestCommentID {
+							found = true
+							break
+						}
 					}
-					data[key] = ary
+					if !found {
+						key := "comment_added"
+						ary, ok := data[key]
+						if !ok {
+							ary = []interface{}{pullRequestComment}
+						} else {
+							ary = append(ary, pullRequestComment)
+						}
+						data[key] = ary
+					}
 					uComments[pullRequestCommentID] = pullRequestComment
 					nComments++
 				}
 			}
-			for _, comm := range oldComments.Comments {
-				deleted := true
-				edited := false
-				for newCommID, commentVal := range uComments {
-					if newCommID == comm.ID {
-						deleted = false
-						if commentVal.Body != comm.Body {
-							edited = true
-						}
-						break
+		}
+		for _, comm := range oldComments.Comments {
+			deleted := true
+			edited := false
+			for newCommID, commentVal := range uComments {
+				if newCommID == comm.ID {
+					deleted = false
+					if commentVal.Body != comm.Body {
+						edited = true
 					}
+					break
 				}
-				if deleted {
-					rvComm := igh.DeletePullRequestComment{
-						ID:            comm.ID,
-						PullRequestID: pullRequestID,
-					}
-					key := "comment_deleted"
-					ary, ok := data[key]
-					if !ok {
-						ary = []interface{}{rvComm}
-					} else {
-						ary = append(ary, rvComm)
-					}
-					data[key] = ary
+			}
+			if deleted {
+				rvComm := igh.DeletePullRequestComment{
+					ID:            comm.ID,
+					PullRequestID: pullRequestID,
 				}
-				if edited {
-					editedComment := igh.PullRequestComment{
-						ID:            comm.ID,
-						PullRequestID: pullRequestID,
-						Comment: insights.Comment{
-							Body:            uComments[comm.ID].Body,
-							CommentURL:      uComments[comm.ID].CommentURL,
-							SourceTimestamp: uComments[comm.ID].SourceTimestamp,
-							SyncTimestamp:   time.Now(),
-							CommentID:       uComments[comm.ID].CommentID,
-							Contributor:     uComments[comm.ID].Contributor,
-							Orphaned:        false,
-						},
-					}
-					key := "comment_edited"
-					ary, ok := data[key]
-					if !ok {
-						ary = []interface{}{editedComment}
-					} else {
-						ary = append(ary, editedComment)
-					}
-					data[key] = ary
+				key := "comment_deleted"
+				ary, ok := data[key]
+				if !ok {
+					ary = []interface{}{rvComm}
+				} else {
+					ary = append(ary, rvComm)
 				}
+				data[key] = ary
+			}
+			if edited {
+				editedComment := igh.PullRequestComment{
+					ID:            comm.ID,
+					PullRequestID: pullRequestID,
+					Comment: insights.Comment{
+						Body:            uComments[comm.ID].Body,
+						CommentURL:      uComments[comm.ID].CommentURL,
+						SourceTimestamp: uComments[comm.ID].SourceTimestamp,
+						SyncTimestamp:   time.Now(),
+						CommentID:       uComments[comm.ID].CommentID,
+						Contributor:     uComments[comm.ID].Contributor,
+						Orphaned:        false,
+					},
+				}
+				key := "comment_edited"
+				ary, ok := data[key]
+				if !ok {
+					ary = []interface{}{editedComment}
+				} else {
+					ary = append(ary, editedComment)
+				}
+				data[key] = ary
 			}
 		}
 
@@ -7871,39 +7910,25 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 				}
 				_, ok := addedAssignees[issueAssigneeID]
 				if !ok {
-					key := "assignee_added"
-					ary, ok := data[key]
-					if !ok {
-						ary = []interface{}{issueAssignee}
-					} else {
-						ary = append(ary, issueAssignee)
+					found := false
+					for _, olds := range oldAssignees.Assignees {
+						if olds == issueAssigneeID {
+							found = true
+							break
+						}
 					}
-					data[key] = ary
+					if !found {
+						key := "assignee_added"
+						ary, ok := data[key]
+						if !ok {
+							ary = []interface{}{issueAssignee}
+						} else {
+							ary = append(ary, issueAssignee)
+						}
+						data[key] = ary
+					}
 					addedAssignees[issueAssigneeID] = struct{}{}
 					issueAssignees[issueAssigneeID] = struct{}{}
-				}
-			}
-			for _, assID := range oldAssignees.Assignees {
-				found := false
-				for newAss := range issueAssignees {
-					if newAss == assID {
-						found = true
-						break
-					}
-				}
-				if !found {
-					rvAssignee := igh.RemoveIssueAssignee{
-						ID:      assID,
-						IssueID: issueID,
-					}
-					key := "assignee_removed"
-					ary, ok := data[key]
-					if !ok {
-						ary = []interface{}{rvAssignee}
-					} else {
-						ary = append(ary, rvAssignee)
-					}
-					data[key] = ary
 				}
 			}
 		}
@@ -7972,22 +7997,55 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 					}
 					_, ok := addedAssignees[issueAssigneeID]
 					if !ok {
-						key := "assignee_added"
-						ary, ok := data[key]
-						if !ok {
-							ary = []interface{}{issueAssignee}
-						} else {
-							ary = append(ary, issueAssignee)
+						found := false
+						for _, olds := range oldAssignees.Assignees {
+							if olds == issueAssigneeID {
+								found = true
+								break
+							}
 						}
-						data[key] = ary
+						if !found {
+							key := "assignee_added"
+							ary, ok := data[key]
+							if !ok {
+								ary = []interface{}{issueAssignee}
+							} else {
+								ary = append(ary, issueAssignee)
+							}
+							data[key] = ary
+						}
 						addedAssignees[issueAssigneeID] = struct{}{}
+						issueAssignees[issueAssigneeID] = struct{}{}
 					}
 				}
 			}
 		}
-		if len(addedAssignees) > 0 || oldAssignees.Assignees != nil {
+		for _, assID := range oldAssignees.Assignees {
+			found := false
+			for newAss := range issueAssignees {
+				if newAss == assID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				rvAssignee := igh.RemoveIssueAssignee{
+					ID:      assID,
+					IssueID: issueID,
+				}
+				key := "assignee_removed"
+				ary, ok := data[key]
+				if !ok {
+					ary = []interface{}{rvAssignee}
+				} else {
+					ary = append(ary, rvAssignee)
+				}
+				data[key] = ary
+			}
+		}
+		if len(issueAssignees) > 0 || oldAssignees.Assignees != nil {
 			var updatedAssignees IssueAssignees
-			for as := range addedAssignees {
+			for as := range issueAssignees {
 				updatedAssignees.Assignees = append(updatedAssignees.Assignees, as)
 			}
 			b, er := json.Marshal(updatedAssignees)
@@ -8253,66 +8311,75 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 							Orphaned:        false,
 						},
 					}
-					key := "comment_added"
-					ary, ok := data[key]
-					if !ok {
-						ary = []interface{}{issueComment}
-					} else {
-						ary = append(ary, issueComment)
+					found := false
+					for _, oldc := range oldComments.Comments {
+						if oldc.ID == issueCommentID {
+							found = true
+							break
+						}
 					}
-					data[key] = ary
+					if !found {
+						key := "comment_added"
+						ary, ok := data[key]
+						if !ok {
+							ary = []interface{}{issueComment}
+						} else {
+							ary = append(ary, issueComment)
+						}
+						data[key] = ary
+					}
 					comments[issueCommentID] = issueComment
 					nComments++
 				}
 			}
-			for _, comm := range oldComments.Comments {
-				deleted := true
-				edited := false
-				for newCommID, commentVal := range comments {
-					if newCommID == comm.ID {
-						deleted = false
-						if commentVal.Body != comm.Body {
-							edited = true
-						}
-						break
+		}
+		for _, comm := range oldComments.Comments {
+			deleted := true
+			edited := false
+			for newCommID, commentVal := range comments {
+				if newCommID == comm.ID {
+					deleted = false
+					if commentVal.Body != comm.Body {
+						edited = true
 					}
+					break
 				}
-				if deleted {
-					rvComm := igh.DeleteIssueComment{
-						ID:      comm.ID,
-						IssueID: issueID,
-					}
-					key := "comment_deleted"
-					ary, ok := data[key]
-					if !ok {
-						ary = []interface{}{rvComm}
-					} else {
-						ary = append(ary, rvComm)
-					}
-					data[key] = ary
+			}
+			if deleted {
+				rvComm := igh.DeleteIssueComment{
+					ID:      comm.ID,
+					IssueID: issueID,
 				}
-				if edited {
-					editedComment := igh.IssueComment{
-						ID:      comm.ID,
-						IssueID: issueID,
-						Comment: insights.Comment{
-							Body:            comments[comm.ID].Body,
-							CommentURL:      comments[comm.ID].CommentURL,
-							CommentID:       comments[comm.ID].CommentID,
-							Contributor:     comments[comm.ID].Contributor,
-							SyncTimestamp:   time.Now(),
-							SourceTimestamp: comments[comm.ID].SourceTimestamp,
-						},
-					}
-					key := "comment_edited"
-					ary, ok := data[key]
-					if !ok {
-						ary = []interface{}{editedComment}
-					} else {
-						ary = append(ary, editedComment)
-					}
-					data[key] = ary
+				key := "comment_deleted"
+				ary, ok := data[key]
+				if !ok {
+					ary = []interface{}{rvComm}
+				} else {
+					ary = append(ary, rvComm)
 				}
+				data[key] = ary
+			}
+			if edited {
+				editedComment := igh.IssueComment{
+					ID:      comm.ID,
+					IssueID: issueID,
+					Comment: insights.Comment{
+						Body:            comments[comm.ID].Body,
+						CommentURL:      comments[comm.ID].CommentURL,
+						CommentID:       comments[comm.ID].CommentID,
+						Contributor:     comments[comm.ID].Contributor,
+						SyncTimestamp:   time.Now(),
+						SourceTimestamp: comments[comm.ID].SourceTimestamp,
+					},
+				}
+				key := "comment_edited"
+				ary, ok := data[key]
+				if !ok {
+					ary = []interface{}{editedComment}
+				} else {
+					ary = append(ary, editedComment)
+				}
+				data[key] = ary
 			}
 		}
 		if len(comments) > 0 {
@@ -8619,25 +8686,6 @@ func (j *DSGitHub) AddCacheProvider() {
 	j.cacheProvider = *cacheProvider
 }
 
-func getContainerMetadata() (string, error) {
-	httpClient := http.NewClientProvider(60*time.Second, true)
-	statusCode, res, err := httpClient.Request(fmt.Sprintf("%s/task", os.Getenv("ECS_CONTAINER_METADATA_URI_V4")), "GET", nil, nil, nil)
-	if err != nil {
-		return "", err
-	}
-	if statusCode > 200 {
-		return "", fmt.Errorf("getContainerMetadata error: status code is %d", statusCode)
-	}
-
-	metaResponse := ContainerMetadata{}
-	err = json.Unmarshal(res, &metaResponse)
-	if err != nil {
-		return "", err
-	}
-
-	return metaResponse.TaskARN, nil
-}
-
 // IssueAssignees ...
 type IssueAssignees struct {
 	Assignees []string `json:"assignees"`
@@ -8662,9 +8710,4 @@ type IssueComment struct {
 // IssueCommentReactions ...
 type IssueCommentReactions struct {
 	Reactions map[string][]string `json:"reactions"`
-}
-
-// ContainerMetadata ...
-type ContainerMetadata struct {
-	TaskARN string `json:"TaskARN"`
 }
