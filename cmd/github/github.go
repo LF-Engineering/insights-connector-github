@@ -6266,7 +6266,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 		fileData, er := j.cacheProvider.GetFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), assigneeCacheID)
 		if er != nil {
 			err = er
-			j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("IsKeyCreated check if key created error: %v", err)
+			j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GetFileByKey get cached pullrequest assignees error: %v", err)
 			return
 		}
 		oldAssignees := IssueAssignees{}
@@ -6785,7 +6785,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 		commentsFileData, er := j.cacheProvider.GetFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), commentsCacheID)
 		if er != nil {
 			err = er
-			j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("IsKeyCreated check if pullrequest comments key created error: %v", err)
+			j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GetFileByKey get cached pullrequest comments error: %v", err)
 			return
 		}
 		oldComments := IssueComments{}
@@ -6966,7 +6966,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 		commentsReactionsFileData, er := j.cacheProvider.GetFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), commentsReactionsCacheID)
 		if er != nil {
 			err = er
-			j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("IsKeyCreated check if pullrequest comments reactions key created error: %v", err)
+			j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GetFileByKey get cached pullrequest comments reactions error: %v", err)
 			return
 		}
 		oldCommentsReactions := IssueCommentReactions{}
