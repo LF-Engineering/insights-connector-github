@@ -8651,7 +8651,7 @@ func main() {
 		err = github.WriteLog(&ctx, timestamp, logger.InProgress, cat)
 		if err != nil {
 			github.log.WithFields(logrus.Fields{"operation": "main"}).Errorf("WriteLog Error : %+v", err)
-			return
+			shared.FatalOnError(err)
 		}
 		err = github.Sync(&ctx, cat)
 		if err != nil {
@@ -8660,9 +8660,13 @@ func main() {
 			if er != nil {
 				err = er
 			}
-			return
+			shared.FatalOnError(err)
 		}
 		err = github.WriteLog(&ctx, timestamp, logger.Done, cat)
+		if err != nil {
+			github.log.WithFields(logrus.Fields{"operation": "main"}).Errorf("WriteLog Error : %+v", err)
+		}
+		shared.FatalOnError(err)
 	}
 }
 
