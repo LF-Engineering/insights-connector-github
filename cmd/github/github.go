@@ -651,7 +651,7 @@ func (j *DSGitHub) getRateLimits(gctx context.Context, ctx *shared.Ctx, gcs []*g
 				display = true
 				continue
 			}
-			j.log.WithFields(logrus.Fields{"operation": "getRateLimits"}).Infof("GetRateLimit(%d): %v", idx, err)
+			j.log.WithFields(logrus.Fields{"operation": "getRateLimits"}).Errorf("GetRateLimit(%d): %v", idx, err)
 		}
 		if rl == nil {
 			limits = append(limits, -1)
@@ -8661,10 +8661,11 @@ func main() {
 			github.log.WithFields(logrus.Fields{"operation": "main"}).Errorf("Error: %+v", err)
 			er := github.WriteLog(&ctx, timestamp, logger.Failed, cat+": "+err.Error())
 			if er != nil {
-				err = er
+				github.log.WithFields(logrus.Fields{"operation": "main"}).Errorf("WriteLog Error : %+v", er)
+				shared.FatalOnError(er)
 			}
-			shared.FatalOnError(err)
 		}
+		shared.FatalOnError(err)
 		err = github.WriteLog(&ctx, timestamp, logger.Done, cat)
 		if err != nil {
 			github.log.WithFields(logrus.Fields{"operation": "main"}).Errorf("WriteLog Error : %+v", err)
