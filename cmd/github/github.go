@@ -5862,6 +5862,9 @@ func (j *DSGitHub) Sync(ctx *shared.Ctx, category string) (err error) {
 	}
 	// NOTE: Non-generic starts here
 	err = j.SyncCurrentCategory(ctx)
+	if err != nil {
+		return err
+	}
 	// NOTE: Non-generic ends here
 	gMaxUpstreamDtMtx.Lock()
 	defer gMaxUpstreamDtMtx.Unlock()
