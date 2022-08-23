@@ -3206,8 +3206,9 @@ func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 				c <- e
 			}
 		}()
-		item, err := j.ProcessPull(ctx, pull)
-		if err != nil {
+		item, e := j.ProcessPull(ctx, pull)
+		if e != nil {
+			err = e
 			return
 		}
 		esItem := j.AddMetadata(ctx, item)
