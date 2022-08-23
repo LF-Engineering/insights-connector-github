@@ -683,7 +683,9 @@ func (j *DSGitHub) getRateLimits(gctx context.Context, ctx *shared.Ctx, gcs []*g
 	return hint, limits, remainings, durations
 }
 
-func (j *DSGitHub) handleRate(ctx *shared.Ctx) (aHint int, canCache bool, err error) {
+func (j *DSGitHub) handleRate(ctx *shared.Ctx) (int, bool, error) {
+	aHint := 0
+	canCache := false
 	if j.GitHubRateMtx != nil {
 		j.GitHubRateMtx.RLock()
 	}
@@ -697,7 +699,7 @@ func (j *DSGitHub) handleRate(ctx *shared.Ctx) (aHint int, canCache bool, err er
 	}
 	if handled {
 		j.log.WithFields(logrus.Fields{"operation": "handleRate"}).Infof("%s/%s: rate is already handled elsewhere, returning #%d token", j.URL, j.CurrentCategory, aHint)
-		return
+		return aHint, canCache, nil
 	}
 	if j.GitHubRateMtx != nil {
 		j.GitHubRateMtx.Lock()
@@ -709,9 +711,9 @@ func (j *DSGitHub) handleRate(ctx *shared.Ctx) (aHint int, canCache bool, err er
 			j.log.WithFields(logrus.Fields{"operation": "handleRate"}).Debugf("Checking token %d %+v %+v", h, rem, wait)
 		}
 		if rem[h] <= 5 {
-			err = fmt.Errorf("all GH API tokens are overloaded, maximum points %d, waiting %+v", rem[h], wait[h])
+			err := fmt.Errorf("all GH API tokens are overloaded, maximum points %d, waiting %+v", rem[h], wait[h])
 			j.log.WithFields(logrus.Fields{"operation": "handleRate"}).Errorf("All GH API tokens are overloaded, maximum points %d, waiting %+v", rem[h], wait[h])
-			return
+			return aHint, canCache, err
 		}
 		if rem[h] >= 500 {
 			canCache = true
@@ -726,7 +728,7 @@ func (j *DSGitHub) handleRate(ctx *shared.Ctx) (aHint int, canCache bool, err er
 	}
 	j.RateHandled = true
 	j.log.WithFields(logrus.Fields{"operation": "handleRate"}).Infof("%s/%s: selected new token #%d", j.URL, j.CurrentCategory, j.Hint)
-	return
+	return aHint, canCache, nil
 }
 
 func (j *DSGitHub) isAbuse(e error) (abuse, rateLimit bool) {
@@ -3023,8 +3025,9 @@ func (j *DSGitHub) FetchItemsIssue(ctx *shared.Ctx) (err error) {
 				c <- e
 			}
 		}()
-		item, err := j.ProcessIssue(ctx, issue)
-		if err != nil {
+		item, e := j.ProcessIssue(ctx, issue)
+		if e != nil {
+			err = e
 			return
 		}
 		esItem := j.AddMetadata(ctx, item)
