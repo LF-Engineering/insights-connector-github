@@ -90,7 +90,7 @@ workflows:
             - build
           filters:
             branches:
-              only: DA-5015 #main
+              only: main
             tags:
               ignore: /.*/
       - approve_prod:
