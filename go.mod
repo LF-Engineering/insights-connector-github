@@ -4,8 +4,8 @@ go 1.17
 
 require (
 	github.com/LF-Engineering/dev-analytics-libraries v1.1.28
-	github.com/LF-Engineering/insights-datasource-shared v1.5.13-0.20220819120005-3a892d388ffb
-	github.com/LF-Engineering/lfx-event-schema v0.1.20
+	github.com/LF-Engineering/insights-datasource-shared v1.5.13-0.20220824135036-fe776c8e5e5d
+	github.com/LF-Engineering/lfx-event-schema v0.1.30
 	github.com/aws/aws-lambda-go v1.28.0
 	github.com/aws/aws-sdk-go v1.43.22
 	github.com/google/go-github/v43 v43.0.0
