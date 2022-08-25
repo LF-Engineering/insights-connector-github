@@ -7152,7 +7152,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 			j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GetFileByKey get cached pullrequest reviers error: %v", err)
 			return
 		}
-		oldReviewers := PullrequestReviewrs{}
+		oldReviewers := PullrequestReviewers{}
 		if reviewersFileData != nil {
 			er = json.Unmarshal(reviewersFileData, &oldReviewers)
 			if er != nil {
@@ -7423,7 +7423,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 			}
 		}
 		if len(reviewersAdded) > 0 {
-			var updatedReviewers PullrequestReviewrs
+			var updatedReviewers PullrequestReviewers
 			for rev := range reviewersAdded {
 				updatedReviewers.Reviewers = append(updatedReviewers.Reviewers, rev)
 			}
@@ -8820,7 +8820,7 @@ type IssueCommentReactions struct {
 	Reactions map[string][]string `json:"reactions"`
 }
 
-// PullrequestReviewrs ...
-type PullrequestReviewrs struct {
+// PullrequestReviewers ...
+type PullrequestReviewers struct {
 	Reviewers []string `json:"reviewers"`
 }
