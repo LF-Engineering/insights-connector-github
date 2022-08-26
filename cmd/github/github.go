@@ -6968,11 +6968,11 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 			b, er := json.Marshal(updatedComments)
 			if er != nil {
 				err = er
-				j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("error marshal updated issue comments cache. reactions data: %+v, error: %v", updatedComments, err)
+				j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("error marshal updated pullrequets comments cache. comments data: %+v, error: %v", updatedComments, err)
 				return
 			}
 			if err = j.cacheProvider.UpdateFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), commentsCacheID, b); err != nil {
-				j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("UpdateFileByKey error update issue comments cache. path: %s, cache id: %s, comments data: %v, error: %v", fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), commentsCacheID, b, err)
+				j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("UpdateFileByKey error update pullrequest comments cache. path: %s, cache id: %s, comments data: %v, error: %v", fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), commentsCacheID, b, err)
 				return
 			}
 		}
@@ -7144,6 +7144,23 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 		}
 		// Comment reactions end (reactions to comments stored on the issue part of PR)
 		// Reviews start
+		reviewersAdded := make(map[string]bool)
+		reviewersCacheID := fmt.Sprintf("%s-%s-reviewres", GitHubPullrequest, pullRequestID)
+		reviewersFileData, er := j.cacheProvider.GetFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), reviewersCacheID)
+		if er != nil {
+			err = er
+			j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GetFileByKey get cached pullrequest reviers error: %v", err)
+			return
+		}
+		oldReviewers := PullrequestReviewers{}
+		if reviewersFileData != nil {
+			er = json.Unmarshal(reviewersFileData, &oldReviewers)
+			if er != nil {
+				err = er
+				j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("unmarshall old cached pullrequest reviewers error: %v", err)
+				return
+			}
+		}
 		reviewsAry, okReviews = doc["reviews_array"].([]interface{})
 		if okReviews {
 			for _, iReview := range reviewsAry {
@@ -7274,8 +7291,14 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 							SourceTimestamp: createdOn,
 						},
 					}
-					_, ok = addedReviewers[pullRequestReviewerID]
-					if !ok {
+					found := false
+					for _, oldr := range oldReviewers.Reviewers {
+						if oldr == pullRequestReviewerID {
+							found = true
+							break
+						}
+					}
+					if !found {
 						key := "reviewer_added"
 						ary, ok := data[key]
 						if !ok {
@@ -7286,6 +7309,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						data[key] = ary
 						addedReviewers[pullRequestReviewerID] = struct{}{}
 					}
+					reviewersAdded[pullRequestReviewerID] = true
 				}
 			}
 		}
@@ -7353,8 +7377,14 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 							SourceTimestamp: createdOn,
 						},
 					}
-					_, ok := addedReviewers[pullRequestReviewerID]
-					if !ok {
+					found := false
+					for _, oldr := range oldReviewers.Reviewers {
+						if oldr == pullRequestReviewerID {
+							found = true
+							break
+						}
+					}
+					if !found {
 						key := "reviewer_added"
 						ary, ok := data[key]
 						if !ok {
@@ -7365,7 +7395,47 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						data[key] = ary
 						addedReviewers[pullRequestReviewerID] = struct{}{}
 					}
+					reviewersAdded[pullRequestReviewerID] = true
 				}
+			}
+		}
+		for _, oldReviewer := range oldReviewers.Reviewers {
+			deleted := true
+			for newReviewerID := range reviewersAdded {
+				if newReviewerID == oldReviewer {
+					deleted = false
+					break
+				}
+			}
+			if deleted {
+				removedReviewer := igh.RemovePullRequestReviewer{
+					ID:            oldReviewer,
+					PullRequestID: pullRequestID,
+				}
+				key := "reviewer_removed"
+				ary, ok := data[key]
+				if !ok {
+					ary = []interface{}{removedReviewer}
+				} else {
+					ary = append(ary, removedReviewer)
+				}
+				data[key] = ary
+			}
+		}
+		if len(reviewersAdded) > 0 {
+			var updatedReviewers PullrequestReviewers
+			for rev := range reviewersAdded {
+				updatedReviewers.Reviewers = append(updatedReviewers.Reviewers, rev)
+			}
+			b, er := json.Marshal(updatedReviewers)
+			if er != nil {
+				err = er
+				j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("error marshal updated pullrequest reviewers cache. reviewers data: %+v, error: %v", updatedReviewers, err)
+				return
+			}
+			if err = j.cacheProvider.UpdateFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), reviewersCacheID, b); err != nil {
+				j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("UpdateFileByKey error update pullrequest reviewers cache. path: %s, cache id: %s, reviewers data: %v, error: %v", fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), reviewersCacheID, b, err)
+				return
 			}
 		}
 		// Requested reviewers end
@@ -8748,4 +8818,9 @@ type IssueComment struct {
 // IssueCommentReactions ...
 type IssueCommentReactions struct {
 	Reactions map[string][]string `json:"reactions"`
+}
+
+// PullrequestReviewers ...
+type PullrequestReviewers struct {
+	Reviewers []string `json:"reviewers"`
 }
