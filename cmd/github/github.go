@@ -3098,7 +3098,7 @@ func (j *DSGitHub) FetchItemsIssue(ctx *shared.Ctx) (err error) {
 		for _, issue := range issues {
 			isPR, _ := issue["is_pull"]
 			if isPR.(bool) {
-				nIss -= 1
+				nIss--
 				continue
 			}
 			go func(iss map[string]interface{}) {
@@ -3155,7 +3155,7 @@ func (j *DSGitHub) FetchItemsIssue(ctx *shared.Ctx) (err error) {
 		for _, issue := range issues {
 			isPR, _ := issue["is_pull"]
 			if isPR.(bool) {
-				nIss -= 1
+				nIss--
 				continue
 			}
 			_, err = processIssue(nil, issue)
