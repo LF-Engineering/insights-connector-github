@@ -280,10 +280,11 @@ func (j *DSGitHub) WriteLog(ctx *shared.Ctx, timestamp time.Time, status, messag
 		TaskARN:   arn,
 		Configuration: []map[string]string{
 			{
-				"source_id":   j.SourceID,
-				"endpoint_id": repoID,
-				"repo_url":    j.URL,
-				"category":    j.Categories[0],
+				"source_id":    j.SourceID,
+				"endpoint_id":  repoID,
+				"repo_url":     j.URL,
+				"organization": j.Org,
+				"category":     j.Categories[0],
 			}},
 		Status:    status,
 		CreatedAt: timestamp,
@@ -3095,6 +3096,11 @@ func (j *DSGitHub) FetchItemsIssue(ctx *shared.Ctx) (err error) {
 	j.log.WithFields(logrus.Fields{"operation": "FetchItemsIssue"}).Infof("%s/%s: got %d issues", j.URL, j.CurrentCategory, nIss)
 	if j.ThrN > 1 {
 		for _, issue := range issues {
+			isPR, _ := issue["is_pull"]
+			if isPR.(bool) {
+				nIss -= 1
+				continue
+			}
 			go func(iss map[string]interface{}) {
 				var (
 					e    error
@@ -3147,6 +3153,11 @@ func (j *DSGitHub) FetchItemsIssue(ctx *shared.Ctx) (err error) {
 		}
 	} else {
 		for _, issue := range issues {
+			isPR, _ := issue["is_pull"]
+			if isPR.(bool) {
+				nIss -= 1
+				continue
+			}
 			_, err = processIssue(nil, issue)
 			if err != nil {
 				return
@@ -6957,7 +6968,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 			}
 		}
 
-		if len(uComments) > 0 {
+		if len(uComments) > 0 || oldComments.Comments != nil {
 			var updatedComments IssueComments
 			for _, comm := range uComments {
 				updatedComments.Comments = append(updatedComments.Comments, IssueComment{
@@ -7118,7 +7129,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 			}
 		}
 
-		if len(commentsReactions) > 0 {
+		if len(commentsReactions) > 0 || oldCommentsReactions.Reactions != nil {
 			updatedCommentsReactions := IssueCommentReactions{Reactions: map[string][]string{}}
 			for k, commReactions := range commentsReactions {
 				for _, r := range commReactions {
@@ -7422,7 +7433,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 				data[key] = ary
 			}
 		}
-		if len(reviewersAdded) > 0 {
+		if len(reviewersAdded) > 0 || oldReviewers.Reviewers != nil {
 			var updatedReviewers PullrequestReviewers
 			for rev := range reviewersAdded {
 				updatedReviewers.Reviewers = append(updatedReviewers.Reviewers, rev)
@@ -8305,7 +8316,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 			}
 		}
 
-		if len(addedReactions) > 0 || len(oldReactions.Reactions) > 0 {
+		if len(addedReactions) > 0 || oldReactions.Reactions != nil {
 			var updatedReactions IssueReactions
 			for as := range addedReactions {
 				updatedReactions.Reactions = append(updatedReactions.Reactions, as)
@@ -8483,7 +8494,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 				data[key] = ary
 			}
 		}
-		if len(comments) > 0 {
+		if len(comments) > 0 || oldComments.Comments != nil {
 			var updatedComments IssueComments
 			for _, comm := range comments {
 				updatedComments.Comments = append(updatedComments.Comments, IssueComment{
@@ -8645,7 +8656,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 			}
 		}
 
-		if len(commentsReactions) > 0 {
+		if len(commentsReactions) > 0 || oldCommentsReactions.Reactions != nil {
 			updatedCommentsReactions := IssueCommentReactions{Reactions: map[string][]string{}}
 			for k, commReactions := range commentsReactions {
 				for _, r := range commReactions {
