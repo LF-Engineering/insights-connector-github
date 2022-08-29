@@ -8885,7 +8885,7 @@ func (j *DSGitHub) cacheCreatedPullrequest(v []interface{}) ([]map[string]interf
 	cacheData := make([]map[string]interface{}, 0)
 	for _, val := range v {
 		pr := val.(igh.PullRequestCreatedEvent).Payload
-		cacheId := fmt.Sprintf("%s-%s", GitHubPullrequest, val.(igh.PullRequestCreatedEvent).Payload.ID)
+		cacheID := fmt.Sprintf("%s-%s", GitHubPullrequest, val.(igh.PullRequestCreatedEvent).Payload.ID)
 		p := igh.PullRequest{
 			ID:            pr.ID,
 			RepositoryID:  pr.RepositoryID,
@@ -8912,7 +8912,7 @@ func (j *DSGitHub) cacheCreatedPullrequest(v []interface{}) ([]map[string]interf
 		}
 		contentHash := fmt.Sprintf("%x", sha256.Sum256(b))
 		cacheData = append(cacheData, map[string]interface{}{
-			"id": cacheId,
+			"id": cacheID,
 			"data": map[string]interface{}{
 				contentHashField: contentHash,
 			},
@@ -8986,7 +8986,7 @@ func (j *DSGitHub) cacheCreatedIssues(v []interface{}) ([]map[string]interface{}
 	cacheData := make([]map[string]interface{}, 0)
 	for _, val := range v {
 		issue := val.(igh.IssueCreatedEvent).Payload
-		cacheId := fmt.Sprintf("%s-%s", "issue", val.(igh.IssueCreatedEvent).Payload.ID)
+		cacheID := fmt.Sprintf("%s-%s", "issue", val.(igh.IssueCreatedEvent).Payload.ID)
 		i := igh.Issue{
 			ID:            issue.ID,
 			RepositoryID:  issue.RepositoryID,
@@ -9012,7 +9012,7 @@ func (j *DSGitHub) cacheCreatedIssues(v []interface{}) ([]map[string]interface{}
 		}
 		contentHash := fmt.Sprintf("%x", sha256.Sum256(b))
 		cacheData = append(cacheData, map[string]interface{}{
-			"id": cacheId,
+			"id": cacheID,
 			"data": map[string]interface{}{
 				contentHashField: contentHash,
 			},
