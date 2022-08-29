@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -126,7 +127,8 @@ const (
 	// GitHubPullrequest ...
 	GitHubPullrequest = "pullrequest"
 	// GitHubIssue ...
-	GitHubIssue = "issue"
+	GitHubIssue      = "issue"
+	contentHashField = "contentHash"
 )
 
 var (
@@ -5636,19 +5638,35 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 						case "created":
 							ev, _ := v[0].(igh.IssueCreatedEvent)
 							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
-							for _, val := range v {
-								id := fmt.Sprintf("%s-%s", "issue", val.(igh.IssueCreatedEvent).Payload.ID)
-								data = append(data, map[string]interface{}{
-									"id":   id,
-									"data": "",
-								})
+							cacheData, err := j.cacheCreatedIssues(v)
+							if err != nil {
+								j.log.WithFields(logrus.Fields{"operation": "OutputDocs"}).Errorf("cacheCreatedIssues error: %+v", err)
+								return
 							}
+							data = append(data, cacheData...)
 						case "updated":
-							ev, _ := v[0].(igh.IssueUpdatedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+							updates, cacheData, err := j.preventUpdateIssueDuplication(v, "updated")
+							if err != nil {
+								j.log.WithFields(logrus.Fields{"operation": "OutputDocs"}).Errorf("preventUpdateIssueDuplication error: %+v", err)
+								return
+							}
+							if len(cacheData) > 0 {
+								data = append(data, cacheData...)
+							}
+							if len(updates) > 0 {
+								ev, _ := updates[0].(igh.IssueUpdatedEvent)
+								err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, updates)
+							}
 						case "closed":
-							ev, _ := v[0].(igh.IssueClosedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+							updates, _, err := j.preventUpdateIssueDuplication(v, "closed")
+							if err != nil {
+								j.log.WithFields(logrus.Fields{"operation": "OutputDocs"}).Errorf("preventUpdateIssueDuplication error: %+v", err)
+								return
+							}
+							if len(updates) > 0 {
+								ev, _ := v[0].(igh.IssueClosedEvent)
+								err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+							}
 						case "assignee_added":
 							ev, _ := v[0].(igh.IssueAssigneeAddedEvent)
 							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
@@ -5683,9 +5701,11 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 							break
 						}
 					}
-					err = j.cacheProvider.Create(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), data)
-					if err != nil {
-						j.log.WithFields(logrus.Fields{"operation": "OutputDocs"}).Errorf("error creating cache for endpoint %s/%s/%s. Error: %+v", j.Org, j.Repo, GitHubIssue, err)
+					if len(data) > 0 {
+						err = j.cacheProvider.Create(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), data)
+						if err != nil {
+							j.log.WithFields(logrus.Fields{"operation": "OutputDocs"}).Errorf("error creating cache for endpoint %s/%s/%s. Error: %+v", j.Org, j.Repo, GitHubIssue, err)
+						}
 					}
 				} else {
 					jsonBytes, err = jsoniter.Marshal(issuesData)
@@ -5705,22 +5725,45 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 						case "created":
 							ev, _ := v[0].(igh.PullRequestCreatedEvent)
 							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
-							for _, val := range v {
-								id := fmt.Sprintf("%s-%s", GitHubPullrequest, val.(igh.PullRequestCreatedEvent).Payload.ID)
-								data = append(data, map[string]interface{}{
-									"id":   id,
-									"data": "",
-								})
+							cacheData, err := j.cacheCreatedPullrequest(v)
+							if err != nil {
+								j.log.WithFields(logrus.Fields{"operation": "OutputDocs"}).Errorf("cacheCreatedPullrequest error: %+v", err)
+								return
 							}
+							data = append(data, cacheData...)
 						case "updated":
-							ev, _ := v[0].(igh.PullRequestUpdatedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							updates, cacheData, err := j.preventUpdatePullrequestDuplication(v, "updated")
+							if err != nil {
+								j.log.WithFields(logrus.Fields{"operation": "OutputDocs"}).Errorf("preventUpdatePullrequestDuplication error: %+v", err)
+								return
+							}
+							if len(cacheData) > 0 {
+								data = append(data, cacheData...)
+							}
+							if len(updates) > 0 {
+								ev, _ := updates[0].(igh.PullRequestUpdatedEvent)
+								err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, updates)
+							}
 						case "closed":
-							ev, _ := v[0].(igh.PullRequestClosedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							updates, _, err := j.preventUpdatePullrequestDuplication(v, "closed")
+							if err != nil {
+								j.log.WithFields(logrus.Fields{"operation": "OutputDocs"}).Errorf("preventUpdatePullrequestDuplication error: %+v", err)
+								return
+							}
+							if len(updates) > 0 {
+								ev, _ := updates[0].(igh.PullRequestClosedEvent)
+								err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, updates)
+							}
 						case "merged":
-							ev, _ := v[0].(igh.PullRequestMergedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							updates, _, err := j.preventUpdatePullrequestDuplication(v, "merged")
+							if err != nil {
+								j.log.WithFields(logrus.Fields{"operation": "OutputDocs"}).Errorf("preventUpdatePullrequestDuplication error: %+v", err)
+								return
+							}
+							if len(updates) > 0 {
+								ev, _ := updates[0].(igh.PullRequestMergedEvent)
+								err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, updates)
+							}
 						case "assignee_added":
 							ev, _ := v[0].(igh.PullRequestAssigneeAddedEvent)
 							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
@@ -5766,9 +5809,11 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 							break
 						}
 					}
-					err = j.cacheProvider.Create(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), data)
-					if err != nil {
-						j.log.WithFields(logrus.Fields{"operation": "OutputDocs"}).Errorf("error creating cache for endpoint %s/%s/%s. Error: %+v", j.Org, j.Repo, GitHubPullrequest, err)
+					if len(data) > 0 {
+						err = j.cacheProvider.Create(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), data)
+						if err != nil {
+							j.log.WithFields(logrus.Fields{"operation": "OutputDocs"}).Errorf("error creating cache for endpoint %s/%s/%s. Error: %+v", j.Org, j.Repo, GitHubPullrequest, err)
+						}
 					}
 				} else {
 					jsonBytes, err = jsoniter.Marshal(pullsData)
@@ -8834,4 +8879,202 @@ type IssueCommentReactions struct {
 // PullrequestReviewers ...
 type PullrequestReviewers struct {
 	Reviewers []string `json:"reviewers"`
+}
+
+func (j *DSGitHub) cacheCreatedPullrequest(v []interface{}) ([]map[string]interface{}, error) {
+	cacheData := make([]map[string]interface{}, 0)
+	for _, val := range v {
+		pr := val.(igh.PullRequestCreatedEvent).Payload
+		cacheId := fmt.Sprintf("%s-%s", GitHubPullrequest, val.(igh.PullRequestCreatedEvent).Payload.ID)
+		p := igh.PullRequest{
+			ID:            pr.ID,
+			RepositoryID:  pr.RepositoryID,
+			RepositoryURL: pr.RepositoryURL,
+			Repository:    pr.Repository,
+			Organization:  pr.Organization,
+			Labels:        pr.Labels,
+			Contributors:  pr.Contributors,
+			MergedBy:      pr.MergedBy,
+			ClosedBy:      pr.ClosedBy,
+			Commits:       pr.Commits,
+			ChangeRequest: insights.ChangeRequest{
+				Title:            pr.ChangeRequest.Title,
+				Body:             pr.ChangeRequest.Body,
+				ChangeRequestURL: pr.ChangeRequest.ChangeRequestURL,
+				ChangeRequestID:  pr.ChangeRequest.ChangeRequestID,
+				State:            pr.ChangeRequest.State,
+				Orphaned:         pr.ChangeRequest.Orphaned,
+			},
+		}
+		b, err := json.Marshal(p)
+		if err != nil {
+			return cacheData, err
+		}
+		contentHash := fmt.Sprintf("%x", sha256.Sum256(b))
+		cacheData = append(cacheData, map[string]interface{}{
+			"id": cacheId,
+			"data": map[string]interface{}{
+				contentHashField: contentHash,
+			},
+		})
+	}
+	return cacheData, nil
+}
+
+func (j *DSGitHub) preventUpdatePullrequestDuplication(v []interface{}, event string) ([]interface{}, []map[string]interface{}, error) {
+	updates := make([]interface{}, 0, len(v))
+	cacheData := make([]map[string]interface{}, 0)
+	for _, val := range v {
+		pr := igh.PullRequest{}
+		switch event {
+		case "updated":
+			pr = val.(igh.PullRequestUpdatedEvent).Payload
+		case "merged":
+			pr = val.(igh.PullRequestUpdatedEvent).Payload
+		case "closed":
+			pr = val.(igh.PullRequestClosedEvent).Payload
+		default:
+			return updates, cacheData, fmt.Errorf("event: %s is not recognized", event)
+		}
+		p := igh.PullRequest{
+			ID:            pr.ID,
+			RepositoryID:  pr.RepositoryID,
+			RepositoryURL: pr.RepositoryURL,
+			Repository:    pr.Repository,
+			Organization:  pr.Organization,
+			Labels:        pr.Labels,
+			Contributors:  pr.Contributors,
+			MergedBy:      pr.MergedBy,
+			ClosedBy:      pr.ClosedBy,
+			Commits:       pr.Commits,
+			ChangeRequest: insights.ChangeRequest{
+				Title:            pr.ChangeRequest.Title,
+				Body:             pr.ChangeRequest.Body,
+				ChangeRequestURL: pr.ChangeRequest.ChangeRequestURL,
+				ChangeRequestID:  pr.ChangeRequest.ChangeRequestID,
+				State:            pr.ChangeRequest.State,
+				Orphaned:         pr.ChangeRequest.Orphaned,
+			},
+		}
+		b, err := json.Marshal(p)
+		if err != nil {
+			return updates, cacheData, nil
+		}
+		contentHash := fmt.Sprintf("%x", sha256.Sum256(b))
+		cacheID := fmt.Sprintf("%s-%s", GitHubPullrequest, pr.ID)
+
+		byt, err := j.cacheProvider.GetFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), cacheID)
+		if err != nil {
+			return updates, cacheData, nil
+		}
+		cachedHash := make(map[string]interface{})
+		err = json.Unmarshal(byt, &cachedHash)
+		if contentHash != cachedHash["contentHash"] {
+			updates = append(updates, val)
+			cacheData = append(cacheData, map[string]interface{}{
+				"id": cacheID,
+				"data": map[string]interface{}{
+					contentHashField: contentHash,
+				},
+			})
+		}
+	}
+	return updates, cacheData, nil
+}
+
+func (j *DSGitHub) cacheCreatedIssues(v []interface{}) ([]map[string]interface{}, error) {
+	cacheData := make([]map[string]interface{}, 0)
+	for _, val := range v {
+		issue := val.(igh.IssueCreatedEvent).Payload
+		cacheId := fmt.Sprintf("%s-%s", "issue", val.(igh.IssueCreatedEvent).Payload.ID)
+		i := igh.Issue{
+			ID:            issue.ID,
+			RepositoryID:  issue.RepositoryID,
+			RepositoryURL: issue.RepositoryURL,
+			Repository:    issue.Repository,
+			Organization:  issue.Organization,
+			IsPullRequest: false,
+			Labels:        issue.Labels,
+			Contributors:  issue.Contributors,
+			ClosedBy:      issue.ClosedBy,
+			Issue: insights.Issue{
+				Title:    issue.Issue.Title,
+				Body:     issue.Issue.Body,
+				IssueURL: issue.Issue.IssueURL,
+				IssueID:  issue.Issue.IssueID,
+				State:    issue.Issue.State,
+				Orphaned: issue.Issue.Orphaned,
+			},
+		}
+		b, err := json.Marshal(i)
+		if err != nil {
+			return cacheData, err
+		}
+		contentHash := fmt.Sprintf("%x", sha256.Sum256(b))
+		cacheData = append(cacheData, map[string]interface{}{
+			"id": cacheId,
+			"data": map[string]interface{}{
+				contentHashField: contentHash,
+			},
+		})
+	}
+	return cacheData, nil
+}
+
+func (j *DSGitHub) preventUpdateIssueDuplication(v []interface{}, event string) ([]interface{}, []map[string]interface{}, error) {
+	updates := make([]interface{}, 0, len(v))
+	cacheData := make([]map[string]interface{}, 0)
+	for _, val := range v {
+		issue := igh.Issue{}
+		switch event {
+		case "updated":
+			issue = val.(igh.IssueUpdatedEvent).Payload
+		case "closed":
+			issue = val.(igh.IssueClosedEvent).Payload
+		default:
+			return updates, cacheData, fmt.Errorf("event: %s is not recognized", event)
+		}
+		i := igh.Issue{
+			ID:            issue.ID,
+			RepositoryID:  issue.RepositoryID,
+			RepositoryURL: issue.RepositoryURL,
+			Repository:    issue.Repository,
+			Organization:  issue.Organization,
+			IsPullRequest: false,
+			Labels:        issue.Labels,
+			Contributors:  issue.Contributors,
+			ClosedBy:      issue.ClosedBy,
+			Issue: insights.Issue{
+				Title:    issue.Issue.Title,
+				Body:     issue.Issue.Body,
+				IssueURL: issue.Issue.IssueURL,
+				IssueID:  issue.Issue.IssueID,
+				State:    issue.Issue.State,
+				Orphaned: issue.Issue.Orphaned,
+			},
+		}
+		b, err := json.Marshal(i)
+		if err != nil {
+			return updates, cacheData, nil
+		}
+		contentHash := fmt.Sprintf("%x", sha256.Sum256(b))
+		cacheID := fmt.Sprintf("%s-%s", GitHubIssue, issue.ID)
+
+		byt, err := j.cacheProvider.GetFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), cacheID)
+		if err != nil {
+			return updates, cacheData, nil
+		}
+		cachedHash := make(map[string]interface{})
+		err = json.Unmarshal(byt, &cachedHash)
+		if contentHash != cachedHash["contentHash"] {
+			updates = append(updates, val)
+			cacheData = append(cacheData, map[string]interface{}{
+				"id": cacheID,
+				"data": map[string]interface{}{
+					contentHashField: contentHash,
+				},
+			})
+		}
+	}
+	return updates, cacheData, nil
 }
