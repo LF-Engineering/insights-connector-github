@@ -8930,7 +8930,7 @@ func (j *DSGitHub) preventUpdatePullrequestDuplication(v []interface{}, event st
 		case "updated":
 			pr = val.(igh.PullRequestUpdatedEvent).Payload
 		case "merged":
-			pr = val.(igh.PullRequestUpdatedEvent).Payload
+			pr = val.(igh.PullRequestMergedEvent).Payload
 		case "closed":
 			pr = val.(igh.PullRequestClosedEvent).Payload
 		default:
@@ -8958,14 +8958,14 @@ func (j *DSGitHub) preventUpdatePullrequestDuplication(v []interface{}, event st
 		}
 		b, err := json.Marshal(p)
 		if err != nil {
-			return updates, cacheData, nil
+			return updates, cacheData, err
 		}
 		contentHash := fmt.Sprintf("%x", sha256.Sum256(b))
 		cacheID := fmt.Sprintf("%s-%s", GitHubPullrequest, pr.ID)
 
 		byt, err := j.cacheProvider.GetFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), cacheID)
 		if err != nil {
-			return updates, cacheData, nil
+			return updates, cacheData, err
 		}
 		cachedHash := make(map[string]interface{})
 		err = json.Unmarshal(byt, &cachedHash)
@@ -9055,18 +9055,18 @@ func (j *DSGitHub) preventUpdateIssueDuplication(v []interface{}, event string) 
 		}
 		b, err := json.Marshal(i)
 		if err != nil {
-			return updates, cacheData, nil
+			return updates, cacheData, err
 		}
 		contentHash := fmt.Sprintf("%x", sha256.Sum256(b))
 		cacheID := fmt.Sprintf("%s-%s", GitHubIssue, issue.ID)
 
 		byt, err := j.cacheProvider.GetFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), cacheID)
 		if err != nil {
-			return updates, cacheData, nil
+			return updates, cacheData, err
 		}
 		cachedHash := make(map[string]interface{})
 		err = json.Unmarshal(byt, &cachedHash)
-		if contentHash != cachedHash["contentHash"] {
+		if contentHash != cachedHash[contentHashField] {
 			updates = append(updates, val)
 			cacheData = append(cacheData, map[string]interface{}{
 				"id": cacheID,
