@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/LF-Engineering/insights-datasource-shared/aws"
 	"io/ioutil"
 	"math/rand"
 	"os"
@@ -33,6 +32,7 @@ import (
 	"github.com/LF-Engineering/dev-analytics-libraries/emoji"
 
 	shared "github.com/LF-Engineering/insights-datasource-shared"
+	"github.com/LF-Engineering/insights-datasource-shared/aws"
 	elastic "github.com/LF-Engineering/insights-datasource-shared/elastic"
 	logger "github.com/LF-Engineering/insights-datasource-shared/ingestjob"
 	"github.com/aws/aws-sdk-go/aws/session"
