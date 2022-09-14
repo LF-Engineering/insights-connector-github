@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/LF-Engineering/insights-datasource-shared/aws"
 	"io/ioutil"
 	"math/rand"
 	"os"
@@ -32,7 +33,6 @@ import (
 	"github.com/LF-Engineering/dev-analytics-libraries/emoji"
 
 	shared "github.com/LF-Engineering/insights-datasource-shared"
-	"github.com/LF-Engineering/insights-datasource-shared/aws"
 	elastic "github.com/LF-Engineering/insights-datasource-shared/elastic"
 	logger "github.com/LF-Engineering/insights-datasource-shared/ingestjob"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -1860,16 +1860,11 @@ func (j *DSGitHub) githubPull(ctx *shared.Ctx, org, repo string, number int) (pu
 }
 
 // githubPullsFromIssues - consider fetching this data in a stream-like mode to avoid a need of pulling all data and then of everything at once
-func (j *DSGitHub) githubPullsFromIssues(ctx *shared.Ctx, org, repo string, since, until *time.Time) (pullsData []map[string]interface{}, err error) {
+func (j *DSGitHub) githubPullsFromIssues(ctx *shared.Ctx, org, repo string, since, until *time.Time, issues []map[string]interface{}) (pullsData []map[string]interface{}, err error) {
 	var (
-		issues []map[string]interface{}
-		pull   map[string]interface{}
-		ok     bool
+		pull map[string]interface{}
+		ok   bool
 	)
-	issues, err = j.githubIssues(ctx, org, repo, since, until)
-	if err != nil {
-		return
-	}
 	i, pulls := 0, 0
 	nIssues := len(issues)
 	j.log.WithFields(logrus.Fields{"operation": "githubPullsFromIssues"}).Infof("%s/%s: processing %d issues (to filter for PRs)", j.URL, j.CurrentCategory, nIssues)
@@ -3285,42 +3280,66 @@ func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 	// If it would we could use Pulls API to fetch all pulls when no date from is specified
 	// If there is a date from Pulls API doesn't support Since parameter
 	// if ctx.DateFrom != nil {
-	if 1 == 1 {
-		pulls, err = j.githubPullsFromIssues(ctx, j.Org, j.Repo, ctx.DateFrom, ctx.DateTo)
-	} else {
-		pulls, err = j.githubPulls(ctx, j.Org, j.Repo, ctx.DateFrom, ctx.DateTo)
-	}
+	/*	if 1 == 1 {
+			pulls, err = j.githubPullsFromIssues(ctx, j.Org, j.Repo, ctx.DateFrom, ctx.DateTo)
+		} else {
+			pulls, err = j.githubPulls(ctx, j.Org, j.Repo, ctx.DateFrom, ctx.DateTo)
+		}*/
+	issues, err := j.githubIssues(ctx, j.Org, j.Repo, ctx.DateFrom, ctx.DateTo)
 	if err != nil {
 		return
 	}
-	runtime.GC()
-	nPRs = len(pulls)
-	j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Infof("%s/%s: got %d pulls", j.URL, j.CurrentCategory, nPRs)
-	if j.ThrN > 1 {
-		for _, pull := range pulls {
-			go func(pr map[string]interface{}) {
-				var (
-					e    error
-					esch chan error
-				)
-				esch, e = processPull(ch, pr)
-				if e != nil {
-					j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Errorf("%s/%s: pulls process error: %v", j.URL, j.CurrentCategory, e)
-					return
-				}
-				if esch != nil {
-					if eschaMtx != nil {
-						eschaMtx.Lock()
+	pageSize := 1000
+	pages := len(issues)/pageSize + 1
+	page := 1
+	for i := 0; i < pages; i++ {
+		iss := issues[i*page : page*pageSize]
+		pulls, err = j.githubPullsFromIssues(ctx, j.Org, j.Repo, ctx.DateFrom, ctx.DateTo, iss)
+		page++
+		runtime.GC()
+		nPRs = len(pulls)
+		j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Infof("%s/%s: got %d pulls", j.URL, j.CurrentCategory, nPRs)
+		if j.ThrN > 1 {
+			for _, pull := range pulls {
+				go func(pr map[string]interface{}) {
+					var (
+						e    error
+						esch chan error
+					)
+					esch, e = processPull(ch, pr)
+					if e != nil {
+						j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Errorf("%s/%s: pulls process error: %v", j.URL, j.CurrentCategory, e)
+						return
 					}
-					escha = append(escha, esch)
-					if eschaMtx != nil {
-						eschaMtx.Unlock()
+					if esch != nil {
+						if eschaMtx != nil {
+							eschaMtx.Lock()
+						}
+						escha = append(escha, esch)
+						if eschaMtx != nil {
+							eschaMtx.Unlock()
+						}
 					}
+				}(pull)
+				nThreads++
+				if nThreads == j.ThrN {
+					err = <-ch
+					if err != nil {
+						return
+					}
+					if pullsProcMtx != nil {
+						pullsProcMtx.Lock()
+					}
+					pullsProcessed++
+					if pullsProcMtx != nil {
+						pullsProcMtx.Unlock()
+					}
+					nThreads--
 				}
-			}(pull)
-			nThreads++
-			if nThreads == j.ThrN {
+			}
+			for nThreads > 0 {
 				err = <-ch
+				nThreads--
 				if err != nil {
 					return
 				}
@@ -3331,47 +3350,33 @@ func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 				if pullsProcMtx != nil {
 					pullsProcMtx.Unlock()
 				}
-				nThreads--
+			}
+		} else {
+			for _, pull := range pulls {
+				_, err = processPull(nil, pull)
+				if err != nil {
+					return
+				}
+				pullsProcessed++
 			}
 		}
-		for nThreads > 0 {
-			err = <-ch
-			nThreads--
+		for _, esch := range escha {
+			err = <-esch
 			if err != nil {
 				return
 			}
-			if pullsProcMtx != nil {
-				pullsProcMtx.Lock()
-			}
-			pullsProcessed++
-			if pullsProcMtx != nil {
-				pullsProcMtx.Unlock()
-			}
 		}
-	} else {
-		for _, pull := range pulls {
-			_, err = processPull(nil, pull)
-			if err != nil {
-				return
-			}
-			pullsProcessed++
+		nPulls := len(allPulls)
+		if ctx.Debug > 0 {
+			j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Debugf("%d remaining pulls to send to queue", nPulls)
 		}
-	}
-	for _, esch := range escha {
-		err = <-esch
+		err = j.GitHubEnrichItems(ctx, allPulls, &allDocs, true)
+		//err = SendToQueue(ctx, j, true, UUID, allPulls)
 		if err != nil {
-			return
+			j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Errorf("%s/%s: error %v sending %d pulls to queue", j.URL, j.CurrentCategory, err, len(allPulls))
 		}
 	}
-	nPulls := len(allPulls)
-	if ctx.Debug > 0 {
-		j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Debugf("%d remaining pulls to send to queue", nPulls)
-	}
-	err = j.GitHubEnrichItems(ctx, allPulls, &allDocs, true)
-	//err = SendToQueue(ctx, j, true, UUID, allPulls)
-	if err != nil {
-		j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Errorf("%s/%s: error %v sending %d pulls to queue", j.URL, j.CurrentCategory, err, len(allPulls))
-	}
+
 	return
 }
 
