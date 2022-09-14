@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
+	"math"
 	"math/rand"
 	"os"
 	"runtime"
@@ -3280,17 +3281,12 @@ func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 	// If it would we could use Pulls API to fetch all pulls when no date from is specified
 	// If there is a date from Pulls API doesn't support Since parameter
 	// if ctx.DateFrom != nil {
-	/*	if 1 == 1 {
-			pulls, err = j.githubPullsFromIssues(ctx, j.Org, j.Repo, ctx.DateFrom, ctx.DateTo)
-		} else {
-			pulls, err = j.githubPulls(ctx, j.Org, j.Repo, ctx.DateFrom, ctx.DateTo)
-		}*/
 	issues, err := j.githubIssues(ctx, j.Org, j.Repo, ctx.DateFrom, ctx.DateTo)
 	if err != nil {
 		return
 	}
 	pageSize := 1000
-	pages := len(issues)/pageSize + 1
+	pages := int(math.Ceil(float64(len(issues)) / float64(pageSize)))
 	page := 1
 	for i := 0; i < pages; i++ {
 		iss := issues[i*page : page*pageSize]
