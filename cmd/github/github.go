@@ -3276,7 +3276,6 @@ func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 		}
 		return
 	}
-	var pulls []map[string]interface{}
 	// PullRequests.List doesn't return merged_by data, we need to use PullRequests.Get on each pull
 	// If it would we could use Pulls API to fetch all pulls when no date from is specified
 	// If there is a date from Pulls API doesn't support Since parameter
@@ -3289,14 +3288,20 @@ func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 	pages := int(math.Ceil(float64(len(issues)) / float64(pageSize)))
 	page := 1
 	for i := 0; i < pages; i++ {
-		iss := issues[i*page : page*pageSize]
-		pulls, err = j.githubPullsFromIssues(ctx, j.Org, j.Repo, ctx.DateFrom, ctx.DateTo, iss)
+		limit := page * pageSize
+		if len(issues) < limit {
+			limit = len(issues)
+		}
+		iss := issues[i*pageSize : limit]
+		fmt.Println("processing issues page: ", page)
+		fmt.Println("processing issues from: ", i*pageSize, " to: ", limit)
+		ps, err := j.githubPullsFromIssues(ctx, j.Org, j.Repo, ctx.DateFrom, ctx.DateTo, iss)
 		page++
-		runtime.GC()
-		nPRs = len(pulls)
+		//runtime.GC()
+		nPRs := len(ps)
 		j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Infof("%s/%s: got %d pulls", j.URL, j.CurrentCategory, nPRs)
 		if j.ThrN > 1 {
-			for _, pull := range pulls {
+			for _, pull := range ps {
 				go func(pr map[string]interface{}) {
 					var (
 						e    error
@@ -3321,7 +3326,7 @@ func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 				if nThreads == j.ThrN {
 					err = <-ch
 					if err != nil {
-						return
+						return err
 					}
 					if pullsProcMtx != nil {
 						pullsProcMtx.Lock()
@@ -3337,7 +3342,7 @@ func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 				err = <-ch
 				nThreads--
 				if err != nil {
-					return
+					return err
 				}
 				if pullsProcMtx != nil {
 					pullsProcMtx.Lock()
@@ -3348,10 +3353,10 @@ func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 				}
 			}
 		} else {
-			for _, pull := range pulls {
+			for _, pull := range ps {
 				_, err = processPull(nil, pull)
 				if err != nil {
-					return
+					return err
 				}
 				pullsProcessed++
 			}
@@ -3359,7 +3364,7 @@ func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 		for _, esch := range escha {
 			err = <-esch
 			if err != nil {
-				return
+				return err
 			}
 		}
 		nPulls := len(allPulls)
@@ -3371,6 +3376,7 @@ func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 		if err != nil {
 			j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Errorf("%s/%s: error %v sending %d pulls to queue", j.URL, j.CurrentCategory, err, len(allPulls))
 		}
+		allPulls = make([]interface{}, 0)
 	}
 
 	return
