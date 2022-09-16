@@ -3293,11 +3293,9 @@ func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 			limit = len(issues)
 		}
 		iss := issues[i*pageSize : limit]
-		fmt.Println("processing issues page: ", page)
-		fmt.Println("processing issues from: ", i*pageSize, " to: ", limit)
 		ps, err := j.githubPullsFromIssues(ctx, j.Org, j.Repo, ctx.DateFrom, ctx.DateTo, iss)
 		page++
-		//runtime.GC()
+		runtime.GC()
 		nPRs := len(ps)
 		j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Infof("%s/%s: got %d pulls", j.URL, j.CurrentCategory, nPRs)
 		if j.ThrN > 1 {
