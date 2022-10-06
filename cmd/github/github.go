@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/LF-Engineering/insights-datasource-shared/aws"
 	"io/ioutil"
 	"math"
 	"math/rand"
@@ -33,7 +34,6 @@ import (
 	"github.com/LF-Engineering/dev-analytics-libraries/emoji"
 
 	shared "github.com/LF-Engineering/insights-datasource-shared"
-	"github.com/LF-Engineering/insights-datasource-shared/aws"
 	elastic "github.com/LF-Engineering/insights-datasource-shared/elastic"
 	logger "github.com/LF-Engineering/insights-datasource-shared/ingestjob"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -163,7 +163,7 @@ var (
 
 // Publisher - for streaming data to Kinesis
 type Publisher interface {
-	PushEvents(action, source, eventType, subEventType, env string, data []interface{}) error
+	PushEvents(action, source, eventType, subEventType, env string, data []interface{}) (string, error)
 }
 
 // DSGitHub - DS implementation for GitHub
@@ -5624,7 +5624,7 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 						formattedData = append(formattedData, d)
 					}
 					if len(repos) > 0 {
-						err = j.Publisher.PushEvents(repos[0].Event(), "insights", GitHubDataSource, "repository", os.Getenv("STAGE"), formattedData)
+						_, err = j.Publisher.PushEvents(repos[0].Event(), "insights", GitHubDataSource, "repository", os.Getenv("STAGE"), formattedData)
 					}
 				} else {
 					jsonBytes, err = jsoniter.Marshal(repos)
@@ -5642,8 +5642,8 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 						switch k {
 						case "created":
 							ev, _ := v[0].(igh.IssueCreatedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
-							cacheData, err := j.cacheCreatedIssues(v)
+							path, err := j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+							cacheData, err := j.cacheCreatedIssues(v, path)
 							if err != nil {
 								j.log.WithFields(logrus.Fields{"operation": "OutputDocs"}).Errorf("cacheCreatedIssues error: %+v", err)
 								return
@@ -5655,12 +5655,19 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 								j.log.WithFields(logrus.Fields{"operation": "OutputDocs"}).Errorf("preventUpdateIssueDuplication error: %+v", err)
 								return
 							}
-							if len(cacheData) > 0 {
-								data = append(data, cacheData...)
-							}
+							path := ""
 							if len(updates) > 0 {
 								ev, _ := updates[0].(igh.IssueUpdatedEvent)
-								err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, updates)
+								path, err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, updates)
+							}
+							if len(cacheData) > 0 {
+								for i, o := range cacheData {
+									paths, _ := o["data"].(map[string]interface{})["paths"].([]string)
+									paths = append(paths, path)
+									o["data"].(map[string]interface{})["paths"] = paths
+									cacheData[i] = o
+								}
+								data = append(data, cacheData...)
 							}
 						case "closed":
 							updates, _, err := j.preventUpdateIssueDuplication(v, "closed")
@@ -5670,35 +5677,35 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 							}
 							if len(updates) > 0 {
 								ev, _ := v[0].(igh.IssueClosedEvent)
-								err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+								_, err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
 							}
 						case "assignee_added":
 							ev, _ := v[0].(igh.IssueAssigneeAddedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+							_, err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
 						case "assignee_removed":
 							ev, _ := v[0].(igh.IssueAssigneeRemovedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+							_, err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
 						case "comment_added":
 							ev, _ := v[0].(igh.IssueCommentAddedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+							_, err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
 						case "comment_edited":
 							ev, _ := v[0].(igh.IssueCommentEditedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+							_, err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
 						case "comment_deleted":
 							ev, _ := v[0].(igh.IssueCommentDeletedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+							_, err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
 						case "reaction_added":
 							ev, _ := v[0].(igh.IssueReactionAddedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+							_, err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
 						case "reaction_removed":
 							ev, _ := v[0].(igh.IssueReactionRemovedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+							_, err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
 						case "comment_reaction_added":
 							ev, _ := v[0].(igh.IssueCommentReactionAddedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+							_, err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
 						case "comment_reaction_removed":
 							ev, _ := v[0].(igh.IssueCommentReactionRemovedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
+							_, err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
 						default:
 							err = fmt.Errorf("unknown issue event type '%s'", k)
 						}
@@ -5729,8 +5736,8 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 						switch k {
 						case "created":
 							ev, _ := v[0].(igh.PullRequestCreatedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
-							cacheData, err := j.cacheCreatedPullrequest(v)
+							path, err := j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							cacheData, err := j.cacheCreatedPullrequest(v, path)
 							if err != nil {
 								j.log.WithFields(logrus.Fields{"operation": "OutputDocs"}).Errorf("cacheCreatedPullrequest error: %+v", err)
 								return
@@ -5742,13 +5749,22 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 								j.log.WithFields(logrus.Fields{"operation": "OutputDocs"}).Errorf("preventUpdatePullrequestDuplication error: %+v", err)
 								return
 							}
-							if len(cacheData) > 0 {
-								data = append(data, cacheData...)
-							}
+							path := ""
 							if len(updates) > 0 {
 								ev, _ := updates[0].(igh.PullRequestUpdatedEvent)
-								err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, updates)
+								path, err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, updates)
 							}
+
+							if len(cacheData) > 0 {
+								for i, o := range cacheData {
+									paths, _ := o["data"].(map[string]interface{})["paths"].([]string)
+									paths = append(paths, path)
+									o["data"].(map[string]interface{})["paths"] = paths
+									cacheData[i] = o
+								}
+								data = append(data, cacheData...)
+							}
+
 						case "closed":
 							updates, _, err := j.preventUpdatePullrequestDuplication(v, "closed")
 							if err != nil {
@@ -5757,7 +5773,7 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 							}
 							if len(updates) > 0 {
 								ev, _ := updates[0].(igh.PullRequestClosedEvent)
-								err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, updates)
+								_, err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, updates)
 							}
 						case "merged":
 							updates, _, err := j.preventUpdatePullrequestDuplication(v, "merged")
@@ -5767,29 +5783,29 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 							}
 							if len(updates) > 0 {
 								ev, _ := updates[0].(igh.PullRequestMergedEvent)
-								err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, updates)
+								_, err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, updates)
 							}
 						case "assignee_added":
 							ev, _ := v[0].(igh.PullRequestAssigneeAddedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							_, err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						case "assignee_removed":
 							ev, _ := v[0].(igh.PullRequestAssigneeRemovedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							_, err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						case "comment_added":
 							ev, _ := v[0].(igh.PullRequestCommentAddedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							_, err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						case "comment_edited":
 							ev, _ := v[0].(igh.PullRequestCommentEditedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							_, err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						case "comment_deleted":
 							ev, _ := v[0].(igh.PullRequestCommentDeletedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							_, err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						case "comment_reaction_added":
 							ev, _ := v[0].(igh.PullRequestCommentReactionAddedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							_, err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						case "comment_reaction_removed":
 							ev, _ := v[0].(igh.PullRequestCommentReactionRemovedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							_, err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						/* there are no such events
 						case "reaction_added":
 							ev, _ := v[0].(igh.PullRequestReactionAddedEvent)
@@ -5800,13 +5816,13 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 						*/
 						case "review_added":
 							ev, _ := v[0].(igh.PullRequestReviewAddedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							_, err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						case "reviewer_added":
 							ev, _ := v[0].(igh.PullRequestReviewerAddedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							_, err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						case "reviewer_removed":
 							ev, _ := v[0].(igh.PullRequestReviewerRemovedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							_, err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
 						default:
 							err = fmt.Errorf("unknown pull request event type '%s'", k)
 						}
@@ -8886,7 +8902,7 @@ type PullrequestReviewers struct {
 	Reviewers []string `json:"reviewers"`
 }
 
-func (j *DSGitHub) cacheCreatedPullrequest(v []interface{}) ([]map[string]interface{}, error) {
+func (j *DSGitHub) cacheCreatedPullrequest(v []interface{}, path string) ([]map[string]interface{}, error) {
 	cacheData := make([]map[string]interface{}, 0)
 	for _, val := range v {
 		pr := val.(igh.PullRequestCreatedEvent).Payload
@@ -8920,6 +8936,7 @@ func (j *DSGitHub) cacheCreatedPullrequest(v []interface{}) ([]map[string]interf
 			"id": cacheID,
 			"data": map[string]interface{}{
 				contentHashField: contentHash,
+				"paths":          []string{path},
 			},
 		})
 	}
@@ -8975,11 +8992,13 @@ func (j *DSGitHub) preventUpdatePullrequestDuplication(v []interface{}, event st
 		cachedHash := make(map[string]interface{})
 		err = json.Unmarshal(byt, &cachedHash)
 		if contentHash != cachedHash["contentHash"] {
+			paths := cachedHash["paths"]
 			updates = append(updates, val)
 			cacheData = append(cacheData, map[string]interface{}{
 				"id": cacheID,
 				"data": map[string]interface{}{
 					contentHashField: contentHash,
+					"paths":          paths,
 				},
 			})
 		}
@@ -8987,7 +9006,7 @@ func (j *DSGitHub) preventUpdatePullrequestDuplication(v []interface{}, event st
 	return updates, cacheData, nil
 }
 
-func (j *DSGitHub) cacheCreatedIssues(v []interface{}) ([]map[string]interface{}, error) {
+func (j *DSGitHub) cacheCreatedIssues(v []interface{}, path string) ([]map[string]interface{}, error) {
 	cacheData := make([]map[string]interface{}, 0)
 	for _, val := range v {
 		issue := val.(igh.IssueCreatedEvent).Payload
@@ -9020,6 +9039,7 @@ func (j *DSGitHub) cacheCreatedIssues(v []interface{}) ([]map[string]interface{}
 			"id": cacheID,
 			"data": map[string]interface{}{
 				contentHashField: contentHash,
+				"paths":          []string{path},
 			},
 		})
 	}
@@ -9072,11 +9092,13 @@ func (j *DSGitHub) preventUpdateIssueDuplication(v []interface{}, event string) 
 		cachedHash := make(map[string]interface{})
 		err = json.Unmarshal(byt, &cachedHash)
 		if contentHash != cachedHash[contentHashField] {
+			paths := cachedHash["paths"]
 			updates = append(updates, val)
 			cacheData = append(cacheData, map[string]interface{}{
 				"id": cacheID,
 				"data": map[string]interface{}{
 					contentHashField: contentHash,
+					"paths":          paths,
 				},
 			})
 		}
