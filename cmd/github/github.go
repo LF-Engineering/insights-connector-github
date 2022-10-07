@@ -33,6 +33,7 @@ import (
 	"github.com/LF-Engineering/dev-analytics-libraries/emoji"
 
 	shared "github.com/LF-Engineering/insights-datasource-shared"
+	"github.com/LF-Engineering/insights-datasource-shared/aws"
 	elastic "github.com/LF-Engineering/insights-datasource-shared/elastic"
 	logger "github.com/LF-Engineering/insights-datasource-shared/ingestjob"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -272,8 +273,7 @@ func (j *DSGitHub) WriteLog(ctx *shared.Ctx, timestamp time.Time, status, messag
 	if err != nil {
 		return err
 	}
-	//arn, err := aws.GetContainerARN()
-	arn := "arn:aws:ecs:us-east-2:395594542180:task/insights-ecs-cluster/8c35404bf6874d0b89d2876f518d8a6e"
+	arn, err := aws.GetContainerARN()
 	if err != nil {
 		j.log.WithFields(logrus.Fields{"operation": "WriteLog"}).Errorf("getContainerMetadata Error : %+v", err)
 		return err
