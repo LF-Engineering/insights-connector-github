@@ -33,7 +33,6 @@ import (
 	"github.com/LF-Engineering/dev-analytics-libraries/emoji"
 
 	shared "github.com/LF-Engineering/insights-datasource-shared"
-	"github.com/LF-Engineering/insights-datasource-shared/aws"
 	elastic "github.com/LF-Engineering/insights-datasource-shared/elastic"
 	logger "github.com/LF-Engineering/insights-datasource-shared/ingestjob"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -273,7 +272,8 @@ func (j *DSGitHub) WriteLog(ctx *shared.Ctx, timestamp time.Time, status, messag
 	if err != nil {
 		return err
 	}
-	arn, err := aws.GetContainerARN()
+	//arn, err := aws.GetContainerARN()
+	arn := "arn:aws:ecs:us-east-2:395594542180:task/insights-ecs-cluster/8c35404bf6874d0b89d2876f518d8a6e"
 	if err != nil {
 		j.log.WithFields(logrus.Fields{"operation": "WriteLog"}).Errorf("getContainerMetadata Error : %+v", err)
 		return err
@@ -7534,7 +7534,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 				ChangeRequestURL: url,
 				State:            insights.ChangeRequestState(state),
 				SyncTimestamp:    time.Now(),
-				SourceTimestamp:  createdOn,
+				SourceTimestamp:  updatedOn,
 				Orphaned:         false,
 			},
 		}
@@ -7548,6 +7548,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 		}
 		if !isCreated {
 			key = "created"
+			pullRequest.ChangeRequest.SyncTimestamp = createdOn
 		}
 		ary, ok := data[key]
 		if !ok {
@@ -8749,7 +8750,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 				IssueURL:        url,
 				State:           insights.IssueState(state),
 				SyncTimestamp:   time.Now(),
-				SourceTimestamp: createdOn,
+				SourceTimestamp: updatedOn,
 				Orphaned:        false,
 			},
 		}
@@ -8763,6 +8764,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 		}
 		if !isCreated {
 			key = "created"
+			issue.Issue.SyncTimestamp = createdOn
 		}
 		ary, ok := data[key]
 		if !ok {
