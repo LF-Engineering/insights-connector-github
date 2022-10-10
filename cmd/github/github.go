@@ -6425,6 +6425,9 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						SyncTimestamp:   time.Now(),
 					},
 				}
+				if createdOn != updatedOn {
+					pullRequestAssignee.Assignee.SourceTimestamp = updatedOn
+				}
 				_, ok := addedAssignees[pullRequestAssigneeID]
 				if !ok {
 					found := false
@@ -6513,6 +6516,9 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 							SyncTimestamp:   time.Now(),
 							SourceTimestamp: createdOn,
 						},
+					}
+					if createdOn != updatedOn {
+						pullRequestAssignee.Assignee.SyncTimestamp = updatedOn
 					}
 					_, ok := addedAssignees[pullRequestAssigneeID]
 					if !ok {
@@ -7368,6 +7374,9 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 							SourceTimestamp: createdOn,
 						},
 					}
+					if createdOn != updatedOn {
+						pullRequestReviewer.Reviewer.SyncTimestamp = updatedOn
+					}
 					found := false
 					for _, oldr := range oldReviewers.Reviewers {
 						if oldr == pullRequestReviewerID {
@@ -7453,6 +7462,9 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 							SyncTimestamp:   time.Now(),
 							SourceTimestamp: createdOn,
 						},
+					}
+					if createdOn != updatedOn {
+						pullRequestReviewer.Reviewer.SyncTimestamp = updatedOn
 					}
 					found := false
 					for _, oldr := range oldReviewers.Reviewers {
@@ -7550,7 +7562,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 				ChangeRequestURL: url,
 				State:            insights.ChangeRequestState(state),
 				SyncTimestamp:    time.Now(),
-				SourceTimestamp:  createdOn,
+				SourceTimestamp:  updatedOn,
 				Orphaned:         false,
 			},
 		}
@@ -7564,6 +7576,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 		}
 		if !isCreated {
 			key = "created"
+			pullRequest.ChangeRequest.SyncTimestamp = createdOn
 		}
 		ary, ok := data[key]
 		if !ok {
@@ -8765,7 +8778,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 				IssueURL:        url,
 				State:           insights.IssueState(state),
 				SyncTimestamp:   time.Now(),
-				SourceTimestamp: createdOn,
+				SourceTimestamp: updatedOn,
 				Orphaned:        false,
 			},
 		}
@@ -8779,6 +8792,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 		}
 		if !isCreated {
 			key = "created"
+			issue.Issue.SyncTimestamp = createdOn
 		}
 		ary, ok := data[key]
 		if !ok {
