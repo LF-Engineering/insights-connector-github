@@ -6409,6 +6409,9 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						SyncTimestamp:   time.Now(),
 					},
 				}
+				if createdOn != updatedOn {
+					pullRequestAssignee.Assignee.SourceTimestamp = updatedOn
+				}
 				_, ok := addedAssignees[pullRequestAssigneeID]
 				if !ok {
 					found := false
@@ -6497,6 +6500,9 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 							SyncTimestamp:   time.Now(),
 							SourceTimestamp: createdOn,
 						},
+					}
+					if createdOn != updatedOn {
+						pullRequestAssignee.Assignee.SyncTimestamp = updatedOn
 					}
 					_, ok := addedAssignees[pullRequestAssigneeID]
 					if !ok {
@@ -7352,6 +7358,9 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 							SourceTimestamp: createdOn,
 						},
 					}
+					if createdOn != updatedOn {
+						pullRequestReviewer.Reviewer.SyncTimestamp = updatedOn
+					}
 					found := false
 					for _, oldr := range oldReviewers.Reviewers {
 						if oldr == pullRequestReviewerID {
@@ -7437,6 +7446,9 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 							SyncTimestamp:   time.Now(),
 							SourceTimestamp: createdOn,
 						},
+					}
+					if createdOn != updatedOn {
+						pullRequestReviewer.Reviewer.SyncTimestamp = updatedOn
 					}
 					found := false
 					for _, oldr := range oldReviewers.Reviewers {
