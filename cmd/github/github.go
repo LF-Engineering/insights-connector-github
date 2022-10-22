@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -9,6 +10,7 @@ import (
 	"io/ioutil"
 	"math"
 	"math/rand"
+	"net/http"
 	"os"
 	"runtime"
 	"sort"
@@ -8844,15 +8846,26 @@ func main() {
 	github.AddCacheProvider()
 
 	if os.Getenv("TRACE_ID") != "" && os.Getenv("SPAN_ID") != "" {
-		traceID, _ := strconv.ParseUint(os.Getenv("TRACE_ID"), 10, 64)
-		spanID, _ := strconv.ParseUint(os.Getenv("SPAN_ID"), 10, 64)
-		sctx := NewSpanContext(traceID, spanID)
+		traceID := os.Getenv("TRACE_ID")
+		spanID := os.Getenv("SPAN_ID")
+		//sctx := NewSpanContext(traceID, spanID)
 		tracer.Start()
 		defer tracer.Stop()
 
 		cat := ""
 		for c := range ctx.Categories {
 			cat = c
+		}
+
+		req, _ := http.NewRequest(http.MethodPost, "", bytes.NewBuffer([]byte{}))
+		if err != nil {
+			fmt.Println(err)
+		}
+		req.Header.Add("traceID", traceID)
+		req.Header.Add("traceID", spanID)
+		sctx, er := tracer.Extract(tracer.HTTPHeadersCarrier(req.Header))
+		if er != nil {
+			fmt.Println(er)
 		}
 		if err == nil {
 			span := tracer.StartSpan(fmt.Sprintf("connector.%s", cat), tracer.ChildOf(sctx))
