@@ -8841,6 +8841,7 @@ func main() {
 	shared.SetLogLoggerError(false)
 	shared.AddLogger(&github.Logger, GitHubDataSource, logger.Internal, []map[string]string{{"GITHUB_ORG": github.Org, "GITHUB_REPO": github.Repo, "REPO_URL": github.URL, "ProjectSlug": ctx.Project}})
 	github.AddCacheProvider()
+	github.log.WithFields(logrus.Fields{"operation": "main"}).Infof("trace id: %s, span id: %s", os.Getenv("TRACE_ID"), os.Getenv("SPAN_ID"))
 	for cat := range ctx.Categories {
 		err = github.WriteLog(&ctx, timestamp, logger.InProgress, cat)
 		if err != nil {
