@@ -8862,7 +8862,7 @@ func main() {
 			fmt.Println(err)
 		}
 		req.Header.Add("traceID", traceID)
-		req.Header.Add("traceID", spanID)
+		req.Header.Add("spanID", spanID)
 		sctx, er := tracer.Extract(tracer.HTTPHeadersCarrier(req.Header))
 		if er != nil {
 			fmt.Println(er)
