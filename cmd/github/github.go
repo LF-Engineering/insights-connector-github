@@ -41,6 +41,7 @@ import (
 	"github.com/google/go-github/v43/github"
 	jsoniter "github.com/json-iterator/go"
 	"golang.org/x/oauth2"
+	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 )
 
 const (
@@ -8841,7 +8842,24 @@ func main() {
 	shared.SetLogLoggerError(false)
 	shared.AddLogger(&github.Logger, GitHubDataSource, logger.Internal, []map[string]string{{"GITHUB_ORG": github.Org, "GITHUB_REPO": github.Repo, "REPO_URL": github.URL, "ProjectSlug": ctx.Project}})
 	github.AddCacheProvider()
-	github.log.WithFields(logrus.Fields{"operation": "main"}).Infof("trace id: %s, span id: %s", os.Getenv("TRACE_ID"), os.Getenv("SPAN_ID"))
+
+	if os.Getenv("TRACE_ID") != "" && os.Getenv("SPAN_ID") != "" {
+		traceID, _ := strconv.ParseUint(os.Getenv("TRACE_ID"), 10, 64)
+		spanID, _ := strconv.ParseUint(os.Getenv("SPAN_ID"), 10, 64)
+		sctx := NewSpanContext(traceID, spanID)
+		tracer.Start()
+		defer tracer.Stop()
+
+		cat := ""
+		for c := range ctx.Categories {
+			cat = c
+		}
+		if err == nil {
+			span := tracer.StartSpan(fmt.Sprintf("connector.%s", cat), tracer.ChildOf(sctx))
+			defer span.Finish()
+		}
+	}
+
 	for cat := range ctx.Categories {
 		err = github.WriteLog(&ctx, timestamp, logger.InProgress, cat)
 		if err != nil {
