@@ -9145,7 +9145,7 @@ type NoopSpanContext struct {
 	traceID uint64
 }
 
-// NewSpanContext...
+// NewSpanContext ...
 func NewSpanContext(traceID uint64, spanID uint64) NoopSpanContext {
 	return NoopSpanContext{traceID: traceID, spanID: spanID}
 }
