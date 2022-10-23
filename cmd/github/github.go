@@ -8848,6 +8848,9 @@ func main() {
 	if os.Getenv("TRACE_ID") != "" && os.Getenv("SPAN_ID") != "" {
 		traceID := os.Getenv("TRACE_ID")
 		spanID := os.Getenv("SPAN_ID")
+		github.log.WithFields(logrus.Fields{"operation": "main", "traceId": traceID}).Println("traceid")
+		github.log.WithFields(logrus.Fields{"operation": "main", "spanId": spanID}).Println("spanid")
+
 		//sctx := NewSpanContext(traceID, spanID)
 		/*tracer.Start()
 		defer tracer.Stop()*/
