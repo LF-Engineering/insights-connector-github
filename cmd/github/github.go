@@ -8852,10 +8852,10 @@ func main() {
 		tracer.Start()
 		defer tracer.Stop()
 
-		cat := ""
-		for c := range ctx.Categories {
-			cat = c
-		}
+		/*		cat := ""
+				for c := range ctx.Categories {
+					cat = c
+				}*/
 
 		req, _ := http.NewRequest(http.MethodPost, "", bytes.NewBuffer([]byte{}))
 		if err != nil {
@@ -8867,8 +8867,10 @@ func main() {
 		if er != nil {
 			fmt.Println(er)
 		}
-		if err == nil {
-			span := tracer.StartSpan(fmt.Sprintf("connector.%s", cat), tracer.ChildOf(sctx))
+		if err == nil && sctx != nil {
+			sID, _ := strconv.ParseUint(spanID, 10, 64)
+			span := tracer.StartSpan("xxx", tracer.WithSpanID(sID))
+			//span := tracer.StartSpan(fmt.Sprintf("connector.%s", cat), tracer.ChildOf(sctx))
 			defer span.Finish()
 		}
 	}
