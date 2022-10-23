@@ -8849,8 +8849,8 @@ func main() {
 		traceID := os.Getenv("TRACE_ID")
 		spanID := os.Getenv("SPAN_ID")
 		//sctx := NewSpanContext(traceID, spanID)
-		tracer.Start()
-		defer tracer.Stop()
+		/*tracer.Start()
+		defer tracer.Stop()*/
 
 		/*		cat := ""
 				for c := range ctx.Categories {
@@ -8868,9 +8868,7 @@ func main() {
 			fmt.Println(er)
 		}
 		if err == nil && sctx != nil {
-			sID, _ := strconv.ParseUint(spanID, 10, 64)
-			span := tracer.StartSpan("xxx", tracer.WithSpanID(sID))
-			//span := tracer.StartSpan(fmt.Sprintf("connector.%s", cat), tracer.ChildOf(sctx))
+			span := tracer.StartSpan("github connector kh", tracer.ChildOf(sctx))
 			defer span.Finish()
 		}
 	}
