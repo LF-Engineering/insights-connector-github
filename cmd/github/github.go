@@ -8844,6 +8844,8 @@ func main() {
 	github.AddCacheProvider()
 
 	if os.Getenv("SPAN") != "" {
+		tracer.Start()
+		defer tracer.Stop()
 		traceID := os.Getenv("TRACE_ID")
 		spanID := os.Getenv("SPAN_ID")
 		github.log.WithFields(logrus.Fields{"operation": "main", "traceId": traceID}).Println("traceid")
