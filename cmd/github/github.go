@@ -8843,7 +8843,7 @@ func main() {
 	shared.AddLogger(&github.Logger, GitHubDataSource, logger.Internal, []map[string]string{{"GITHUB_ORG": github.Org, "GITHUB_REPO": github.Repo, "REPO_URL": github.URL, "ProjectSlug": ctx.Project}})
 	github.AddCacheProvider()
 
-	if os.Getenv("TRACE_ID") != "" && os.Getenv("SPAN_ID") != "" {
+	if os.Getenv("SPAN") != "" {
 		traceID := os.Getenv("TRACE_ID")
 		spanID := os.Getenv("SPAN_ID")
 		github.log.WithFields(logrus.Fields{"operation": "main", "traceId": traceID}).Println("traceid")
