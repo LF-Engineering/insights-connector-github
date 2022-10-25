@@ -8844,12 +8844,8 @@ func main() {
 	github.AddCacheProvider()
 
 	if os.Getenv("SPAN") != "" {
-		tracer.Start()
+		tracer.Start(tracer.WithGlobalTag("connector", "github"))
 		defer tracer.Stop()
-		traceID := os.Getenv("TRACE_ID")
-		spanID := os.Getenv("SPAN_ID")
-		github.log.WithFields(logrus.Fields{"operation": "main", "traceId": traceID}).Println("traceid")
-		github.log.WithFields(logrus.Fields{"operation": "main", "spanId": spanID}).Println("spanid")
 
 		cat := ""
 		for c := range ctx.Categories {
@@ -8857,25 +8853,18 @@ func main() {
 		}
 
 		sb := os.Getenv("SPAN")
-		x := make(tracer.TextMapCarrier)
-		err = jsoniter.Unmarshal([]byte(sb), &x)
+		carrier := make(tracer.TextMapCarrier)
+		err = jsoniter.Unmarshal([]byte(sb), &carrier)
 		if err != nil {
 			return
 		}
-		sctx, er := tracer.Extract(x)
+		sctx, er := tracer.Extract(carrier)
 		if er != nil {
 			fmt.Println(er)
 		}
-		github.log.WithFields(logrus.Fields{"operation": "main"}).Errorf("sctx: %+v", sctx)
 		if err == nil && sctx != nil {
-			fmt.Println(" spannnnn  ", sctx.SpanID())
-			fmt.Println("traceeee  ", sctx.TraceID())
-			sctx.ForeachBaggageItem(func(k string, v string) bool {
-				fmt.Printf("key: %s, val: %s", k, v)
-				return true
-			})
-			span := tracer.StartSpan(fmt.Sprintf("connector.%s", cat), tracer.ChildOf(sctx))
-			fmt.Println(" child spannnnn  ", span.Context().SpanID())
+			span := tracer.StartSpan(fmt.Sprintf("%s", cat), tracer.ResourceName("connector"), tracer.ChildOf(sctx))
+			github.log.WithFields(logrus.Fields{"operation": "main"}).Infof("connector log from trace")
 			defer span.Finish()
 		}
 	}
