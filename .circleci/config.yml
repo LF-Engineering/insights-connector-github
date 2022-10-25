@@ -90,7 +90,7 @@ workflows:
             - build
           filters:
             branches:
-              only: instrument-datadog #main
+              only: main
             tags:
               ignore: /.*/
       - approve_prod:
