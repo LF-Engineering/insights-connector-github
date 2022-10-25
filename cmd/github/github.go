@@ -41,6 +41,7 @@ import (
 	"github.com/google/go-github/v43/github"
 	jsoniter "github.com/json-iterator/go"
 	"golang.org/x/oauth2"
+	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 )
 
 const (
@@ -8841,6 +8842,33 @@ func main() {
 	shared.SetLogLoggerError(false)
 	shared.AddLogger(&github.Logger, GitHubDataSource, logger.Internal, []map[string]string{{"GITHUB_ORG": github.Org, "GITHUB_REPO": github.Repo, "REPO_URL": github.URL, "ProjectSlug": ctx.Project}})
 	github.AddCacheProvider()
+
+	if os.Getenv("SPAN") != "" {
+		tracer.Start(tracer.WithGlobalTag("connector", "github"))
+		defer tracer.Stop()
+
+		cat := ""
+		for c := range ctx.Categories {
+			cat = c
+		}
+
+		sb := os.Getenv("SPAN")
+		carrier := make(tracer.TextMapCarrier)
+		err = jsoniter.Unmarshal([]byte(sb), &carrier)
+		if err != nil {
+			return
+		}
+		sctx, er := tracer.Extract(carrier)
+		if er != nil {
+			fmt.Println(er)
+		}
+		if err == nil && sctx != nil {
+			span, con := tracer.StartSpanFromContext(context.Background(), fmt.Sprintf("%s", cat), tracer.ResourceName("connector"), tracer.ChildOf(sctx))
+			github.log.WithContext(con).WithFields(logrus.Fields{"operation": "main"}).Infof("connector log from trace")
+			defer span.Finish()
+		}
+	}
+
 	for cat := range ctx.Categories {
 		err = github.WriteLog(&ctx, timestamp, logger.InProgress, cat)
 		if err != nil {
