@@ -8872,8 +8872,10 @@ func main() {
 			fmt.Println("traceeee  ", sctx.TraceID())
 			sctx.ForeachBaggageItem(func(k string, v string) bool {
 				fmt.Printf("key: %s, val: %s", k, v)
+				return true
 			})
 			span := tracer.StartSpan(fmt.Sprintf("connector.%s", cat), tracer.ChildOf(sctx))
+			fmt.Println(" child spannnnn  ", span.Context().SpanID())
 			defer span.Finish()
 		}
 	}
