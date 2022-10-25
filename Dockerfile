@@ -12,6 +12,7 @@ ENV GITHUB_TOKENS='<GITHUB-TOKENS>'
 ENV GITHUB_SOURCE_ID='<GITHUB_SOURCE_ID>'
 ENV TRACE_ID='<TRACE_ID>'
 ENV SPAN_ID='<SPAN_ID>'
+ENV SPAN='<SPAN>'
 
 # RUN apk update && apk add git
 RUN apk update && apk add --no-cache bash

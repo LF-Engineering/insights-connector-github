@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -10,7 +9,6 @@ import (
 	"io/ioutil"
 	"math"
 	"math/rand"
-	"net/http"
 	"os"
 	"runtime"
 	"sort"
@@ -8851,27 +8849,23 @@ func main() {
 		github.log.WithFields(logrus.Fields{"operation": "main", "traceId": traceID}).Println("traceid")
 		github.log.WithFields(logrus.Fields{"operation": "main", "spanId": spanID}).Println("spanid")
 
-		//sctx := NewSpanContext(traceID, spanID)
-		/*tracer.Start()
-		defer tracer.Stop()*/
-
-		/*		cat := ""
-				for c := range ctx.Categories {
-					cat = c
-				}*/
-
-		req, _ := http.NewRequest(http.MethodPost, "", bytes.NewBuffer([]byte{}))
-		if err != nil {
-			fmt.Println(err)
+		cat := ""
+		for c := range ctx.Categories {
+			cat = c
 		}
-		req.Header.Add("traceID", traceID)
-		req.Header.Add("spanID", spanID)
-		sctx, er := tracer.Extract(tracer.HTTPHeadersCarrier(req.Header))
+
+		sb := os.Getenv("SPAN")
+		x := make(tracer.TextMapCarrier)
+		err = jsoniter.Unmarshal([]byte(sb), &x)
+		if err != nil {
+			return
+		}
+		sctx, er := tracer.Extract(x)
 		if er != nil {
 			fmt.Println(er)
 		}
 		if err == nil && sctx != nil {
-			span := tracer.StartSpan("github connector kh", tracer.ChildOf(sctx))
+			span := tracer.StartSpan(fmt.Sprintf("connector.%s", cat), tracer.ChildOf(sctx))
 			defer span.Finish()
 		}
 	}
