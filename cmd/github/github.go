@@ -8864,6 +8864,7 @@ func main() {
 		if er != nil {
 			fmt.Println(er)
 		}
+		github.log.WithFields(logrus.Fields{"operation": "main"}).Errorf("sctx: %+v", sctx)
 		if err == nil && sctx != nil {
 			span := tracer.StartSpan(fmt.Sprintf("connector.%s", cat), tracer.ChildOf(sctx))
 			defer span.Finish()
