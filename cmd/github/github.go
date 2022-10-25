@@ -6,16 +6,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io/ioutil"
-	"math"
-	"math/rand"
-	"os"
-	"runtime"
-	"sort"
-	"strconv"
-	"strings"
-	"sync"
-	"time"
+	lg "gopkg.in/DataDog/dd-trace-go.v1/contrib/sirupsen/logrus"
 
 	"github.com/LF-Engineering/insights-connector-github/build"
 	"github.com/LF-Engineering/insights-datasource-shared/aws"
@@ -26,6 +17,16 @@ import (
 	"github.com/LF-Engineering/lfx-event-schema/service/repository"
 	"github.com/LF-Engineering/lfx-event-schema/service/user"
 	"github.com/sirupsen/logrus"
+	"io/ioutil"
+	"math"
+	"math/rand"
+	"os"
+	"runtime"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/LF-Engineering/lfx-event-schema/utils/datalake"
 
@@ -8863,8 +8864,8 @@ func main() {
 			fmt.Println(er)
 		}
 		if err == nil && sctx != nil {
-			span := tracer.StartSpan(fmt.Sprintf("%s", cat), tracer.ResourceName("connector"), tracer.ChildOf(sctx))
-			github.log.WithFields(logrus.Fields{"operation": "main"}).Infof("connector log from trace")
+			span, con := tracer.StartSpanFromContext(context.Background(), fmt.Sprintf("%s", cat), tracer.ResourceName("connector"), tracer.ChildOf(sctx))
+			github.log.WithContext(con).WithFields(logrus.Fields{"operation": "main"}).Infof("connector log from trace")
 			defer span.Finish()
 		}
 	}
@@ -8896,6 +8897,7 @@ func main() {
 // createStructuredLogger...
 func (j *DSGitHub) createStructuredLogger() {
 	logrus.SetFormatter(&logrus.JSONFormatter{})
+	logrus.AddHook(&lg.DDContextLogHook{})
 	log := logrus.WithFields(
 		logrus.Fields{
 			"environment": os.Getenv("STAGE"),
@@ -9147,23 +9149,3 @@ func (j *DSGitHub) preventUpdateIssueDuplication(v []interface{}, event string) 
 	}
 	return updates, cacheData, nil
 }
-
-// NoopSpanContext is an implementation of ddtrace.SpanContext that is a no-op.
-type NoopSpanContext struct {
-	spanID  uint64
-	traceID uint64
-}
-
-// NewSpanContext ...
-func NewSpanContext(traceID uint64, spanID uint64) NoopSpanContext {
-	return NoopSpanContext{traceID: traceID, spanID: spanID}
-}
-
-// SpanID implements ddtrace.SpanContext.
-func (n NoopSpanContext) SpanID() uint64 { return n.spanID }
-
-// TraceID implements ddtrace.SpanContext.
-func (n NoopSpanContext) TraceID() uint64 { return n.traceID }
-
-// ForeachBaggageItem implements ddtrace.SpanContext.
-func (n NoopSpanContext) ForeachBaggageItem(handler func(k, v string) bool) {}
