@@ -8868,6 +8868,11 @@ func main() {
 		}
 		github.log.WithFields(logrus.Fields{"operation": "main"}).Errorf("sctx: %+v", sctx)
 		if err == nil && sctx != nil {
+			fmt.Println(" spannnnn  ", sctx.SpanID())
+			fmt.Println("traceeee  ", sctx.TraceID())
+			sctx.ForeachBaggageItem(func(k string, v string) bool {
+				fmt.Printf("key: %s, val: %s", k, v)
+			})
 			span := tracer.StartSpan(fmt.Sprintf("connector.%s", cat), tracer.ChildOf(sctx))
 			defer span.Finish()
 		}
