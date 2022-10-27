@@ -6386,7 +6386,6 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 				} else if roleType == "merged_by_data" {
 					roleValue = insights.MergeAuthorRole
 				}
-				isBotIdentity := shared.IsBotIdentity(username, email)
 				contributor := insights.Contributor{
 					Role:   roleValue,
 					Weight: 1.0,
@@ -6398,7 +6397,6 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						Name:       name,
 						Username:   username,
 						Source:     source,
-						IsBot:      isBotIdentity,
 					},
 				}
 				if roleType == "merged_by_data" {
@@ -6484,7 +6482,6 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 						return
 					}
-					isBotIdentity := shared.IsBotIdentity(username, email)
 					contributor := insights.Contributor{
 						Role:   insights.AssigneeRole,
 						Weight: 1.0,
@@ -6496,7 +6493,6 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 							Name:       name,
 							Username:   username,
 							Source:     source,
-							IsBot:      isBotIdentity,
 						},
 					}
 					pullRequestContributors = append(pullRequestContributors, contributor)
@@ -6737,7 +6733,6 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 						return
 					}
-					isBotIdentity := shared.IsBotIdentity(username, email)
 					contributor := insights.Contributor{
 						Role:   insights.CommenterRole,
 						Weight: 1.0,
@@ -6749,7 +6744,6 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 							Name:       name,
 							Username:   username,
 							Source:     source,
-							IsBot:      isBotIdentity,
 						},
 					}
 					pullRequestContributors = append(pullRequestContributors, contributor)
@@ -6821,7 +6815,6 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 						return
 					}
-					isBotIdentity := shared.IsBotIdentity(username, email)
 					contributor := insights.Contributor{
 						Role:   insights.ReactionAuthorRole,
 						Weight: 1.0,
@@ -6833,7 +6826,6 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 							Name:       name,
 							Username:   username,
 							Source:     source,
-							IsBot:      isBotIdentity,
 						},
 					}
 					pullRequestContributors = append(pullRequestContributors, contributor)
@@ -6929,7 +6921,6 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 						return
 					}
-					isBotIdentity := shared.IsBotIdentity(username, email)
 					contributor := insights.Contributor{
 						Role:   insights.CommenterRole,
 						Weight: 1.0,
@@ -6941,7 +6932,6 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 							Name:       name,
 							Username:   username,
 							Source:     source,
-							IsBot:      isBotIdentity,
 						},
 					}
 					pullRequestContributors = append(pullRequestContributors, contributor)
@@ -7110,7 +7100,6 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v\n", source, email, name, username, err, doc)
 						return
 					}
-					isBotIdentity := shared.IsBotIdentity(username, email)
 					contributor := insights.Contributor{
 						Role:   insights.ReactionAuthorRole,
 						Weight: 1.0,
@@ -7122,7 +7111,6 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 							Name:       name,
 							Username:   username,
 							Source:     source,
-							IsBot:      isBotIdentity,
 						},
 					}
 					pullRequestContributors = append(pullRequestContributors, contributor)
@@ -7304,7 +7292,6 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 						return
 					}
-					isBotIdentity := shared.IsBotIdentity(username, email)
 					contributor := insights.Contributor{
 						Role:   insights.ReviewerRole,
 						Weight: 1.0,
@@ -7316,7 +7303,6 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 							Name:       name,
 							Username:   username,
 							Source:     source,
-							IsBot:      isBotIdentity,
 						},
 					}
 					pullRequestContributors = append(pullRequestContributors, contributor)
@@ -7428,7 +7414,6 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 						return
 					}
-					isBotIdentity := shared.IsBotIdentity(username, email)
 					contributor := insights.Contributor{
 						Role:   insights.RequestedReviewerRole,
 						Weight: 1.0,
@@ -7440,7 +7425,6 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 							Name:       name,
 							Username:   username,
 							Source:     source,
-							IsBot:      isBotIdentity,
 						},
 					}
 					pullRequestContributors = append(pullRequestContributors, contributor)
@@ -8054,7 +8038,6 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 				} else if roleType == "closed_by_data" {
 					roleValue = insights.CloseAuthorRole
 				}
-				isBotIdentity := shared.IsBotIdentity(username, email)
 				contributor := insights.Contributor{
 					Role:   roleValue,
 					Weight: 1.0,
@@ -8066,7 +8049,6 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 						Name:       name,
 						Username:   username,
 						Source:     source,
-						IsBot:      isBotIdentity,
 					},
 				}
 				if roleType == "closed_by_data" {
@@ -8149,7 +8131,6 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 						j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 						return
 					}
-					isBotIdentity := shared.IsBotIdentity(username, email)
 					contributor := insights.Contributor{
 						Role:   insights.AssigneeRole,
 						Weight: 1.0,
@@ -8161,7 +8142,6 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 							Name:       name,
 							Username:   username,
 							Source:     source,
-							IsBot:      isBotIdentity,
 						},
 					}
 					issueContributors = append(issueContributors, contributor)
@@ -8296,7 +8276,6 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 						j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 						return
 					}
-					isBotIdentity := shared.IsBotIdentity(username, email)
 					contributor := insights.Contributor{
 						Role:   insights.ReactionAuthorRole,
 						Weight: 1.0,
@@ -8308,7 +8287,6 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 							Name:       name,
 							Username:   username,
 							Source:     source,
-							IsBot:      isBotIdentity,
 						},
 					}
 					issueContributors = append(issueContributors, contributor)
@@ -8466,7 +8444,6 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 						j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 						return
 					}
-					isBotIdentity := shared.IsBotIdentity(username, email)
 					contributor := insights.Contributor{
 						Role:   insights.CommenterRole,
 						Weight: 1.0,
@@ -8478,7 +8455,6 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 							Name:       name,
 							Username:   username,
 							Source:     source,
-							IsBot:      isBotIdentity,
 						},
 					}
 					issueContributors = append(issueContributors, contributor)
@@ -8643,7 +8619,6 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 						j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 						return
 					}
-					isBotIdentity := shared.IsBotIdentity(username, email)
 					contributor := insights.Contributor{
 						Role:   insights.ReactionAuthorRole,
 						Weight: 1.0,
@@ -8655,7 +8630,6 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 							Name:       name,
 							Username:   username,
 							Source:     source,
-							IsBot:      isBotIdentity,
 						},
 					}
 					issueContributors = append(issueContributors, contributor)
