@@ -1241,7 +1241,7 @@ func (j *DSGitHub) githubIssues(ctx *shared.Ctx, org, repo string, since, until 
 	}
 	// GitHub doesn't support date-to/until
 	retry := false
-	PagesCount := os.Getenv("FETCH_PAGE_SIZE")
+	PagesCount := os.Getenv("FETCH_PAGES")
 	Pages, err := strconv.ParseInt(PagesCount, 10, 32)
 	if err != nil {
 		Pages = 100
@@ -3307,7 +3307,7 @@ func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 	// If there is a date from Pulls API doesn't support Since parameter
 	// if ctx.DateFrom != nil {
 	dateFrom := ctx.DateFrom
-	PagesCount := os.Getenv("FETCH_PAGE_SIZE")
+	PagesCount := os.Getenv("FETCH_PAGES")
 	Pages, err := strconv.ParseInt(PagesCount, 10, 32)
 	if err != nil {
 		Pages = 100
