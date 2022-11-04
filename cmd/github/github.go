@@ -9153,12 +9153,12 @@ func (j *DSGitHub) getClosedBy(ctx *shared.Ctx, id int, org string) (*insights.C
 	name, _ := u["name"].(string)
 	email, _ := u["email"].(string)
 	source := GitHubDataSource
-	userID, err := user.GenerateIdentity(&source, &email, &name, iss.ClosedBy.Login)
+	userID, err := user.GenerateIdentity(&source, &email, &name, &closerLogin)
 	if err != nil {
 		j.log.WithFields(logrus.Fields{"operation": "getClosedBy"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v", source, email, name, *iss.ClosedBy.Login, err)
 		return nil, err
 	}
-	isBotIdentity := shared.IsBotIdentity(name, *iss.ClosedBy.Login, email, GitHubDataSource, os.Getenv("BOT_NAME_REGEX"), os.Getenv("BOT_USERNAME_REGEX"), os.Getenv("BOT_EMAIL_REGEX"))
+	isBotIdentity := shared.IsBotIdentity(name, closerLogin, email, GitHubDataSource, os.Getenv("BOT_NAME_REGEX"), os.Getenv("BOT_USERNAME_REGEX"), os.Getenv("BOT_EMAIL_REGEX"))
 	closedBY := insights.Contributor{
 		Role:   insights.CloseAuthorRole,
 		Weight: 1.0,
@@ -9168,7 +9168,7 @@ func (j *DSGitHub) getClosedBy(ctx *shared.Ctx, id int, org string) (*insights.C
 			Email:      email,
 			IsVerified: false,
 			Name:       name,
-			Username:   *iss.ClosedBy.Login,
+			Username:   closerLogin,
 			Source:     source,
 			IsBot:      isBotIdentity,
 		},
