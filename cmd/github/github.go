@@ -7566,6 +7566,14 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 				Orphaned:         false,
 			},
 		}
+		if isClosed && !isMerged {
+			issID, _ := doc["id_in_repo"].(int)
+			closedBY, eror := j.getClosedBy(ctx, issID, org)
+			if eror != nil {
+				return
+			}
+			pullRequest.ClosedBy = closedBY
+		}
 		key := "updated"
 		cacheID := fmt.Sprintf("%s-%s", GitHubPullrequest, pullRequest.ID)
 		isCreated, er := j.cacheProvider.IsKeyCreated(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), cacheID)
@@ -8782,6 +8790,14 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 				Orphaned:        false,
 			},
 		}
+		if isClosed {
+			issID, _ := doc["id_in_repo"].(int)
+			closedBY, eror := j.getClosedBy(ctx, issID, org)
+			if eror != nil {
+				return
+			}
+			issue.ClosedBy = closedBY
+		}
 		key := "updated"
 		cacheID = fmt.Sprintf("%s-%s", GitHubIssue, issue.ID)
 		isCreated, er := j.cacheProvider.IsKeyCreated(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), cacheID)
@@ -9118,4 +9134,44 @@ func (j *DSGitHub) preventUpdateIssueDuplication(v []interface{}, event string) 
 		}
 	}
 	return updates, cacheData, nil
+}
+
+func (j *DSGitHub) getClosedBy(ctx *shared.Ctx, id int, org string) (*insights.Contributor, error) {
+	c := j.Clients[j.Hint]
+	iss, _, err := c.Issues.Get(j.Context, org, j.Repo, id)
+	if err != nil {
+		return nil, err
+	}
+	closerLogin := ""
+	if iss.ClosedBy != nil && iss.ClosedBy.Login != nil {
+		closerLogin = *iss.ClosedBy.Login
+	}
+	u, _, err := j.githubUser(ctx, closerLogin)
+	if err != nil {
+		return nil, err
+	}
+	name, _ := u["name"].(string)
+	email, _ := u["email"].(string)
+	source := GitHubDataSource
+	userID, err := user.GenerateIdentity(&source, &email, &name, iss.ClosedBy.Login)
+	if err != nil {
+		j.log.WithFields(logrus.Fields{"operation": "getClosedBy"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v", source, email, name, *iss.ClosedBy.Login, err)
+		return nil, err
+	}
+	isBotIdentity := shared.IsBotIdentity(name, *iss.ClosedBy.Login, email, GitHubDataSource, os.Getenv("BOT_NAME_REGEX"), os.Getenv("BOT_USERNAME_REGEX"), os.Getenv("BOT_EMAIL_REGEX"))
+	closedBY := insights.Contributor{
+		Role:   insights.CloseAuthorRole,
+		Weight: 1.0,
+		Identity: user.UserIdentityObjectBase{
+			ID:         userID,
+			Avatar:     *iss.ClosedBy.AvatarURL,
+			Email:      email,
+			IsVerified: false,
+			Name:       name,
+			Username:   *iss.ClosedBy.Login,
+			Source:     source,
+			IsBot:      isBotIdentity,
+		},
+	}
+	return &closedBY, nil
 }
