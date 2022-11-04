@@ -130,8 +130,6 @@ const (
 	// GitHubIssue ...
 	GitHubIssue      = "issue"
 	contentHashField = "contentHash"
-	// Pages - how many pages to fetch
-	Pages = 100
 )
 
 var (
@@ -1243,6 +1241,11 @@ func (j *DSGitHub) githubIssues(ctx *shared.Ctx, org, repo string, since, until 
 	}
 	// GitHub doesn't support date-to/until
 	retry := false
+	PagesCount := os.Getenv("FETCH_PAGE_SIZE")
+	Pages, err := strconv.ParseInt(PagesCount, 10, 32)
+	if err != nil {
+		Pages = 100
+	}
 	for {
 		var (
 			response *github.Response
@@ -1320,7 +1323,7 @@ func (j *DSGitHub) githubIssues(ctx *shared.Ctx, org, repo string, since, until 
 		if response.NextPage == 0 {
 			break
 		}
-		if response.NextPage > Pages {
+		if response.NextPage > int(Pages) {
 			break
 		}
 		opt.Page = response.NextPage
@@ -3092,6 +3095,11 @@ func (j *DSGitHub) FetchItemsIssue(ctx *shared.Ctx) (err error) {
 	}
 
 	dateFrom := ctx.DateFrom
+	PagesCount := os.Getenv("FETCH_PAGE_SIZE")
+	Pages, err := strconv.ParseInt(PagesCount, 10, 32)
+	if err != nil {
+		Pages = 100
+	}
 	for {
 		issues, er := j.githubIssues(ctx, j.Org, j.Repo, dateFrom, ctx.DateTo)
 		if er != nil {
@@ -3195,10 +3203,10 @@ func (j *DSGitHub) FetchItemsIssue(ctx *shared.Ctx) (err error) {
 		if err != nil {
 			j.log.WithFields(logrus.Fields{"operation": "FetchItemsIssue"}).Errorf("%s/%s: error %v sending %d issues to queue", j.URL, j.CurrentCategory, err, len(allIssues))
 		}
-		if len(issues) < Pages*ItemsPerPage {
+		if len(issues) < int(Pages)*ItemsPerPage {
 			break
 		}
-		if len(issues) == Pages*ItemsPerPage {
+		if len(issues) == int(Pages)*ItemsPerPage {
 			*dateFrom, er = j.cacheProvider.GetLastSync(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue))
 			if er != nil {
 				return err
@@ -3299,6 +3307,11 @@ func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 	// If there is a date from Pulls API doesn't support Since parameter
 	// if ctx.DateFrom != nil {
 	dateFrom := ctx.DateFrom
+	PagesCount := os.Getenv("FETCH_PAGE_SIZE")
+	Pages, err := strconv.ParseInt(PagesCount, 10, 32)
+	if err != nil {
+		Pages = 100
+	}
 	for {
 		issues, er := j.githubIssues(ctx, j.Org, j.Repo, dateFrom, ctx.DateTo)
 		if er != nil {
@@ -3396,11 +3409,11 @@ func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 			}
 			allPulls = make([]interface{}, 0)
 		}
-		if len(issues) < Pages*ItemsPerPage {
+		if len(issues) < int(Pages)*ItemsPerPage {
 			break
 		}
 
-		if len(issues) == Pages*ItemsPerPage {
+		if len(issues) == int(Pages)*ItemsPerPage {
 			*dateFrom, er = j.cacheProvider.GetLastSync(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest))
 			if er != nil {
 				return err
