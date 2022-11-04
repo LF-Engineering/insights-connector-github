@@ -130,6 +130,8 @@ const (
 	// GitHubIssue ...
 	GitHubIssue      = "issue"
 	contentHashField = "contentHash"
+	// Pages - how many pages to fetch
+	Pages = 100
 )
 
 var (
@@ -1316,6 +1318,9 @@ func (j *DSGitHub) githubIssues(ctx *shared.Ctx, org, repo string, since, until 
 			issuesData = append(issuesData, iss)
 		}
 		if response.NextPage == 0 {
+			break
+		}
+		if response.NextPage > Pages {
 			break
 		}
 		opt.Page = response.NextPage
@@ -3085,43 +3090,62 @@ func (j *DSGitHub) FetchItemsIssue(ctx *shared.Ctx) (err error) {
 		}
 		return
 	}
-	issues, err := j.githubIssues(ctx, j.Org, j.Repo, ctx.DateFrom, ctx.DateTo)
-	if err != nil {
-		return
-	}
-	runtime.GC()
-	nIss = len(issues)
-	j.log.WithFields(logrus.Fields{"operation": "FetchItemsIssue"}).Infof("%s/%s: got %d issues", j.URL, j.CurrentCategory, nIss)
-	if j.ThrN > 1 {
-		for _, issue := range issues {
-			isPR, _ := issue["is_pull"]
-			if isPR.(bool) {
-				nIss--
-				continue
+
+	dateFrom := ctx.DateFrom
+	for {
+		issues, er := j.githubIssues(ctx, j.Org, j.Repo, dateFrom, ctx.DateTo)
+		if er != nil {
+			return er
+		}
+		runtime.GC()
+		nIss = len(issues)
+		j.log.WithFields(logrus.Fields{"operation": "FetchItemsIssue"}).Infof("%s/%s: got %d issues", j.URL, j.CurrentCategory, nIss)
+		if j.ThrN > 1 {
+			for _, issue := range issues {
+				isPR, _ := issue["is_pull"]
+				if isPR.(bool) {
+					nIss--
+					continue
+				}
+				go func(iss map[string]interface{}) {
+					var (
+						e    error
+						esch chan error
+					)
+					esch, e = processIssue(ch, iss)
+					if e != nil {
+						j.log.WithFields(logrus.Fields{"operation": "FetchItemsIssue"}).Errorf("%s/%s: issues process error: %v", j.URL, j.CurrentCategory, e)
+						return
+					}
+					if esch != nil {
+						if eschaMtx != nil {
+							eschaMtx.Lock()
+						}
+						escha = append(escha, esch)
+						if eschaMtx != nil {
+							eschaMtx.Unlock()
+						}
+					}
+				}(issue)
+				nThreads++
+				if nThreads == j.ThrN {
+					err = <-ch
+					if err != nil {
+						return
+					}
+					if issProcMtx != nil {
+						issProcMtx.Lock()
+					}
+					issProcessed++
+					if issProcMtx != nil {
+						issProcMtx.Unlock()
+					}
+					nThreads--
+				}
 			}
-			go func(iss map[string]interface{}) {
-				var (
-					e    error
-					esch chan error
-				)
-				esch, e = processIssue(ch, iss)
-				if e != nil {
-					j.log.WithFields(logrus.Fields{"operation": "FetchItemsIssue"}).Errorf("%s/%s: issues process error: %v", j.URL, j.CurrentCategory, e)
-					return
-				}
-				if esch != nil {
-					if eschaMtx != nil {
-						eschaMtx.Lock()
-					}
-					escha = append(escha, esch)
-					if eschaMtx != nil {
-						eschaMtx.Unlock()
-					}
-				}
-			}(issue)
-			nThreads++
-			if nThreads == j.ThrN {
+			for nThreads > 0 {
 				err = <-ch
+				nThreads--
 				if err != nil {
 					return
 				}
@@ -3132,60 +3156,54 @@ func (j *DSGitHub) FetchItemsIssue(ctx *shared.Ctx) (err error) {
 				if issProcMtx != nil {
 					issProcMtx.Unlock()
 				}
-				nThreads--
+			}
+		} else {
+			for _, issue := range issues {
+				isPR, _ := issue["is_pull"]
+				if isPR.(bool) {
+					nIss--
+					continue
+				}
+				_, err = processIssue(nil, issue)
+				if err != nil {
+					return
+				}
+				issProcessed++
 			}
 		}
-		for nThreads > 0 {
-			err = <-ch
-			nThreads--
+		if eschaMtx != nil {
+			eschaMtx.Lock()
+		}
+		for _, esch := range escha {
+			err = <-esch
 			if err != nil {
+				if eschaMtx != nil {
+					eschaMtx.Unlock()
+				}
 				return
 			}
-			if issProcMtx != nil {
-				issProcMtx.Lock()
-			}
-			issProcessed++
-			if issProcMtx != nil {
-				issProcMtx.Unlock()
-			}
 		}
-	} else {
-		for _, issue := range issues {
-			isPR, _ := issue["is_pull"]
-			if isPR.(bool) {
-				nIss--
-				continue
-			}
-			_, err = processIssue(nil, issue)
-			if err != nil {
-				return
-			}
-			issProcessed++
+		if eschaMtx != nil {
+			eschaMtx.Unlock()
 		}
-	}
-	if eschaMtx != nil {
-		eschaMtx.Lock()
-	}
-	for _, esch := range escha {
-		err = <-esch
+		nIssues := len(allIssues)
+		if ctx.Debug > 0 {
+			j.log.WithFields(logrus.Fields{"operation": "FetchItemsIssue"}).Debugf("%d remaining issues to send to queue", nIssues)
+		}
+		// err = SendToQueue(ctx, j, true, UUID, allIssues)
+		err = j.GitHubEnrichItems(ctx, allIssues, &allDocs, true)
 		if err != nil {
-			if eschaMtx != nil {
-				eschaMtx.Unlock()
-			}
-			return
+			j.log.WithFields(logrus.Fields{"operation": "FetchItemsIssue"}).Errorf("%s/%s: error %v sending %d issues to queue", j.URL, j.CurrentCategory, err, len(allIssues))
 		}
-	}
-	if eschaMtx != nil {
-		eschaMtx.Unlock()
-	}
-	nIssues := len(allIssues)
-	if ctx.Debug > 0 {
-		j.log.WithFields(logrus.Fields{"operation": "FetchItemsIssue"}).Debugf("%d remaining issues to send to queue", nIssues)
-	}
-	// err = SendToQueue(ctx, j, true, UUID, allIssues)
-	err = j.GitHubEnrichItems(ctx, allIssues, &allDocs, true)
-	if err != nil {
-		j.log.WithFields(logrus.Fields{"operation": "FetchItemsIssue"}).Errorf("%s/%s: error %v sending %d issues to queue", j.URL, j.CurrentCategory, err, len(allIssues))
+		if len(issues) < Pages*ItemsPerPage {
+			break
+		}
+		if len(issues) == Pages*ItemsPerPage {
+			*dateFrom, er = j.cacheProvider.GetLastSync(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue))
+			if er != nil {
+				return err
+			}
+		}
 	}
 	return
 }
@@ -3280,49 +3298,67 @@ func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 	// If it would we could use Pulls API to fetch all pulls when no date from is specified
 	// If there is a date from Pulls API doesn't support Since parameter
 	// if ctx.DateFrom != nil {
-	issues, err := j.githubIssues(ctx, j.Org, j.Repo, ctx.DateFrom, ctx.DateTo)
-	if err != nil {
-		return
-	}
-	pageSize := 1000
-	pages := int(math.Ceil(float64(len(issues)) / float64(pageSize)))
-	page := 1
-	for i := 0; i < pages; i++ {
-		limit := page * pageSize
-		if len(issues) < limit {
-			limit = len(issues)
+	dateFrom := ctx.DateFrom
+	for {
+		issues, er := j.githubIssues(ctx, j.Org, j.Repo, dateFrom, ctx.DateTo)
+		if er != nil {
+			return er
 		}
-		iss := issues[i*pageSize : limit]
-		ps, err := j.githubPullsFromIssues(ctx, j.Org, j.Repo, ctx.DateFrom, ctx.DateTo, iss)
-		page++
-		runtime.GC()
-		nPRs := len(ps)
-		j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Infof("%s/%s: got %d pulls", j.URL, j.CurrentCategory, nPRs)
-		if j.ThrN > 1 {
-			for _, pull := range ps {
-				go func(pr map[string]interface{}) {
-					var (
-						e    error
-						esch chan error
-					)
-					esch, e = processPull(ch, pr)
-					if e != nil {
-						j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Errorf("%s/%s: pulls process error: %v", j.URL, j.CurrentCategory, e)
-						return
-					}
-					if esch != nil {
-						if eschaMtx != nil {
-							eschaMtx.Lock()
+		pageSize := 1000
+		pages := int(math.Ceil(float64(len(issues)) / float64(pageSize)))
+		page := 1
+		for i := 0; i < pages; i++ {
+			limit := page * pageSize
+			if len(issues) < limit {
+				limit = len(issues)
+			}
+			iss := issues[i*pageSize : limit]
+			ps, err := j.githubPullsFromIssues(ctx, j.Org, j.Repo, ctx.DateFrom, ctx.DateTo, iss)
+			page++
+			runtime.GC()
+			nPRs := len(ps)
+			j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Infof("%s/%s: got %d pulls", j.URL, j.CurrentCategory, nPRs)
+			if j.ThrN > 1 {
+				for _, pull := range ps {
+					go func(pr map[string]interface{}) {
+						var (
+							e    error
+							esch chan error
+						)
+						esch, e = processPull(ch, pr)
+						if e != nil {
+							j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Errorf("%s/%s: pulls process error: %v", j.URL, j.CurrentCategory, e)
+							return
 						}
-						escha = append(escha, esch)
-						if eschaMtx != nil {
-							eschaMtx.Unlock()
+						if esch != nil {
+							if eschaMtx != nil {
+								eschaMtx.Lock()
+							}
+							escha = append(escha, esch)
+							if eschaMtx != nil {
+								eschaMtx.Unlock()
+							}
 						}
+					}(pull)
+					nThreads++
+					if nThreads == j.ThrN {
+						err = <-ch
+						if err != nil {
+							return err
+						}
+						if pullsProcMtx != nil {
+							pullsProcMtx.Lock()
+						}
+						pullsProcessed++
+						if pullsProcMtx != nil {
+							pullsProcMtx.Unlock()
+						}
+						nThreads--
 					}
-				}(pull)
-				nThreads++
-				if nThreads == j.ThrN {
+				}
+				for nThreads > 0 {
 					err = <-ch
+					nThreads--
 					if err != nil {
 						return err
 					}
@@ -3333,48 +3369,43 @@ func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 					if pullsProcMtx != nil {
 						pullsProcMtx.Unlock()
 					}
-					nThreads--
+				}
+			} else {
+				for _, pull := range ps {
+					_, err = processPull(nil, pull)
+					if err != nil {
+						return err
+					}
+					pullsProcessed++
 				}
 			}
-			for nThreads > 0 {
-				err = <-ch
-				nThreads--
+			for _, esch := range escha {
+				err = <-esch
 				if err != nil {
 					return err
 				}
-				if pullsProcMtx != nil {
-					pullsProcMtx.Lock()
-				}
-				pullsProcessed++
-				if pullsProcMtx != nil {
-					pullsProcMtx.Unlock()
-				}
 			}
-		} else {
-			for _, pull := range ps {
-				_, err = processPull(nil, pull)
-				if err != nil {
-					return err
-				}
-				pullsProcessed++
+			nPulls := len(allPulls)
+			if ctx.Debug > 0 {
+				j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Debugf("%d remaining pulls to send to queue", nPulls)
 			}
-		}
-		for _, esch := range escha {
-			err = <-esch
+			err = j.GitHubEnrichItems(ctx, allPulls, &allDocs, true)
+			//err = SendToQueue(ctx, j, true, UUID, allPulls)
 			if err != nil {
+				j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Errorf("%s/%s: error %v sending %d pulls to queue", j.URL, j.CurrentCategory, err, len(allPulls))
+			}
+			allPulls = make([]interface{}, 0)
+		}
+		if len(issues) < Pages*ItemsPerPage {
+			break
+		}
+
+		if len(issues) == Pages*ItemsPerPage {
+			*dateFrom, er = j.cacheProvider.GetLastSync(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest))
+			if er != nil {
 				return err
 			}
 		}
-		nPulls := len(allPulls)
-		if ctx.Debug > 0 {
-			j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Debugf("%d remaining pulls to send to queue", nPulls)
-		}
-		err = j.GitHubEnrichItems(ctx, allPulls, &allDocs, true)
-		//err = SendToQueue(ctx, j, true, UUID, allPulls)
-		if err != nil {
-			j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Errorf("%s/%s: error %v sending %d pulls to queue", j.URL, j.CurrentCategory, err, len(allPulls))
-		}
-		allPulls = make([]interface{}, 0)
 	}
 
 	return
@@ -9142,6 +9173,9 @@ func (j *DSGitHub) getClosedBy(ctx *shared.Ctx, id int, org string) (*insights.C
 	if err != nil {
 		return nil, err
 	}
+	if iss.ClosedBy == nil {
+		return nil, nil
+	}
 	closerLogin := ""
 	if iss.ClosedBy != nil && iss.ClosedBy.Login != nil {
 		closerLogin = *iss.ClosedBy.Login
@@ -9155,7 +9189,7 @@ func (j *DSGitHub) getClosedBy(ctx *shared.Ctx, id int, org string) (*insights.C
 	source := GitHubDataSource
 	userID, err := user.GenerateIdentity(&source, &email, &name, &closerLogin)
 	if err != nil {
-		j.log.WithFields(logrus.Fields{"operation": "getClosedBy"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v", source, email, name, *iss.ClosedBy.Login, err)
+		j.log.WithFields(logrus.Fields{"operation": "getClosedBy"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v", source, email, name, closerLogin, err)
 		return nil, err
 	}
 	isBotIdentity := shared.IsBotIdentity(name, closerLogin, email, GitHubDataSource, os.Getenv("BOT_NAME_REGEX"), os.Getenv("BOT_USERNAME_REGEX"), os.Getenv("BOT_EMAIL_REGEX"))
