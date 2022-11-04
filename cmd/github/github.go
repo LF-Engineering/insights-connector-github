@@ -9142,7 +9142,11 @@ func (j *DSGitHub) getClosedBy(ctx *shared.Ctx, id int, org string) (*insights.C
 	if err != nil {
 		return nil, err
 	}
-	u, _, err := j.githubUser(ctx, *iss.ClosedBy.Login)
+	closerLogin := ""
+	if iss.ClosedBy != nil && iss.ClosedBy.Login != nil {
+		closerLogin = *iss.ClosedBy.Login
+	}
+	u, _, err := j.githubUser(ctx, closerLogin)
 	if err != nil {
 		return nil, err
 	}
