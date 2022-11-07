@@ -498,7 +498,7 @@ func (j *DSGitHub) Validate(ctx *shared.Ctx) (err error) {
 	}
 	j.Emojis = make(map[string]string)
 	// Multithreading
-	j.ThrN = shared.GetThreadsNum(ctx)
+	j.ThrN = 1 //shared.GetThreadsNum(ctx)
 	if j.ThrN > 1 {
 		j.GitHubMtx = &sync.RWMutex{}
 		j.GitHubRateMtx = &sync.RWMutex{}
