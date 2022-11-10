@@ -5997,8 +5997,10 @@ func (j *DSGitHub) Sync(ctx *shared.Ctx, category string) (err error) {
 	if cat == "pull_request" {
 		cat = GitHubPullrequest
 	}
-	err = j.cacheProvider.SetLastSync(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, cat), gMaxUpstreamDt)
-	j.log.WithFields(logrus.Fields{"operation": "SetLastSync"}).Info("Sync: last sync date has been updated successfully")
+	if !gMaxUpstreamDt.IsZero() {
+		err = j.cacheProvider.SetLastSync(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, cat), gMaxUpstreamDt)
+		j.log.WithFields(logrus.Fields{"operation": "SetLastSync"}).Info("Sync: last sync date has been updated successfully")
+	}
 	return
 }
 
