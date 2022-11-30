@@ -7631,7 +7631,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 		}
 		if !isCreated {
 			key = "created"
-			pullRequest.ChangeRequest.SyncTimestamp = createdOn
+			pullRequest.ChangeRequest.SourceTimestamp = createdOn
 		}
 		ary, ok := data[key]
 		if !ok {
@@ -8855,7 +8855,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 		}
 		if !isCreated {
 			key = "created"
-			issue.Issue.SyncTimestamp = createdOn
+			issue.Issue.SourceTimestamp = createdOn
 		}
 		ary, ok := data[key]
 		if !ok {
