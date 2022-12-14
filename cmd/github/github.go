@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/LF-Engineering/insights-datasource-shared/aws"
 	"io/ioutil"
 	"math"
 	"math/rand"
@@ -21,6 +20,7 @@ import (
 	"time"
 
 	"github.com/LF-Engineering/insights-connector-github/build"
+	"github.com/LF-Engineering/insights-datasource-shared/aws"
 	"github.com/LF-Engineering/insights-datasource-shared/cache"
 	"github.com/LF-Engineering/insights-datasource-shared/cryptography"
 	"github.com/LF-Engineering/lfx-event-schema/service"
@@ -5817,7 +5817,6 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 							}
 							if len(cacheData) > 0 {
 								for _, c := range cacheData {
-									//todo: handle multiple paths
 									c.FileLocation = path
 									cachedIssues[c.EntityID] = c
 								}
@@ -5934,7 +5933,6 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 							}
 							if len(cacheData) > 0 {
 								for _, c := range cacheData {
-									//todo: handle multiple paths
 									c.FileLocation = path
 									cachedIssues[c.EntityID] = c
 								}
@@ -8329,7 +8327,6 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 		allReactionsAry, okAllReactions := doc["all_reactions_array"].([]interface{})
 		addedReactions := make([]ItemCache, 0)
 		oldReactions := cachedReactions[issueID]
-		//oldReactions := IssueReactions{Reactions: []string{}}
 		if okReactions {
 			for _, iReaction := range reactionsAry {
 				reaction, okReaction := iReaction.(map[string]interface{})
@@ -8917,37 +8914,6 @@ func (j *DSGitHub) AddCacheProvider() {
 	j.cacheProvider = *cacheProvider
 }
 
-// IssueAssignees ...
-type IssueAssignees struct {
-	Assignees []string `json:"assignees"`
-}
-
-// IssueReactions ...
-type IssueReactions struct {
-	Reactions []string `json:"reactions"`
-}
-
-// IssueComments ...
-type IssueComments struct {
-	Comments []IssueComment
-}
-
-// IssueComment ...
-type IssueComment struct {
-	ID   string `json:"id"`
-	Body string `json:"body"`
-}
-
-// IssueCommentReactions ...
-type IssueCommentReactions struct {
-	Reactions map[string][]string `json:"reactions"`
-}
-
-// PullrequestReviewers ...
-type PullrequestReviewers struct {
-	Reviewers []string `json:"reviewers"`
-}
-
 func (j *DSGitHub) cacheCreatedPullrequest(v []interface{}, path string) error {
 	for _, val := range v {
 		pr := val.(igh.PullRequestCreatedEvent).Payload
@@ -9108,34 +9074,6 @@ func (j *DSGitHub) getClosedBy(ctx *shared.Ctx, id int, org string) (*insights.C
 	return &closedBY, nil
 }
 
-/*func (j *DSGitHub) getAssignees(category string) {
-	assigneeB, err := j.cacheProvider.GetFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, category), assigneesCacheFile)
-	if err != nil {
-		return
-	}
-	reader := csv.NewReader(bytes.NewBuffer(assigneeB))
-	records, err := reader.ReadAll()
-	if err != nil {
-		return
-	}
-	for _, record := range records {
-		orphaned, err := strconv.ParseBool(record[5])
-		if err != nil {
-			orphaned = false
-		}
-		cachedAssignees[record[1]] = ChildCache{
-			Timestamp:      record[0],
-			EntityID:       record[1],
-			SourceEntityID: record[2],
-			FileLocation:   record[3],
-			Hash:           record[4],
-			Orphaned:       orphaned,
-			ParentID:       record[6],
-		}
-	}
-}
-*/
-
 func (j *DSGitHub) getAssignees(category string) error {
 	assigneeB, err := j.cacheProvider.GetFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, category), assigneesCacheFile)
 	if err != nil {
@@ -9152,34 +9090,6 @@ func (j *DSGitHub) getAssignees(category string) error {
 	}
 	return nil
 }
-
-/*func (j *DSGitHub) getComments(category string) {
-	commentsB, err := j.cacheProvider.GetFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, category), commentsCacheFile)
-	if err != nil {
-		return
-	}
-	reader := csv.NewReader(bytes.NewBuffer(commentsB))
-	records, err := reader.ReadAll()
-	if err != nil {
-		return
-	}
-	for _, record := range records {
-		orphaned, err := strconv.ParseBool(record[5])
-		if err != nil {
-			orphaned = false
-		}
-		cachedComments[record[1]] = ChildCache{
-			Timestamp:      record[0],
-			EntityID:       record[1],
-			SourceEntityID: record[2],
-			FileLocation:   record[3],
-			Hash:           record[4],
-			Orphaned:       orphaned,
-			ParentID:       record[6],
-		}
-	}
-}
-*/
 
 func (j *DSGitHub) getComments(category string) error {
 	commentsB, err := j.cacheProvider.GetFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, category), commentsCacheFile)
@@ -9212,34 +9122,6 @@ func (j *DSGitHub) getReviewers(category string) error {
 	return nil
 }
 
-/*func (j *DSGitHub) getCommentReactions(category string) {
-	commentReactionsB, err := j.cacheProvider.GetFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, category), commentReactionsCacheFile)
-	if err != nil {
-		return
-	}
-	reader := csv.NewReader(bytes.NewBuffer(commentReactionsB))
-	records, err := reader.ReadAll()
-	if err != nil {
-		return
-	}
-	for _, record := range records {
-		orphaned, err := strconv.ParseBool(record[5])
-		if err != nil {
-			orphaned = false
-		}
-		cachedCommentReactions[record[1]] = ChildCache{
-			Timestamp:      record[0],
-			EntityID:       record[1],
-			SourceEntityID: record[2],
-			FileLocation:   record[3],
-			Hash:           record[4],
-			Orphaned:       orphaned,
-			ParentID:       record[6],
-		}
-	}
-}
-*/
-
 func (j *DSGitHub) getCommentReactions(category string) error {
 	commentReactionsB, err := j.cacheProvider.GetFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, category), commentReactionsCacheFile)
 	if err != nil {
@@ -9256,34 +9138,6 @@ func (j *DSGitHub) getCommentReactions(category string) error {
 	}
 	return nil
 }
-
-/*func (j *DSGitHub) getReactions(category string) {
-	commentsB, err := j.cacheProvider.GetFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, category), reactionsCacheFile)
-	if err != nil {
-		return
-	}
-	reader := csv.NewReader(bytes.NewBuffer(commentsB))
-	records, err := reader.ReadAll()
-	if err != nil {
-		return
-	}
-	for _, record := range records {
-		orphaned, err := strconv.ParseBool(record[5])
-		if err != nil {
-			orphaned = false
-		}
-		cachedReactions[record[1]] = ChildCache{
-			Timestamp:      record[0],
-			EntityID:       record[1],
-			SourceEntityID: record[2],
-			FileLocation:   record[3],
-			Hash:           record[4],
-			Orphaned:       orphaned,
-			ParentID:       record[6],
-		}
-	}
-}
-*/
 
 func (j *DSGitHub) getReactions(category string) error {
 	reactionsB, err := j.cacheProvider.GetFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, category), reactionsCacheFile)
