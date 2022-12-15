@@ -3053,7 +3053,10 @@ func (j *DSGitHub) FetchItemsIssue(ctx *shared.Ctx) (err error) {
 	if err != nil {
 		return
 	}
-	for _, record := range records {
+	for i, record := range records {
+		if i == 0 {
+			continue
+		}
 		orphaned, err := strconv.ParseBool(record[5])
 		if err != nil {
 			orphaned = false
@@ -3301,7 +3304,10 @@ func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 	if err != nil {
 		return
 	}
-	for _, record := range records {
+	for i, record := range records {
+		if i == 0 {
+			continue
+		}
 		orphaned, er := strconv.ParseBool(record[5])
 		if er != nil {
 			orphaned = false
@@ -6014,10 +6020,6 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 					if err != nil {
 						return
 					}
-					reacB, err := jsoniter.Marshal(cachedReactions)
-					if err != nil {
-						return
-					}
 					comReacB, err := jsoniter.Marshal(cachedCommentReactions)
 					if err != nil {
 						return
@@ -6026,14 +6028,10 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 					if err != nil {
 						return
 					}
-
 					if err = j.cacheProvider.UpdateFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), commentsCacheFile, comB); err != nil {
 						return
 					}
 					if err = j.cacheProvider.UpdateFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), assigneesCacheFile, assB); err != nil {
-						return
-					}
-					if err = j.cacheProvider.UpdateFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), reactionsCacheFile, reacB); err != nil {
 						return
 					}
 					if err = j.cacheProvider.UpdateFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), commentReactionsCacheFile, comReacB); err != nil {
@@ -7340,7 +7338,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 		}
 
 		for k, v := range commentsReactions {
-			commentReactions := make([]ItemCache, len(v))
+			commentReactions := make([]ItemCache, 0, len(v))
 			for _, reaction := range v {
 				commentReactions = append(commentReactions, ItemCache{
 					Timestamp:      fmt.Sprintf("%v", reaction.SyncTimestamp.Unix()),
@@ -8745,7 +8743,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 			}
 		}
 		for k, v := range commentsReactions {
-			commentReactions := make([]ItemCache, len(v))
+			commentReactions := make([]ItemCache, 0, len(v))
 			for _, reaction := range v {
 				commentReactions = append(commentReactions, ItemCache{
 					Timestamp:      fmt.Sprintf("%v", reaction.SyncTimestamp.Unix()),
@@ -8792,7 +8790,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 			issue.ClosedBy = closedBY
 		}
 		key := "updated"
-		if isCreated := isParentKeyCreated(cachedIssues, issue.ID); isCreated {
+		if isCreated := isParentKeyCreated(cachedIssues, issue.ID); !isCreated {
 			key = "created"
 			issue.Issue.SyncTimestamp = createdOn
 		}
@@ -9169,12 +9167,15 @@ func (j *DSGitHub) updateRemoteCache(cacheFile string, cacheType string) error {
 	records := [][]string{
 		{"timestamp", "entity_id", "source_entity_id", "file_location", "hash", "orphaned"},
 	}
+	category := ""
 	switch cacheType {
 	case GitHubPullrequest:
+		category = GitHubPullrequest
 		for _, c := range cachedPulls {
 			records = append(records, []string{c.Timestamp, c.EntityID, c.SourceEntityID, c.FileLocation, c.Hash, strconv.FormatBool(c.Orphaned)})
 		}
 	case GitHubIssue:
+		category = GitHubIssue
 		for _, c := range cachedIssues {
 			records = append(records, []string{c.Timestamp, c.EntityID, c.SourceEntityID, c.FileLocation, c.Hash, strconv.FormatBool(c.Orphaned)})
 		}
@@ -9204,7 +9205,7 @@ func (j *DSGitHub) updateRemoteCache(cacheFile string, cacheType string) error {
 	if err != nil {
 		return err
 	}
-	err = j.cacheProvider.UpdateFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), cacheFile, file)
+	err = j.cacheProvider.UpdateFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, category), cacheFile, file)
 	if err != nil {
 		return err
 	}
