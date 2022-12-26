@@ -8792,7 +8792,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 		key := "updated"
 		if isCreated := isParentKeyCreated(cachedIssues, issue.ID); !isCreated {
 			key = "created"
-			issue.Issue.SyncTimestamp = createdOn
+			issue.Issue.SourceTimestamp = createdOn
 		}
 		ary, ok := data[key]
 		if !ok {
