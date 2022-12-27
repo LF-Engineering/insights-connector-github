@@ -5940,7 +5940,7 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 							if len(cacheData) > 0 {
 								for _, c := range cacheData {
 									c.FileLocation = path
-									cachedIssues[c.EntityID] = c
+									cachedPulls[c.EntityID] = c
 								}
 							}
 
@@ -8922,7 +8922,7 @@ func (j *DSGitHub) cacheCreatedPullrequest(v []interface{}, path string) error {
 			return err
 		}
 		contentHash := fmt.Sprintf("%x", sha256.Sum256(b))
-		cachedIssues[pr.ID] = ItemCache{
+		cachedPulls[pr.ID] = ItemCache{
 			Timestamp:      fmt.Sprintf("%v", pr.SyncTimestamp.Unix()),
 			EntityID:       pr.ID,
 			SourceEntityID: pr.ChangeRequestID,
