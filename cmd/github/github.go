@@ -1259,105 +1259,94 @@ func (j *DSGitHub) githubIssues(ctx *shared.Ctx, org, repo string, since, until 
 	}
 	// GitHub doesn't support date-to/until
 	retry := false
-	PagesCount := os.Getenv("FETCH_PAGES")
-	Pages, err := strconv.ParseInt(PagesCount, 10, 32)
-	if err != nil {
-		Pages = 100
+	/*	PagesCount := os.Getenv("FETCH_PAGES")
+		Pages, err := strconv.ParseInt(PagesCount, 10, 32)
+		if err != nil {
+			Pages = 100
+		}*/
+	var (
+		response *github.Response
+		issues   []*github.Issue
+		e        error
+	)
+	issues, response, e = c.Issues.ListByRepo(j.Context, org, repo, opt)
+	if ctx.Debug > 2 {
+		j.log.WithFields(logrus.Fields{"operation": "githubIssues"}).Debugf("GET %s/%s -> {%+v, %+v, %+v}", org, repo, issues, response, e)
 	}
-	for {
-		var (
-			response *github.Response
-			issues   []*github.Issue
-			e        error
-		)
-		issues, response, e = c.Issues.ListByRepo(j.Context, org, repo, opt)
-		if ctx.Debug > 2 {
-			j.log.WithFields(logrus.Fields{"operation": "githubIssues"}).Debugf("GET %s/%s -> {%+v, %+v, %+v}", org, repo, issues, response, e)
+	if e != nil && strings.Contains(e.Error(), "404 Not Found") {
+		if CacheGitHubIssues {
+			if j.GitHubIssuesMtx != nil {
+				j.GitHubIssuesMtx.Lock()
+			}
+			j.GitHubIssues[origin] = []map[string]interface{}{}
+			if j.GitHubIssuesMtx != nil {
+				j.GitHubIssuesMtx.Unlock()
+			}
 		}
-		if e != nil && strings.Contains(e.Error(), "404 Not Found") {
-			if CacheGitHubIssues {
-				if j.GitHubIssuesMtx != nil {
-					j.GitHubIssuesMtx.Lock()
-				}
-				j.GitHubIssues[origin] = []map[string]interface{}{}
-				if j.GitHubIssuesMtx != nil {
-					j.GitHubIssuesMtx.Unlock()
-				}
-			}
-			if ctx.Debug > 1 {
-				j.log.WithFields(logrus.Fields{"operation": "githubIssues"}).Debugf("issues not found %s: %v", origin, e)
-			}
-			return
+		if ctx.Debug > 1 {
+			j.log.WithFields(logrus.Fields{"operation": "githubIssues"}).Debugf("issues not found %s: %v", origin, e)
 		}
-		if e != nil && !retry {
-			j.log.WithFields(logrus.Fields{"operation": "githubIssues"}).Warningf("Unable to get %s issues: response: %+v, because: %+v, retrying rate\n", origin, response, e)
-			j.log.WithFields(logrus.Fields{"operation": "githubIssues"}).Info("handle rate")
-			abuse, rateLimit := j.isAbuse(e)
-			if abuse {
-				sleepFor := AbuseWaitSeconds + rand.Intn(AbuseWaitSeconds)
-				j.log.WithFields(logrus.Fields{"operation": "githubIssues"}).Infof("GitHub detected abuse (get issues %s), waiting for %ds", origin, sleepFor)
-				time.Sleep(time.Duration(sleepFor) * time.Second)
-			}
-			if rateLimit {
-				j.log.WithFields(logrus.Fields{"operation": "githubIssues"}).Infof("Rate limit reached on a token (get issues %s) waiting 1s before token switch", origin)
-				time.Sleep(time.Duration(1) * time.Second)
-			}
-			if j.GitHubMtx != nil {
-				j.GitHubMtx.Lock()
-			}
-			j.Hint, _, e = j.handleRate(ctx)
-			if e != nil {
-				err = e
-				return
-			}
-			c = j.Clients[j.Hint]
-			if j.GitHubMtx != nil {
-				j.GitHubMtx.Unlock()
-			}
-			if !abuse && !rateLimit {
-				retry = true
-			}
-			continue
+		return
+	}
+	if e != nil && !retry {
+		j.log.WithFields(logrus.Fields{"operation": "githubIssues"}).Warningf("Unable to get %s issues: response: %+v, because: %+v, retrying rate\n", origin, response, e)
+		j.log.WithFields(logrus.Fields{"operation": "githubIssues"}).Info("handle rate")
+		abuse, rateLimit := j.isAbuse(e)
+		if abuse {
+			sleepFor := AbuseWaitSeconds + rand.Intn(AbuseWaitSeconds)
+			j.log.WithFields(logrus.Fields{"operation": "githubIssues"}).Infof("GitHub detected abuse (get issues %s), waiting for %ds", origin, sleepFor)
+			time.Sleep(time.Duration(sleepFor) * time.Second)
 		}
+		if rateLimit {
+			j.log.WithFields(logrus.Fields{"operation": "githubIssues"}).Infof("Rate limit reached on a token (get issues %s) waiting 1s before token switch", origin)
+			time.Sleep(time.Duration(1) * time.Second)
+		}
+		if j.GitHubMtx != nil {
+			j.GitHubMtx.Lock()
+		}
+		j.Hint, _, e = j.handleRate(ctx)
 		if e != nil {
 			err = e
 			return
 		}
-		for _, issue := range issues {
-			var issID int64
-			if issue.ID != nil {
-				issID = *issue.ID
-			}
-			if issue != nil {
-				rawItems[issID] = *issue
-			}
-			iss := map[string]interface{}{}
-			jm, _ := jsoniter.Marshal(issue)
-			_ = jsoniter.Unmarshal(jm, &iss)
-			body, ok := shared.Dig(iss, []string{"body"}, false, true)
-			if ok {
-				nBody := len(body.(string))
-				if nBody > MaxIssueBodyLength {
-					iss["body"] = body.(string)[:MaxIssueBodyLength]
-				}
-			}
-			iss["body_analyzed"], _ = iss["body"]
-			iss["is_pull"] = issue.IsPullRequest()
-			issuesData = append(issuesData, iss)
+		c = j.Clients[j.Hint]
+		if j.GitHubMtx != nil {
+			j.GitHubMtx.Unlock()
 		}
-		if response.NextPage == 0 {
-			break
+		if !abuse && !rateLimit {
+			retry = true
 		}
-		if response.NextPage > int(Pages) {
-			break
-		}
-		opt.Page = response.NextPage
-		if ctx.Debug > 0 {
-			runtime.GC()
-			j.log.WithFields(logrus.Fields{"operation": "githubIssues"}).Debugf("%s/%s: processing next issues page: %d", j.URL, j.CurrentCategory, opt.Page)
-		}
-		retry = false
+
 	}
+	if e != nil {
+		err = e
+		return
+	}
+	for _, issue := range issues {
+		var issID int64
+		if issue.ID != nil {
+			issID = *issue.ID
+		}
+		if issue != nil {
+			rawItems[issID] = *issue
+		}
+		iss := map[string]interface{}{}
+		jm, _ := jsoniter.Marshal(issue)
+		_ = jsoniter.Unmarshal(jm, &iss)
+		body, ok := shared.Dig(iss, []string{"body"}, false, true)
+		if ok {
+			nBody := len(body.(string))
+			if nBody > MaxIssueBodyLength {
+				iss["body"] = body.(string)[:MaxIssueBodyLength]
+			}
+		}
+		iss["body_analyzed"], _ = iss["body"]
+		iss["is_pull"] = issue.IsPullRequest()
+		issuesData = append(issuesData, iss)
+	}
+
+	retry = false
+
 	if ctx.Debug > 2 {
 		j.log.WithFields(logrus.Fields{"operation": "githubIssues"}).Debugf("issues got from API: %+v", issuesData)
 	}
@@ -3270,7 +3259,7 @@ func (j *DSGitHub) FetchItemsIssue(ctx *shared.Ctx) (err error) {
 		if err != nil {
 			j.log.WithFields(logrus.Fields{"operation": "FetchItemsIssue"}).Errorf("%s/%s: error %v sending %d issues to queue", j.URL, j.CurrentCategory, err, len(allIssues))
 		}
-		if len(issues) < int(Pages)*ItemsPerPage {
+		if len(issues) < ItemsPerPage {
 			break
 		}
 		if len(issues) == int(Pages)*ItemsPerPage {
@@ -3428,9 +3417,19 @@ func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 		Pages = 100
 	}
 	for {
-		issues, er := j.githubIssues(ctx, j.Org, j.Repo, dateFrom, ctx.DateTo)
-		if er != nil {
-			return er
+		issues := make([]map[string]interface{}, 0)
+		var er error
+		for i := 0; i < int(Pages); i++ {
+			issuesPage, er := j.githubIssues(ctx, j.Org, j.Repo, dateFrom, ctx.DateTo)
+			if er != nil {
+				return er
+			}
+			lastUpdated := issuesPage[len(issuesPage)-1]["updated_at"]
+			*dateFrom, er = shared.TimeParseInterfaceString(lastUpdated)
+			if er != nil {
+				return er
+			}
+			issues = append(issues, issuesPage...)
 		}
 		pageSize := 1000
 		pages := int(math.Ceil(float64(len(issues)) / float64(pageSize)))
@@ -3524,7 +3523,7 @@ func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 			}
 			allPulls = make([]interface{}, 0)
 		}
-		if len(issues) < int(Pages)*ItemsPerPage {
+		if len(issues) < ItemsPerPage {
 			break
 		}
 
