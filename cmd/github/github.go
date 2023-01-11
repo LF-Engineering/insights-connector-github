@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/csv"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -41,6 +43,7 @@ import (
 	"github.com/google/go-github/v43/github"
 	jsoniter "github.com/json-iterator/go"
 	"golang.org/x/oauth2"
+	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 )
 
 const (
@@ -159,6 +162,21 @@ var (
 	GitHubPullRequestCommitRoles = []string{"author_data", "committer_data"}
 	gMaxUpstreamDt               time.Time
 	gMaxUpstreamDtMtx            = &sync.Mutex{}
+	cachedIssues                 = make(map[string]ItemCache)
+	rawItems                     = make(map[int64]github.Issue)
+	cachedPulls                  = make(map[string]ItemCache)
+	cachedAssignees              = make(map[string][]ItemCache)
+	cachedComments               = make(map[string][]ItemCache)
+	cachedReactions              = make(map[string][]ItemCache)
+	cachedCommentReactions       = make(map[string]map[string][]ItemCache)
+	cachedReviewers              = make(map[string][]ItemCache)
+	issuesCacheFile              = "issues-cache.csv"
+	pullsCacheFile               = "pullrequests-cache.csv"
+	assigneesCacheFile           = "assignees-cache"
+	commentsCacheFile            = "comments-cache"
+	commentReactionsCacheFile    = "comment-reactions-cache"
+	reactionsCacheFile           = "reactions-cache"
+	reviewersCacheFile           = "reviewers-cache"
 )
 
 // Publisher - for streaming data to Kinesis
@@ -498,7 +516,7 @@ func (j *DSGitHub) Validate(ctx *shared.Ctx) (err error) {
 	}
 	j.Emojis = make(map[string]string)
 	// Multithreading
-	j.ThrN = shared.GetThreadsNum(ctx)
+	j.ThrN = 1 //shared.GetThreadsNum(ctx)
 	if j.ThrN > 1 {
 		j.GitHubMtx = &sync.RWMutex{}
 		j.GitHubRateMtx = &sync.RWMutex{}
@@ -1241,6 +1259,11 @@ func (j *DSGitHub) githubIssues(ctx *shared.Ctx, org, repo string, since, until 
 	}
 	// GitHub doesn't support date-to/until
 	retry := false
+	PagesCount := os.Getenv("FETCH_PAGES")
+	Pages, err := strconv.ParseInt(PagesCount, 10, 32)
+	if err != nil {
+		Pages = 100
+	}
 	for {
 		var (
 			response *github.Response
@@ -1301,6 +1324,13 @@ func (j *DSGitHub) githubIssues(ctx *shared.Ctx, org, repo string, since, until 
 			return
 		}
 		for _, issue := range issues {
+			var issID int64
+			if issue.ID != nil {
+				issID = *issue.ID
+			}
+			if issue != nil {
+				rawItems[issID] = *issue
+			}
 			iss := map[string]interface{}{}
 			jm, _ := jsoniter.Marshal(issue)
 			_ = jsoniter.Unmarshal(jm, &iss)
@@ -1316,6 +1346,9 @@ func (j *DSGitHub) githubIssues(ctx *shared.Ctx, org, repo string, since, until 
 			issuesData = append(issuesData, iss)
 		}
 		if response.NextPage == 0 {
+			break
+		}
+		if response.NextPage > int(Pages) {
 			break
 		}
 		opt.Page = response.NextPage
@@ -3011,6 +3044,48 @@ func (j *DSGitHub) FetchItemsIssue(ctx *shared.Ctx) (err error) {
 		eschaMtx     *sync.Mutex
 		issProcMtx   *sync.Mutex
 	)
+	issuesB, err := j.cacheProvider.GetFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), issuesCacheFile)
+	if err != nil {
+		return
+	}
+	reader := csv.NewReader(bytes.NewBuffer(issuesB))
+	records, err := reader.ReadAll()
+	if err != nil {
+		return
+	}
+	for i, record := range records {
+		if i == 0 {
+			continue
+		}
+		orphaned, err := strconv.ParseBool(record[5])
+		if err != nil {
+			orphaned = false
+		}
+		cachedIssues[record[1]] = ItemCache{
+			Timestamp:      record[0],
+			EntityID:       record[1],
+			SourceEntityID: record[2],
+			FileLocation:   record[3],
+			Hash:           record[4],
+			Orphaned:       orphaned,
+		}
+	}
+	err = j.getAssignees(j.Categories[0])
+	if err != nil {
+		return err
+	}
+	err = j.getComments(j.Categories[0])
+	if err != nil {
+		return err
+	}
+	err = j.getCommentReactions(j.Categories[0])
+	if err != nil {
+		return err
+	}
+	err = j.getReactions(j.Categories[0])
+	if err != nil {
+		return err
+	}
 	if j.ThrN > 1 {
 		ch = make(chan error)
 		allIssuesMtx = &sync.Mutex{}
@@ -3085,43 +3160,67 @@ func (j *DSGitHub) FetchItemsIssue(ctx *shared.Ctx) (err error) {
 		}
 		return
 	}
-	issues, err := j.githubIssues(ctx, j.Org, j.Repo, ctx.DateFrom, ctx.DateTo)
+
+	dateFrom := ctx.DateFrom
+	PagesCount := os.Getenv("FETCH_PAGE_SIZE")
+	Pages, err := strconv.ParseInt(PagesCount, 10, 32)
 	if err != nil {
-		return
+		Pages = 100
 	}
-	runtime.GC()
-	nIss = len(issues)
-	j.log.WithFields(logrus.Fields{"operation": "FetchItemsIssue"}).Infof("%s/%s: got %d issues", j.URL, j.CurrentCategory, nIss)
-	if j.ThrN > 1 {
-		for _, issue := range issues {
-			isPR, _ := issue["is_pull"]
-			if isPR.(bool) {
-				nIss--
-				continue
+	for {
+		issues, er := j.githubIssues(ctx, j.Org, j.Repo, dateFrom, ctx.DateTo)
+		if er != nil {
+			return er
+		}
+		runtime.GC()
+		nIss = len(issues)
+		j.log.WithFields(logrus.Fields{"operation": "FetchItemsIssue"}).Infof("%s/%s: got %d issues", j.URL, j.CurrentCategory, nIss)
+		if j.ThrN > 1 {
+			for _, issue := range issues {
+				isPR, _ := issue["is_pull"]
+				if isPR.(bool) {
+					nIss--
+					continue
+				}
+				go func(iss map[string]interface{}) {
+					var (
+						e    error
+						esch chan error
+					)
+					esch, e = processIssue(ch, iss)
+					if e != nil {
+						j.log.WithFields(logrus.Fields{"operation": "FetchItemsIssue"}).Errorf("%s/%s: issues process error: %v", j.URL, j.CurrentCategory, e)
+						return
+					}
+					if esch != nil {
+						if eschaMtx != nil {
+							eschaMtx.Lock()
+						}
+						escha = append(escha, esch)
+						if eschaMtx != nil {
+							eschaMtx.Unlock()
+						}
+					}
+				}(issue)
+				nThreads++
+				if nThreads == j.ThrN {
+					err = <-ch
+					if err != nil {
+						return
+					}
+					if issProcMtx != nil {
+						issProcMtx.Lock()
+					}
+					issProcessed++
+					if issProcMtx != nil {
+						issProcMtx.Unlock()
+					}
+					nThreads--
+				}
 			}
-			go func(iss map[string]interface{}) {
-				var (
-					e    error
-					esch chan error
-				)
-				esch, e = processIssue(ch, iss)
-				if e != nil {
-					j.log.WithFields(logrus.Fields{"operation": "FetchItemsIssue"}).Errorf("%s/%s: issues process error: %v", j.URL, j.CurrentCategory, e)
-					return
-				}
-				if esch != nil {
-					if eschaMtx != nil {
-						eschaMtx.Lock()
-					}
-					escha = append(escha, esch)
-					if eschaMtx != nil {
-						eschaMtx.Unlock()
-					}
-				}
-			}(issue)
-			nThreads++
-			if nThreads == j.ThrN {
+			for nThreads > 0 {
 				err = <-ch
+				nThreads--
 				if err != nil {
 					return
 				}
@@ -3132,60 +3231,54 @@ func (j *DSGitHub) FetchItemsIssue(ctx *shared.Ctx) (err error) {
 				if issProcMtx != nil {
 					issProcMtx.Unlock()
 				}
-				nThreads--
+			}
+		} else {
+			for _, issue := range issues {
+				isPR, _ := issue["is_pull"]
+				if isPR.(bool) {
+					nIss--
+					continue
+				}
+				_, err = processIssue(nil, issue)
+				if err != nil {
+					return
+				}
+				issProcessed++
 			}
 		}
-		for nThreads > 0 {
-			err = <-ch
-			nThreads--
+		if eschaMtx != nil {
+			eschaMtx.Lock()
+		}
+		for _, esch := range escha {
+			err = <-esch
 			if err != nil {
+				if eschaMtx != nil {
+					eschaMtx.Unlock()
+				}
 				return
 			}
-			if issProcMtx != nil {
-				issProcMtx.Lock()
-			}
-			issProcessed++
-			if issProcMtx != nil {
-				issProcMtx.Unlock()
-			}
 		}
-	} else {
-		for _, issue := range issues {
-			isPR, _ := issue["is_pull"]
-			if isPR.(bool) {
-				nIss--
-				continue
-			}
-			_, err = processIssue(nil, issue)
-			if err != nil {
-				return
-			}
-			issProcessed++
+		if eschaMtx != nil {
+			eschaMtx.Unlock()
 		}
-	}
-	if eschaMtx != nil {
-		eschaMtx.Lock()
-	}
-	for _, esch := range escha {
-		err = <-esch
+		nIssues := len(allIssues)
+		if ctx.Debug > 0 {
+			j.log.WithFields(logrus.Fields{"operation": "FetchItemsIssue"}).Debugf("%d remaining issues to send to queue", nIssues)
+		}
+		// err = SendToQueue(ctx, j, true, UUID, allIssues)
+		err = j.GitHubEnrichItems(ctx, allIssues, &allDocs, true)
 		if err != nil {
-			if eschaMtx != nil {
-				eschaMtx.Unlock()
-			}
-			return
+			j.log.WithFields(logrus.Fields{"operation": "FetchItemsIssue"}).Errorf("%s/%s: error %v sending %d issues to queue", j.URL, j.CurrentCategory, err, len(allIssues))
 		}
-	}
-	if eschaMtx != nil {
-		eschaMtx.Unlock()
-	}
-	nIssues := len(allIssues)
-	if ctx.Debug > 0 {
-		j.log.WithFields(logrus.Fields{"operation": "FetchItemsIssue"}).Debugf("%d remaining issues to send to queue", nIssues)
-	}
-	// err = SendToQueue(ctx, j, true, UUID, allIssues)
-	err = j.GitHubEnrichItems(ctx, allIssues, &allDocs, true)
-	if err != nil {
-		j.log.WithFields(logrus.Fields{"operation": "FetchItemsIssue"}).Errorf("%s/%s: error %v sending %d issues to queue", j.URL, j.CurrentCategory, err, len(allIssues))
+		if len(issues) < int(Pages)*ItemsPerPage {
+			break
+		}
+		if len(issues) == int(Pages)*ItemsPerPage {
+			*dateFrom, er = j.cacheProvider.GetLastSync(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue))
+			if er != nil {
+				return err
+			}
+		}
 	}
 	return
 }
@@ -3202,6 +3295,54 @@ func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 		eschaMtx     *sync.Mutex
 		pullsProcMtx *sync.Mutex
 	)
+	pullsB, err := j.cacheProvider.GetFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), pullsCacheFile)
+	if err != nil {
+		return
+	}
+	reader := csv.NewReader(bytes.NewBuffer(pullsB))
+	records, err := reader.ReadAll()
+	if err != nil {
+		return
+	}
+	for i, record := range records {
+		if i == 0 {
+			continue
+		}
+		orphaned, er := strconv.ParseBool(record[5])
+		if er != nil {
+			orphaned = false
+		}
+		cachedPulls[record[1]] = ItemCache{
+			Timestamp:      record[0],
+			EntityID:       record[1],
+			SourceEntityID: record[2],
+			FileLocation:   record[3],
+			Hash:           record[4],
+			Orphaned:       orphaned,
+		}
+	}
+
+	err = j.getAssignees(j.Categories[0])
+	if err != nil {
+		return err
+	}
+	err = j.getComments(j.Categories[0])
+	if err != nil {
+		return err
+	}
+	err = j.getCommentReactions(j.Categories[0])
+	if err != nil {
+		return err
+	}
+	err = j.getReactions(j.Categories[0])
+	if err != nil {
+		return err
+	}
+	err = j.getReviewers(j.Categories[0])
+	if err != nil {
+		return err
+	}
+
 	if j.ThrN > 1 {
 		ch = make(chan error)
 		allPullsMtx = &sync.Mutex{}
@@ -3280,49 +3421,72 @@ func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 	// If it would we could use Pulls API to fetch all pulls when no date from is specified
 	// If there is a date from Pulls API doesn't support Since parameter
 	// if ctx.DateFrom != nil {
-	issues, err := j.githubIssues(ctx, j.Org, j.Repo, ctx.DateFrom, ctx.DateTo)
+	dateFrom := ctx.DateFrom
+	PagesCount := os.Getenv("FETCH_PAGES")
+	Pages, err := strconv.ParseInt(PagesCount, 10, 32)
 	if err != nil {
-		return
+		Pages = 100
 	}
-	pageSize := 1000
-	pages := int(math.Ceil(float64(len(issues)) / float64(pageSize)))
-	page := 1
-	for i := 0; i < pages; i++ {
-		limit := page * pageSize
-		if len(issues) < limit {
-			limit = len(issues)
+	for {
+		issues, er := j.githubIssues(ctx, j.Org, j.Repo, dateFrom, ctx.DateTo)
+		if er != nil {
+			return er
 		}
-		iss := issues[i*pageSize : limit]
-		ps, err := j.githubPullsFromIssues(ctx, j.Org, j.Repo, ctx.DateFrom, ctx.DateTo, iss)
-		page++
-		runtime.GC()
-		nPRs := len(ps)
-		j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Infof("%s/%s: got %d pulls", j.URL, j.CurrentCategory, nPRs)
-		if j.ThrN > 1 {
-			for _, pull := range ps {
-				go func(pr map[string]interface{}) {
-					var (
-						e    error
-						esch chan error
-					)
-					esch, e = processPull(ch, pr)
-					if e != nil {
-						j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Errorf("%s/%s: pulls process error: %v", j.URL, j.CurrentCategory, e)
-						return
-					}
-					if esch != nil {
-						if eschaMtx != nil {
-							eschaMtx.Lock()
+		pageSize := 1000
+		pages := int(math.Ceil(float64(len(issues)) / float64(pageSize)))
+		page := 1
+		for i := 0; i < pages; i++ {
+			limit := page * pageSize
+			if len(issues) < limit {
+				limit = len(issues)
+			}
+			iss := issues[i*pageSize : limit]
+			ps, err := j.githubPullsFromIssues(ctx, j.Org, j.Repo, ctx.DateFrom, ctx.DateTo, iss)
+			page++
+			runtime.GC()
+			nPRs := len(ps)
+			j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Infof("%s/%s: got %d pulls", j.URL, j.CurrentCategory, nPRs)
+			if j.ThrN > 1 {
+				for _, pull := range ps {
+					go func(pr map[string]interface{}) {
+						var (
+							e    error
+							esch chan error
+						)
+						esch, e = processPull(ch, pr)
+						if e != nil {
+							j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Errorf("%s/%s: pulls process error: %v", j.URL, j.CurrentCategory, e)
+							return
 						}
-						escha = append(escha, esch)
-						if eschaMtx != nil {
-							eschaMtx.Unlock()
+						if esch != nil {
+							if eschaMtx != nil {
+								eschaMtx.Lock()
+							}
+							escha = append(escha, esch)
+							if eschaMtx != nil {
+								eschaMtx.Unlock()
+							}
 						}
+					}(pull)
+					nThreads++
+					if nThreads == j.ThrN {
+						err = <-ch
+						if err != nil {
+							return err
+						}
+						if pullsProcMtx != nil {
+							pullsProcMtx.Lock()
+						}
+						pullsProcessed++
+						if pullsProcMtx != nil {
+							pullsProcMtx.Unlock()
+						}
+						nThreads--
 					}
-				}(pull)
-				nThreads++
-				if nThreads == j.ThrN {
+				}
+				for nThreads > 0 {
 					err = <-ch
+					nThreads--
 					if err != nil {
 						return err
 					}
@@ -3333,48 +3497,43 @@ func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 					if pullsProcMtx != nil {
 						pullsProcMtx.Unlock()
 					}
-					nThreads--
+				}
+			} else {
+				for _, pull := range ps {
+					_, err = processPull(nil, pull)
+					if err != nil {
+						return err
+					}
+					pullsProcessed++
 				}
 			}
-			for nThreads > 0 {
-				err = <-ch
-				nThreads--
+			for _, esch := range escha {
+				err = <-esch
 				if err != nil {
 					return err
 				}
-				if pullsProcMtx != nil {
-					pullsProcMtx.Lock()
-				}
-				pullsProcessed++
-				if pullsProcMtx != nil {
-					pullsProcMtx.Unlock()
-				}
 			}
-		} else {
-			for _, pull := range ps {
-				_, err = processPull(nil, pull)
-				if err != nil {
-					return err
-				}
-				pullsProcessed++
+			nPulls := len(allPulls)
+			if ctx.Debug > 0 {
+				j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Debugf("%d remaining pulls to send to queue", nPulls)
 			}
-		}
-		for _, esch := range escha {
-			err = <-esch
+			err = j.GitHubEnrichItems(ctx, allPulls, &allDocs, true)
+			//err = SendToQueue(ctx, j, true, UUID, allPulls)
 			if err != nil {
+				j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Errorf("%s/%s: error %v sending %d pulls to queue", j.URL, j.CurrentCategory, err, len(allPulls))
+			}
+			allPulls = make([]interface{}, 0)
+		}
+		if len(issues) < int(Pages)*ItemsPerPage {
+			break
+		}
+
+		if len(issues) == int(Pages)*ItemsPerPage {
+			*dateFrom, er = j.cacheProvider.GetLastSync(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest))
+			if er != nil {
 				return err
 			}
 		}
-		nPulls := len(allPulls)
-		if ctx.Debug > 0 {
-			j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Debugf("%d remaining pulls to send to queue", nPulls)
-		}
-		err = j.GitHubEnrichItems(ctx, allPulls, &allDocs, true)
-		//err = SendToQueue(ctx, j, true, UUID, allPulls)
-		if err != nil {
-			j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Errorf("%s/%s: error %v sending %d pulls to queue", j.URL, j.CurrentCategory, err, len(allPulls))
-		}
-		allPulls = make([]interface{}, 0)
 	}
 
 	return
@@ -5637,18 +5796,20 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 					insightsStr := "insights"
 					issuesStr := "issues"
 					envStr := os.Getenv("STAGE")
-					data := make([]map[string]interface{}, 0)
 					for k, v := range issuesData {
 						switch k {
 						case "created":
 							ev, _ := v[0].(igh.IssueCreatedEvent)
 							path, err := j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, v)
-							cacheData, err := j.cacheCreatedIssues(v, path)
 							if err != nil {
 								j.log.WithFields(logrus.Fields{"operation": "OutputDocs"}).Errorf("cacheCreatedIssues error: %+v", err)
 								return
 							}
-							data = append(data, cacheData...)
+							err = j.cacheCreatedIssues(v, path)
+							if err != nil {
+								j.log.WithFields(logrus.Fields{"operation": "OutputDocs"}).Errorf("cacheCreatedIssues error: %+v", err)
+								return
+							}
 						case "updated":
 							updates, cacheData, err := j.preventUpdateIssueDuplication(v, "updated")
 							if err != nil {
@@ -5661,13 +5822,10 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 								path, err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, issuesStr, envStr, updates)
 							}
 							if len(cacheData) > 0 {
-								for i, o := range cacheData {
-									paths, _ := o["data"].(map[string]interface{})["paths"].([]string)
-									paths = append(paths, path)
-									o["data"].(map[string]interface{})["paths"] = paths
-									cacheData[i] = o
+								for _, c := range cacheData {
+									c.FileLocation = path
+									cachedIssues[c.EntityID] = c
 								}
-								data = append(data, cacheData...)
 							}
 						case "closed":
 							updates, _, err := j.preventUpdateIssueDuplication(v, "closed")
@@ -5713,11 +5871,38 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 							break
 						}
 					}
-					if len(data) > 0 {
-						err = j.cacheProvider.Create(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), data)
-						if err != nil {
-							j.log.WithFields(logrus.Fields{"operation": "OutputDocs"}).Errorf("error creating cache for endpoint %s/%s/%s. Error: %+v", j.Org, j.Repo, GitHubIssue, err)
-						}
+					if err = j.updateRemoteCache(issuesCacheFile, GitHubIssue); err != nil {
+						return
+					}
+					comB, err := jsoniter.Marshal(cachedComments)
+					if err != nil {
+						return
+					}
+					assB, err := jsoniter.Marshal(cachedAssignees)
+					if err != nil {
+						return
+					}
+					reacB, err := jsoniter.Marshal(cachedReactions)
+					if err != nil {
+						return
+					}
+
+					comReacB, err := jsoniter.Marshal(cachedCommentReactions)
+					if err != nil {
+						return
+					}
+
+					if err = j.cacheProvider.UpdateFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), commentsCacheFile, comB); err != nil {
+						return
+					}
+					if err = j.cacheProvider.UpdateFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), assigneesCacheFile, assB); err != nil {
+						return
+					}
+					if err = j.cacheProvider.UpdateFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), reactionsCacheFile, reacB); err != nil {
+						return
+					}
+					if err = j.cacheProvider.UpdateFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), commentReactionsCacheFile, comReacB); err != nil {
+						return
 					}
 				} else {
 					jsonBytes, err = jsoniter.Marshal(issuesData)
@@ -5730,19 +5915,17 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 					insightsStr := "insights"
 					pullsStr := "pull_requests"
 					envStr := os.Getenv("STAGE")
-					data := make([]map[string]interface{}, 0)
 					for k, v := range pullsData {
 						// shared.Printf("(k,len(v)) = ('%s',%d)\n", k, len(v))
 						switch k {
 						case "created":
 							ev, _ := v[0].(igh.PullRequestCreatedEvent)
 							path, err := j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
-							cacheData, err := j.cacheCreatedPullrequest(v, path)
+							err = j.cacheCreatedPullrequest(v, path)
 							if err != nil {
 								j.log.WithFields(logrus.Fields{"operation": "OutputDocs"}).Errorf("cacheCreatedPullrequest error: %+v", err)
 								return
 							}
-							data = append(data, cacheData...)
 						case "updated":
 							updates, cacheData, err := j.preventUpdatePullrequestDuplication(v, "updated")
 							if err != nil {
@@ -5754,15 +5937,11 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 								ev, _ := updates[0].(igh.PullRequestUpdatedEvent)
 								path, err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, updates)
 							}
-
 							if len(cacheData) > 0 {
-								for i, o := range cacheData {
-									paths, _ := o["data"].(map[string]interface{})["paths"].([]string)
-									paths = append(paths, path)
-									o["data"].(map[string]interface{})["paths"] = paths
-									cacheData[i] = o
+								for _, c := range cacheData {
+									c.FileLocation = path
+									cachedPulls[c.EntityID] = c
 								}
-								data = append(data, cacheData...)
 							}
 
 						case "closed":
@@ -5830,12 +6009,38 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 							break
 						}
 					}
-					if len(data) > 0 {
-						err = j.cacheProvider.Create(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), data)
-						if err != nil {
-							j.log.WithFields(logrus.Fields{"operation": "OutputDocs"}).Errorf("error creating cache for endpoint %s/%s/%s. Error: %+v", j.Org, j.Repo, GitHubPullrequest, err)
-						}
+					if err = j.updateRemoteCache(pullsCacheFile, GitHubPullrequest); err != nil {
+						return
 					}
+					comB, err := jsoniter.Marshal(cachedComments)
+					if err != nil {
+						return
+					}
+					assB, err := jsoniter.Marshal(cachedAssignees)
+					if err != nil {
+						return
+					}
+					comReacB, err := jsoniter.Marshal(cachedCommentReactions)
+					if err != nil {
+						return
+					}
+					revB, err := jsoniter.Marshal(cachedReviewers)
+					if err != nil {
+						return
+					}
+					if err = j.cacheProvider.UpdateFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), commentsCacheFile, comB); err != nil {
+						return
+					}
+					if err = j.cacheProvider.UpdateFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), assigneesCacheFile, assB); err != nil {
+						return
+					}
+					if err = j.cacheProvider.UpdateFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), commentReactionsCacheFile, comReacB); err != nil {
+						return
+					}
+					if err = j.cacheProvider.UpdateFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), reviewersCacheFile, revB); err != nil {
+						return
+					}
+
 				} else {
 					jsonBytes, err = jsoniter.Marshal(pullsData)
 				}
@@ -5953,8 +6158,10 @@ func (j *DSGitHub) Sync(ctx *shared.Ctx, category string) (err error) {
 	if cat == "pull_request" {
 		cat = GitHubPullrequest
 	}
-	err = j.cacheProvider.SetLastSync(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, cat), gMaxUpstreamDt)
-	j.log.WithFields(logrus.Fields{"operation": "SetLastSync"}).Info("Sync: last sync date has been updated successfully")
+	if !gMaxUpstreamDt.IsZero() {
+		err = j.cacheProvider.SetLastSync(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, cat), gMaxUpstreamDt)
+		j.log.WithFields(logrus.Fields{"operation": "SetLastSync"}).Info("Sync: last sync date has been updated successfully")
+	}
 	return
 }
 
@@ -6298,7 +6505,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 		nReactions := 0
 		nComments := 0
 		nReviews := 0
-		pullAssignees := make(map[string]struct{})
+		pullAssignees := make([]ItemCache, 0)
 		doc, _ := iDoc.(map[string]interface{})
 		createdOn, _ := doc["created_at"].(time.Time)
 		updatedOn := j.ItemUpdatedOn(doc)
@@ -6346,22 +6553,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 		// Primary assignee start
 		primaryAssignee := ""
 		roles, okRoles := doc["roles"].([]map[string]interface{})
-		assigneeCacheID := fmt.Sprintf("%s-%s-assignees", GitHubPullrequest, pullRequestID)
-		fileData, er := j.cacheProvider.GetFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), assigneeCacheID)
-		if er != nil {
-			err = er
-			j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GetFileByKey get cached pullrequest assignees error: %v", err)
-			return
-		}
-		oldAssignees := IssueAssignees{}
-		if fileData != nil {
-			er = json.Unmarshal(fileData, &oldAssignees)
-			if er != nil {
-				err = er
-				j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("unmarshall old cached pullrequest assaignees error: %v", err)
-				return
-			}
-		}
+		oldAssignees := cachedAssignees[pullRequestID]
 		if okRoles {
 			for _, role := range roles {
 				roleType, _ := role["role"].(string)
@@ -6428,14 +6620,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 				}
 				_, ok := addedAssignees[pullRequestAssigneeID]
 				if !ok {
-					found := false
-					for _, olds := range oldAssignees.Assignees {
-						if olds == pullRequestAssigneeID {
-							found = true
-							break
-						}
-					}
-					if !found {
+					if isCreated := isChildKeyCreated(oldAssignees, pullRequestAssigneeID); !isCreated {
 						key := "assignee_added"
 						ary, ok := data[key]
 						if !ok {
@@ -6446,7 +6631,12 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						data[key] = ary
 					}
 					addedAssignees[pullRequestAssigneeID] = struct{}{}
-					pullAssignees[pullRequestAssigneeID] = struct{}{}
+					pullAssignees = append(pullAssignees, ItemCache{
+						Timestamp:      fmt.Sprintf("%v", pullRequestAssignee.SourceTimestamp.Unix()),
+						EntityID:       pullRequestAssigneeID,
+						SourceEntityID: pullRequestAssignee.Identity.Username,
+						Orphaned:       false,
+					})
 				}
 			}
 		}
@@ -6482,6 +6672,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 						return
 					}
+
 					contributor := insights.Contributor{
 						Role:   insights.AssigneeRole,
 						Weight: 1.0,
@@ -6518,14 +6709,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					}
 					_, ok := addedAssignees[pullRequestAssigneeID]
 					if !ok {
-						found := false
-						for _, olds := range oldAssignees.Assignees {
-							if olds == pullRequestAssigneeID {
-								found = true
-								break
-							}
-						}
-						if !found {
+						if isCreated := isChildKeyCreated(oldAssignees, pullRequestAssigneeID); !isCreated {
 							key := "assignee_added"
 							ary, ok := data[key]
 							if !ok {
@@ -6536,22 +6720,27 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 							data[key] = ary
 						}
 						addedAssignees[pullRequestAssigneeID] = struct{}{}
-						pullAssignees[pullRequestAssigneeID] = struct{}{}
+						pullAssignees = append(pullAssignees, ItemCache{
+							Timestamp:      fmt.Sprintf("%v", pullRequestAssignee.SourceTimestamp.Unix()),
+							EntityID:       pullRequestAssigneeID,
+							SourceEntityID: pullRequestAssignee.Identity.Username,
+							Orphaned:       false,
+						})
 					}
 				}
 			}
 		}
-		for _, assID := range oldAssignees.Assignees {
+		for _, assID := range oldAssignees {
 			found := false
-			for newAss := range pullAssignees {
-				if newAss == assID {
+			for _, newAss := range pullAssignees {
+				if newAss.EntityID == assID.EntityID {
 					found = true
 					break
 				}
 			}
 			if !found {
 				rvAssignee := igh.RemovePullRequestAssignee{
-					ID:            assID,
+					ID:            assID.EntityID,
 					PullRequestID: pullRequestID,
 				}
 				key := "assignee_removed"
@@ -6564,22 +6753,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 				data[key] = ary
 			}
 		}
-		if len(pullAssignees) > 0 || oldAssignees.Assignees != nil {
-			var updatedAssignees IssueAssignees
-			for as := range pullAssignees {
-				updatedAssignees.Assignees = append(updatedAssignees.Assignees, as)
-			}
-			b, er := json.Marshal(updatedAssignees)
-			if er != nil {
-				err = er
-				j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("error marshal updated assignees cache. assignnes data: %+v, error: %v", updatedAssignees, err)
-				return
-			}
-			if err = j.cacheProvider.UpdateFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), assigneeCacheID, b); err != nil {
-				j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("UpdateFileByKey error updated assignees cache. path: %s, cache id: %s, assignnes data: %v, error: %v", fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), assigneeCacheID, b, err)
-				return
-			}
-		}
+		cachedAssignees[pullRequestID] = pullAssignees
 		// Other assignees end
 		// Reviews of state=COMMENTED come without body from reviews API
 		// PR Comments are actually review comments (state=COMMENTED) - they have body but miss the review part
@@ -6733,6 +6907,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 						return
 					}
+
 					contributor := insights.Contributor{
 						Role:   insights.CommenterRole,
 						Weight: 1.0,
@@ -6815,6 +6990,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 						return
 					}
+
 					contributor := insights.Contributor{
 						Role:   insights.ReactionAuthorRole,
 						Weight: 1.0,
@@ -6871,22 +7047,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 		// Comments start (comments stored on the issue part of PR)
 		commentsAry, okComments = doc["comments_array"].([]interface{})
 		uComments := make(map[string]igh.PullRequestComment)
-		commentsCacheID := fmt.Sprintf("%s-%s-comments", GitHubPullrequest, pullRequestID)
-		commentsFileData, er := j.cacheProvider.GetFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), commentsCacheID)
-		if er != nil {
-			err = er
-			j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GetFileByKey get cached pullrequest comments error: %v", err)
-			return
-		}
-		oldComments := IssueComments{}
-		if commentsFileData != nil {
-			er = json.Unmarshal(commentsFileData, &oldComments)
-			if er != nil {
-				err = er
-				j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("unmarshall old cached pullrequest comments error: %v", err)
-				return
-			}
-		}
+		oldComments := cachedComments[pullRequestID]
 		if okComments {
 			for _, iComment := range commentsAry {
 				comment, okComment := iComment.(map[string]interface{})
@@ -6921,6 +7082,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 						return
 					}
+
 					contributor := insights.Contributor{
 						Role:   insights.CommenterRole,
 						Weight: 1.0,
@@ -6958,8 +7120,8 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						},
 					}
 					found := false
-					for _, oldc := range oldComments.Comments {
-						if oldc.ID == pullRequestCommentID {
+					for _, oldc := range oldComments {
+						if oldc.EntityID == pullRequestCommentID {
 							found = true
 							break
 						}
@@ -6979,13 +7141,14 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 				}
 			}
 		}
-		for _, comm := range oldComments.Comments {
+		for _, comm := range oldComments {
 			deleted := true
 			edited := false
 			for newCommID, commentVal := range uComments {
-				if newCommID == comm.ID {
+				if newCommID == comm.EntityID {
 					deleted = false
-					if commentVal.Body != comm.Body {
+					contentHash := fmt.Sprintf("%x", sha256.Sum256([]byte(commentVal.Body)))
+					if contentHash != comm.Hash {
 						edited = true
 					}
 					break
@@ -6993,7 +7156,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 			}
 			if deleted {
 				rvComm := igh.DeletePullRequestComment{
-					ID:            comm.ID,
+					ID:            comm.EntityID,
 					PullRequestID: pullRequestID,
 				}
 				key := "comment_deleted"
@@ -7007,15 +7170,15 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 			}
 			if edited {
 				editedComment := igh.PullRequestComment{
-					ID:            comm.ID,
+					ID:            comm.EntityID,
 					PullRequestID: pullRequestID,
 					Comment: insights.Comment{
-						Body:            uComments[comm.ID].Body,
-						CommentURL:      uComments[comm.ID].CommentURL,
-						SourceTimestamp: uComments[comm.ID].SourceTimestamp,
+						Body:            uComments[comm.EntityID].Body,
+						CommentURL:      uComments[comm.EntityID].CommentURL,
+						SourceTimestamp: uComments[comm.EntityID].SourceTimestamp,
 						SyncTimestamp:   time.Now(),
-						CommentID:       uComments[comm.ID].CommentID,
-						Contributor:     uComments[comm.ID].Contributor,
+						CommentID:       uComments[comm.EntityID].CommentID,
+						Contributor:     uComments[comm.EntityID].Contributor,
 						Orphaned:        false,
 					},
 				}
@@ -7030,44 +7193,21 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 			}
 		}
 
-		if len(uComments) > 0 || oldComments.Comments != nil {
-			var updatedComments IssueComments
-			for _, comm := range uComments {
-				updatedComments.Comments = append(updatedComments.Comments, IssueComment{
-					ID:   comm.ID,
-					Body: comm.Body,
-				})
-			}
-			b, er := json.Marshal(updatedComments)
-			if er != nil {
-				err = er
-				j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("error marshal updated pullrequets comments cache. comments data: %+v, error: %v", updatedComments, err)
-				return
-			}
-			if err = j.cacheProvider.UpdateFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), commentsCacheID, b); err != nil {
-				j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("UpdateFileByKey error update pullrequest comments cache. path: %s, cache id: %s, comments data: %v, error: %v", fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), commentsCacheID, b, err)
-				return
-			}
+		updatedComments := make([]ItemCache, 0)
+		for _, c := range uComments {
+			updatedComments = append(updatedComments, ItemCache{
+				Timestamp:      fmt.Sprintf("%v", c.SyncTimestamp.Unix()),
+				EntityID:       c.ID,
+				SourceEntityID: c.CommentID,
+				Hash:           fmt.Sprintf("%x", sha256.Sum256([]byte(c.Body))),
+				Orphaned:       false,
+			})
 		}
+		cachedComments[pullRequestID] = updatedComments
 		// Comments end (comments stored on the issue part of PR)
 		// Comment reactions start (reactions to comments stored on the issue part of PR)
 		commentsReactions := make(map[string][]igh.PullRequestCommentReaction)
-		commentsReactionsCacheID := fmt.Sprintf("%s-%s-comment-reactions", GitHubPullrequest, pullRequestID)
-		commentsReactionsFileData, er := j.cacheProvider.GetFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), commentsReactionsCacheID)
-		if er != nil {
-			err = er
-			j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GetFileByKey get cached pullrequest comments reactions error: %v", err)
-			return
-		}
-		oldCommentsReactions := IssueCommentReactions{}
-		if commentsReactionsFileData != nil {
-			er = json.Unmarshal(commentsReactionsFileData, &oldCommentsReactions)
-			if er != nil {
-				err = er
-				j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("unmarshall old cached issue comments reactions error: %v", err)
-				return
-			}
-		}
+		oldCommentsReactions := cachedCommentReactions[pullRequestID]
 		reactionsAry, okReactions = doc["comments_reactions_array"].([]interface{})
 		if okReactions {
 			for _, iReaction := range reactionsAry {
@@ -7100,6 +7240,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v\n", source, email, name, username, err, doc)
 						return
 					}
+
 					contributor := insights.Contributor{
 						Role:   insights.ReactionAuthorRole,
 						Weight: 1.0,
@@ -7158,20 +7299,20 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 					nReactions++
 				}
 			}
-			for commID, reactions := range oldCommentsReactions.Reactions {
+			for commID, reactions := range oldCommentsReactions {
 				for newCommID, nRes := range commentsReactions {
 					if commID == newCommID {
 						for _, oRe := range reactions {
 							found := false
 							for _, nRe := range nRes {
-								if nRe.ID == oRe {
+								if nRe.ID == oRe.EntityID {
 									found = true
 									break
 								}
 							}
 							if !found {
 								rvReactions := igh.RemovePullRequestCommentReaction{
-									ID:        oRe,
+									ID:        oRe.EntityID,
 									CommentID: pullRequestCommentID,
 								}
 								key := "comment_reaction_removed"
@@ -7189,49 +7330,26 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 			}
 		}
 
-		if len(commentsReactions) > 0 || oldCommentsReactions.Reactions != nil {
-			updatedCommentsReactions := IssueCommentReactions{Reactions: map[string][]string{}}
-			for k, commReactions := range commentsReactions {
-				for _, r := range commReactions {
-					commRe, ok := updatedCommentsReactions.Reactions[k]
-					if !ok {
-						commRe = []string{r.ID}
-					} else {
-						commRe = append(commRe, r.ID)
-					}
-					updatedCommentsReactions.Reactions[k] = commRe
-				}
+		for k, v := range commentsReactions {
+			commentReactions := make([]ItemCache, 0, len(v))
+			for _, reaction := range v {
+				commentReactions = append(commentReactions, ItemCache{
+					Timestamp:      fmt.Sprintf("%v", reaction.SyncTimestamp.Unix()),
+					EntityID:       reaction.ID,
+					SourceEntityID: reaction.Reaction.ReactionID,
+				})
 			}
-			b, er := json.Marshal(updatedCommentsReactions)
-			if er != nil {
-				err = er
-				j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("error marshal updated pullrequest comments reactions cache. reactions data: %+v, error: %v", updatedCommentsReactions, err)
-				return
-			}
-			if err = j.cacheProvider.UpdateFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), commentsReactionsCacheID, b); err != nil {
-				j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("UpdateFileByKey error update pullrequest comments reactions cache. path: %s, cache id: %s, reactions data: %v, error: %v", fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), commentsCacheID, b, err)
-				return
+			if cachedCommentReactions[pullRequestID] != nil {
+				cachedCommentReactions[pullRequestID][k] = commentReactions
+			} else {
+				cachedCommentReactions[pullRequestID] = make(map[string][]ItemCache)
+				cachedCommentReactions[pullRequestID][k] = commentReactions
 			}
 		}
 		// Comment reactions end (reactions to comments stored on the issue part of PR)
 		// Reviews start
-		reviewersAdded := make(map[string]bool)
-		reviewersCacheID := fmt.Sprintf("%s-%s-reviewres", GitHubPullrequest, pullRequestID)
-		reviewersFileData, er := j.cacheProvider.GetFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), reviewersCacheID)
-		if er != nil {
-			err = er
-			j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GetFileByKey get cached pullrequest reviers error: %v", err)
-			return
-		}
-		oldReviewers := PullrequestReviewers{}
-		if reviewersFileData != nil {
-			er = json.Unmarshal(reviewersFileData, &oldReviewers)
-			if er != nil {
-				err = er
-				j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("unmarshall old cached pullrequest reviewers error: %v", err)
-				return
-			}
-		}
+		reviewersAdded := make([]ItemCache, 0)
+		oldReviewers := cachedReviewers[pullRequestID]
 		reviewsAry, okReviews = doc["reviews_array"].([]interface{})
 		if okReviews {
 			for _, iReview := range reviewsAry {
@@ -7292,6 +7410,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 						return
 					}
+
 					contributor := insights.Contributor{
 						Role:   insights.ReviewerRole,
 						Weight: 1.0,
@@ -7364,8 +7483,8 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						pullRequestReviewer.Reviewer.SyncTimestamp = updatedOn
 					}
 					found := false
-					for _, oldr := range oldReviewers.Reviewers {
-						if oldr == pullRequestReviewerID {
+					for _, oldr := range oldReviewers {
+						if oldr.EntityID == pullRequestReviewerID {
 							found = true
 							break
 						}
@@ -7381,7 +7500,11 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						data[key] = ary
 						addedReviewers[pullRequestReviewerID] = struct{}{}
 					}
-					reviewersAdded[pullRequestReviewerID] = true
+					reviewersAdded = append(reviewersAdded, ItemCache{
+						Timestamp:      fmt.Sprintf("%v", pullRequestReviewer.SourceTimestamp.Unix()),
+						EntityID:       pullRequestReviewerID,
+						SourceEntityID: pullRequestReviewer.Identity.Username,
+					})
 				}
 			}
 		}
@@ -7414,6 +7537,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 						return
 					}
+
 					contributor := insights.Contributor{
 						Role:   insights.RequestedReviewerRole,
 						Weight: 1.0,
@@ -7451,8 +7575,8 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						pullRequestReviewer.Reviewer.SyncTimestamp = updatedOn
 					}
 					found := false
-					for _, oldr := range oldReviewers.Reviewers {
-						if oldr == pullRequestReviewerID {
+					for _, oldr := range oldReviewers {
+						if oldr.EntityID == pullRequestReviewerID {
 							found = true
 							break
 						}
@@ -7468,21 +7592,25 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 						data[key] = ary
 						addedReviewers[pullRequestReviewerID] = struct{}{}
 					}
-					reviewersAdded[pullRequestReviewerID] = true
+					reviewersAdded = append(reviewersAdded, ItemCache{
+						Timestamp:      fmt.Sprintf("%v", pullRequestReviewer.SourceTimestamp.Unix()),
+						EntityID:       pullRequestReviewerID,
+						SourceEntityID: pullRequestReviewer.Identity.Username,
+					})
 				}
 			}
 		}
-		for _, oldReviewer := range oldReviewers.Reviewers {
+		for _, oldReviewer := range oldReviewers {
 			deleted := true
-			for newReviewerID := range reviewersAdded {
-				if newReviewerID == oldReviewer {
+			for _, newReviewerID := range reviewersAdded {
+				if newReviewerID.EntityID == oldReviewer.EntityID {
 					deleted = false
 					break
 				}
 			}
 			if deleted {
 				removedReviewer := igh.RemovePullRequestReviewer{
-					ID:            oldReviewer,
+					ID:            oldReviewer.EntityID,
 					PullRequestID: pullRequestID,
 				}
 				key := "reviewer_removed"
@@ -7495,22 +7623,7 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 				data[key] = ary
 			}
 		}
-		if len(reviewersAdded) > 0 || oldReviewers.Reviewers != nil {
-			var updatedReviewers PullrequestReviewers
-			for rev := range reviewersAdded {
-				updatedReviewers.Reviewers = append(updatedReviewers.Reviewers, rev)
-			}
-			b, er := json.Marshal(updatedReviewers)
-			if er != nil {
-				err = er
-				j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("error marshal updated pullrequest reviewers cache. reviewers data: %+v, error: %v", updatedReviewers, err)
-				return
-			}
-			if err = j.cacheProvider.UpdateFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), reviewersCacheID, b); err != nil {
-				j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("UpdateFileByKey error update pullrequest reviewers cache. path: %s, cache id: %s, reviewers data: %v, error: %v", fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), reviewersCacheID, b, err)
-				return
-			}
-		}
+		cachedReviewers[pullRequestID] = reviewersAdded
 		// Requested reviewers end
 		// Final PullRequest object
 		shas := []string{}
@@ -7550,17 +7663,18 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 				Orphaned:         false,
 			},
 		}
-		key := "updated"
-		cacheID := fmt.Sprintf("%s-%s", GitHubPullrequest, pullRequest.ID)
-		isCreated, er := j.cacheProvider.IsKeyCreated(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), cacheID)
-		if er != nil {
-			err = er
-			j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("error getting cache for endpoint %s/%s/%s. error: %+v", j.Org, j.Repo, GitHubPullrequest, err)
-			return
+		if isClosed && !isMerged {
+			issID, _ := doc["id_in_repo"].(int)
+			closedBY, eror := j.getClosedBy(ctx, issID, org)
+			if eror != nil {
+				return
+			}
+			pullRequest.ClosedBy = closedBY
 		}
-		if !isCreated {
+		key := "updated"
+		if isCreated := isParentKeyCreated(cachedPulls, pullRequest.ID); !isCreated {
 			key = "created"
-			pullRequest.ChangeRequest.SyncTimestamp = createdOn
+			pullRequest.ChangeRequest.SourceTimestamp = createdOn
 		}
 		ary, ok := data[key]
 		if !ok {
@@ -7953,7 +8067,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 	for _, iDoc := range docs {
 		nReactions := 0
 		nComments := 0
-		issueAssignees := make(map[string]struct{})
+		issueAssignees := make([]ItemCache, 0)
 		doc, _ := iDoc.(map[string]interface{})
 		createdOn, _ := doc["created_at"].(time.Time)
 		updatedOn := j.ItemUpdatedOn(doc)
@@ -7998,22 +8112,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 		// Primary assignee start
 		primaryAssignee := ""
 		roles, okRoles := doc["roles"].([]map[string]interface{})
-		cacheID := fmt.Sprintf("%s-%s-assignees", GitHubIssue, issueID)
-		fileData, er := j.cacheProvider.GetFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), cacheID)
-		if er != nil {
-			err = er
-			j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("GetFileByKey get cached assignees error: %v", err)
-			return
-		}
-		oldAssignees := IssueAssignees{}
-		if fileData != nil {
-			er = json.Unmarshal(fileData, &oldAssignees)
-			if er != nil {
-				err = er
-				j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("unmarshall old cached assaignees error: %v", err)
-				return
-			}
-		}
+		oldAssignees := cachedAssignees[issueID]
 		if okRoles {
 			for _, role := range roles {
 				roleType, _ := role["role"].(string)
@@ -8038,6 +8137,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 				} else if roleType == "closed_by_data" {
 					roleValue = insights.CloseAuthorRole
 				}
+
 				contributor := insights.Contributor{
 					Role:   roleValue,
 					Weight: 1.0,
@@ -8077,14 +8177,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 				}
 				_, ok := addedAssignees[issueAssigneeID]
 				if !ok {
-					found := false
-					for _, olds := range oldAssignees.Assignees {
-						if olds == issueAssigneeID {
-							found = true
-							break
-						}
-					}
-					if !found {
+					if isCreated := isChildKeyCreated(oldAssignees, issueAssigneeID); !isCreated {
 						key := "assignee_added"
 						ary, ok := data[key]
 						if !ok {
@@ -8095,7 +8188,12 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 						data[key] = ary
 					}
 					addedAssignees[issueAssigneeID] = struct{}{}
-					issueAssignees[issueAssigneeID] = struct{}{}
+					issueAssignees = append(issueAssignees, ItemCache{
+						Timestamp:      fmt.Sprintf("%v", issueAssignee.SourceTimestamp.Unix()),
+						EntityID:       issueAssigneeID,
+						SourceEntityID: issueAssignee.Identity.Username,
+						Orphaned:       false,
+					})
 				}
 			}
 		}
@@ -8131,6 +8229,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 						j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 						return
 					}
+
 					contributor := insights.Contributor{
 						Role:   insights.AssigneeRole,
 						Weight: 1.0,
@@ -8164,14 +8263,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 					}
 					_, ok := addedAssignees[issueAssigneeID]
 					if !ok {
-						found := false
-						for _, olds := range oldAssignees.Assignees {
-							if olds == issueAssigneeID {
-								found = true
-								break
-							}
-						}
-						if !found {
+						if isCreated := isChildKeyCreated(oldAssignees, issueAssigneeID); !isCreated {
 							key := "assignee_added"
 							ary, ok := data[key]
 							if !ok {
@@ -8182,22 +8274,27 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 							data[key] = ary
 						}
 						addedAssignees[issueAssigneeID] = struct{}{}
-						issueAssignees[issueAssigneeID] = struct{}{}
+						issueAssignees = append(issueAssignees, ItemCache{
+							Timestamp:      fmt.Sprintf("%v", issueAssignee.SourceTimestamp.Unix()),
+							EntityID:       issueAssigneeID,
+							SourceEntityID: issueAssignee.Identity.Username,
+							Orphaned:       false,
+						})
 					}
 				}
 			}
 		}
-		for _, assID := range oldAssignees.Assignees {
+		for _, assID := range oldAssignees {
 			found := false
-			for newAss := range issueAssignees {
-				if newAss == assID {
+			for _, newAss := range issueAssignees {
+				if newAss.EntityID == assID.EntityID {
 					found = true
 					break
 				}
 			}
 			if !found {
 				rvAssignee := igh.RemoveIssueAssignee{
-					ID:      assID,
+					ID:      assID.EntityID,
 					IssueID: issueID,
 				}
 				key := "assignee_removed"
@@ -8210,43 +8307,13 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 				data[key] = ary
 			}
 		}
-		if len(issueAssignees) > 0 || oldAssignees.Assignees != nil {
-			var updatedAssignees IssueAssignees
-			for as := range issueAssignees {
-				updatedAssignees.Assignees = append(updatedAssignees.Assignees, as)
-			}
-			b, er := json.Marshal(updatedAssignees)
-			if er != nil {
-				err = er
-				j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("error marshal updated assignees cache. assignnes data: %+v, error: %v", updatedAssignees, err)
-				return
-			}
-			if err = j.cacheProvider.UpdateFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), cacheID, b); err != nil {
-				j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("UpdateFileByKey error updated assignees cache. path: %s, cache id: %s, assignnes data: %v, error: %v", fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), cacheID, b, err)
-				return
-			}
-		}
+		cachedAssignees[issueID] = issueAssignees
 		// Other assignees end
 		// Issue reactions start
 		reactionsAry, okReactions := doc["reactions_array"].([]interface{})
 		allReactionsAry, okAllReactions := doc["all_reactions_array"].([]interface{})
-		addedReactions := make(map[string]struct{})
-		reactionsCacheID := fmt.Sprintf("%s-%s-reactions", GitHubIssue, issueID)
-		reactionsFileData, er := j.cacheProvider.GetFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), reactionsCacheID)
-		if er != nil {
-			err = er
-			j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("GetFileByKey get issue reactions cached error: %v", err)
-			return
-		}
-		oldReactions := IssueReactions{Reactions: []string{}}
-		if reactionsFileData != nil {
-			er = json.Unmarshal(reactionsFileData, &oldReactions)
-			if er != nil {
-				err = er
-				j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("unmarshall old cached assaignees error: %v", err)
-				return
-			}
-		}
+		addedReactions := make([]ItemCache, 0)
+		oldReactions := cachedReactions[issueID]
 		if okReactions {
 			for _, iReaction := range reactionsAry {
 				reaction, okReaction := iReaction.(map[string]interface{})
@@ -8276,6 +8343,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 						j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 						return
 					}
+
 					contributor := insights.Contributor{
 						Role:   insights.ReactionAuthorRole,
 						Weight: 1.0,
@@ -8345,21 +8413,24 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 						j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("GenerateGithubReactionID(%s,%s): %+v for %+v", repoID, reactionSID, err, doc)
 						return
 					}
-					addedReactions[issueReactionID] = struct{}{}
+					addedReactions = append(addedReactions, ItemCache{
+						EntityID: issueReactionID,
+						Orphaned: false,
+					})
 				}
 			}
 		}
-		for _, reID := range oldReactions.Reactions {
+		for _, reID := range oldReactions {
 			found := false
-			for newReaction := range addedReactions {
-				if newReaction == reID {
+			for _, newReaction := range addedReactions {
+				if newReaction.EntityID == reID.EntityID {
 					found = true
 					break
 				}
 			}
 			if !found {
 				rvReaction := igh.RemoveIssueReaction{
-					ID:      reID,
+					ID:      reID.EntityID,
 					IssueID: issueID,
 				}
 				key := "reaction_removed"
@@ -8373,43 +8444,12 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 			}
 		}
 
-		if len(addedReactions) > 0 || oldReactions.Reactions != nil {
-			var updatedReactions IssueReactions
-			for as := range addedReactions {
-				updatedReactions.Reactions = append(updatedReactions.Reactions, as)
-			}
-
-			b, er := json.Marshal(updatedReactions)
-			if er != nil {
-				err = er
-				j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("error marshal updated issue reactions cache. reactions data: %+v, error: %v", updatedReactions, err)
-				return
-			}
-			if err = j.cacheProvider.UpdateFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), reactionsCacheID, b); err != nil {
-				j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("UpdateFileByKey error update issue reactions cache. path: %s, cache id: %s, reactions data: %v, error: %v", fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), cacheID, b, err)
-				return
-			}
-		}
+		cachedReactions[issueID] = addedReactions
 		// Issue reactions end
 		// Comments start
 		commentsAry, okComments := doc["comments_array"].([]interface{})
 		comments := make(map[string]igh.IssueComment)
-		commentsCacheID := fmt.Sprintf("%s-%s-comments", GitHubIssue, issueID)
-		commentsFileData, er := j.cacheProvider.GetFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), commentsCacheID)
-		if er != nil {
-			err = er
-			j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("GetFileByKey get issue comments cached error: %v", err)
-			return
-		}
-		oldComments := IssueComments{}
-		if commentsFileData != nil {
-			er = json.Unmarshal(commentsFileData, &oldComments)
-			if er != nil {
-				err = er
-				j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("unmarshall old cached issue comments error: %v", err)
-				return
-			}
-		}
+		oldComments := cachedComments[issueID]
 		if okComments {
 			for _, iComment := range commentsAry {
 				comment, okComment := iComment.(map[string]interface{})
@@ -8444,6 +8484,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 						j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 						return
 					}
+
 					contributor := insights.Contributor{
 						Role:   insights.CommenterRole,
 						Weight: 1.0,
@@ -8479,8 +8520,8 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 						},
 					}
 					found := false
-					for _, oldc := range oldComments.Comments {
-						if oldc.ID == issueCommentID {
+					for _, oldc := range oldComments {
+						if oldc.EntityID == issueCommentID {
 							found = true
 							break
 						}
@@ -8500,13 +8541,14 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 				}
 			}
 		}
-		for _, comm := range oldComments.Comments {
+		for _, comm := range oldComments {
 			deleted := true
 			edited := false
 			for newCommID, commentVal := range comments {
-				if newCommID == comm.ID {
+				if newCommID == comm.EntityID {
 					deleted = false
-					if commentVal.Body != comm.Body {
+					contentHash := fmt.Sprintf("%x", sha256.Sum256([]byte(commentVal.Body)))
+					if contentHash != comm.Hash {
 						edited = true
 					}
 					break
@@ -8514,7 +8556,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 			}
 			if deleted {
 				rvComm := igh.DeleteIssueComment{
-					ID:      comm.ID,
+					ID:      comm.EntityID,
 					IssueID: issueID,
 				}
 				key := "comment_deleted"
@@ -8528,15 +8570,15 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 			}
 			if edited {
 				editedComment := igh.IssueComment{
-					ID:      comm.ID,
+					ID:      comm.EntityID,
 					IssueID: issueID,
 					Comment: insights.Comment{
-						Body:            comments[comm.ID].Body,
-						CommentURL:      comments[comm.ID].CommentURL,
-						CommentID:       comments[comm.ID].CommentID,
-						Contributor:     comments[comm.ID].Contributor,
+						Body:            comments[comm.EntityID].Body,
+						CommentURL:      comments[comm.EntityID].CommentURL,
+						CommentID:       comments[comm.EntityID].CommentID,
+						Contributor:     comments[comm.EntityID].Contributor,
 						SyncTimestamp:   time.Now(),
-						SourceTimestamp: comments[comm.ID].SourceTimestamp,
+						SourceTimestamp: comments[comm.EntityID].SourceTimestamp,
 					},
 				}
 				key := "comment_edited"
@@ -8549,45 +8591,22 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 				data[key] = ary
 			}
 		}
-		if len(comments) > 0 || oldComments.Comments != nil {
-			var updatedComments IssueComments
-			for _, comm := range comments {
-				updatedComments.Comments = append(updatedComments.Comments, IssueComment{
-					ID:   comm.ID,
-					Body: comm.Body,
-				})
-			}
-			b, er := json.Marshal(updatedComments)
-			if er != nil {
-				err = er
-				j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("error marshal updated issue comments cache. reactions data: %+v, error: %v", updatedComments, err)
-				return
-			}
-			if err = j.cacheProvider.UpdateFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), commentsCacheID, b); err != nil {
-				j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("UpdateFileByKey error update issue comments cache. path: %s, cache id: %s, comments data: %v, error: %v", fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), commentsCacheID, b, err)
-				return
-			}
+		updatedComments := make([]ItemCache, 0)
+		for _, c := range comments {
+			updatedComments = append(updatedComments, ItemCache{
+				Timestamp:      fmt.Sprintf("%v", c.SyncTimestamp.Unix()),
+				EntityID:       c.ID,
+				SourceEntityID: c.CommentID,
+				Hash:           fmt.Sprintf("%x", sha256.Sum256([]byte(c.Body))),
+				Orphaned:       false,
+			})
 		}
+		cachedComments[issueID] = updatedComments
 		// Comments end
 		// Comment reactions start
 		reactionsAry, okReactions = doc["comments_reactions_array"].([]interface{})
 		commentsReactions := make(map[string][]igh.IssueCommentReaction)
-		commentsReactionsCacheID := fmt.Sprintf("%s-%s-comment-reactions", GitHubIssue, issueID)
-		commentsReactionsFileData, er := j.cacheProvider.GetFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), commentsReactionsCacheID)
-		if er != nil {
-			err = er
-			j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("GetFileByKey get issue comments reactions cached error: %v", err)
-			return
-		}
-		oldCommentsReactions := IssueCommentReactions{}
-		if commentsReactionsFileData != nil {
-			er = json.Unmarshal(commentsReactionsFileData, &oldCommentsReactions)
-			if er != nil {
-				err = er
-				j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("unmarshall old cached issue comments reactions error: %v", err)
-				return
-			}
-		}
+		oldCommentsReactions := cachedCommentReactions[issueID]
 		if okReactions {
 			for _, iReaction := range reactionsAry {
 				reaction, okReaction := iReaction.(map[string]interface{})
@@ -8619,6 +8638,7 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 						j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 						return
 					}
+
 					contributor := insights.Contributor{
 						Role:   insights.ReactionAuthorRole,
 						Weight: 1.0,
@@ -8678,20 +8698,20 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 					nReactions++
 				}
 			}
-			for commID, reactions := range oldCommentsReactions.Reactions {
+			for commID, reactions := range oldCommentsReactions {
 				for newCommID, nRes := range commentsReactions {
 					if commID == newCommID {
 						for _, oRe := range reactions {
 							found := false
 							for _, nRe := range nRes {
-								if nRe.ID == oRe {
+								if nRe.ID == oRe.EntityID {
 									found = true
 									break
 								}
 							}
 							if !found {
 								rvReactions := igh.RemoveIssueCommentReaction{
-									ID:        oRe,
+									ID:        oRe.EntityID,
 									CommentID: issueCommentID,
 								}
 								key := "comment_reaction_removed"
@@ -8708,29 +8728,20 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 				}
 			}
 		}
-
-		if len(commentsReactions) > 0 || oldCommentsReactions.Reactions != nil {
-			updatedCommentsReactions := IssueCommentReactions{Reactions: map[string][]string{}}
-			for k, commReactions := range commentsReactions {
-				for _, r := range commReactions {
-					commRe, ok := updatedCommentsReactions.Reactions[k]
-					if !ok {
-						commRe = []string{r.ID}
-					} else {
-						commRe = append(commRe, r.ID)
-					}
-					updatedCommentsReactions.Reactions[k] = commRe
-				}
+		for k, v := range commentsReactions {
+			commentReactions := make([]ItemCache, 0, len(v))
+			for _, reaction := range v {
+				commentReactions = append(commentReactions, ItemCache{
+					Timestamp:      fmt.Sprintf("%v", reaction.SyncTimestamp.Unix()),
+					EntityID:       reaction.ID,
+					SourceEntityID: reaction.Reaction.ReactionID,
+				})
 			}
-			b, er := json.Marshal(updatedCommentsReactions)
-			if er != nil {
-				err = er
-				j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("error marshal updated issue comments reactions cache. reactions data: %+v, error: %v", updatedCommentsReactions, err)
-				return
-			}
-			if err = j.cacheProvider.UpdateFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), commentsReactionsCacheID, b); err != nil {
-				j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("UpdateFileByKey error update issue comments reactions cache. path: %s, cache id: %s, reactions data: %v, error: %v", fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), commentsCacheID, b, err)
-				return
+			if cachedCommentReactions[issueID] != nil {
+				cachedCommentReactions[issueID][k] = commentReactions
+			} else {
+				cachedCommentReactions[issueID] = make(map[string][]ItemCache)
+				cachedCommentReactions[issueID][k] = commentReactions
 			}
 		}
 		// Comment reactions end
@@ -8756,17 +8767,18 @@ func (j *DSGitHub) GetModelDataIssue(ctx *shared.Ctx, docs []interface{}) (data 
 				Orphaned:        false,
 			},
 		}
-		key := "updated"
-		cacheID = fmt.Sprintf("%s-%s", GitHubIssue, issue.ID)
-		isCreated, er := j.cacheProvider.IsKeyCreated(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), cacheID)
-		if er != nil {
-			err = er
-			j.log.WithFields(logrus.Fields{"operation": "GetModelDataIssue"}).Errorf("error getting cache for endpoint %s/%s/%s. error: %+v", j.Org, j.Repo, GitHubIssue, err)
-			return
+		if isClosed {
+			issID, _ := doc["id_in_repo"].(int)
+			closedBY, eror := j.getClosedBy(ctx, issID, org)
+			if eror != nil {
+				return
+			}
+			issue.ClosedBy = closedBY
 		}
-		if !isCreated {
+		key := "updated"
+		if isCreated := isParentKeyCreated(cachedIssues, issue.ID); !isCreated {
 			key = "created"
-			issue.Issue.SyncTimestamp = createdOn
+			issue.Issue.SourceTimestamp = createdOn
 		}
 		ary, ok := data[key]
 		if !ok {
@@ -8815,6 +8827,33 @@ func main() {
 	shared.SetLogLoggerError(false)
 	shared.AddLogger(&github.Logger, GitHubDataSource, logger.Internal, []map[string]string{{"GITHUB_ORG": github.Org, "GITHUB_REPO": github.Repo, "REPO_URL": github.URL, "ProjectSlug": ctx.Project}})
 	github.AddCacheProvider()
+
+	if os.Getenv("SPAN") != "" {
+		tracer.Start(tracer.WithGlobalTag("connector", "github"))
+		defer tracer.Stop()
+
+		cat := ""
+		for c := range ctx.Categories {
+			cat = c
+		}
+
+		sb := os.Getenv("SPAN")
+		carrier := make(tracer.TextMapCarrier)
+		err = jsoniter.Unmarshal([]byte(sb), &carrier)
+		if err != nil {
+			return
+		}
+		sctx, er := tracer.Extract(carrier)
+		if er != nil {
+			fmt.Println(er)
+		}
+		if err == nil && sctx != nil {
+			span, con := tracer.StartSpanFromContext(context.Background(), fmt.Sprintf("%s", cat), tracer.ResourceName("connector"), tracer.ChildOf(sctx))
+			github.log.WithContext(con).WithFields(logrus.Fields{"operation": "main"}).Infof("connector log from trace")
+			defer span.Finish()
+		}
+	}
+
 	for cat := range ctx.Categories {
 		err = github.WriteLog(&ctx, timestamp, logger.InProgress, cat)
 		if err != nil {
@@ -8855,85 +8894,35 @@ func (j *DSGitHub) createStructuredLogger() {
 
 // AddCacheProvider - adds cache provider
 func (j *DSGitHub) AddCacheProvider() {
-	cacheProvider := cache.NewManager(GitHubDataSource, os.Getenv("STAGE"))
+	cacheProvider := cache.NewManager(fmt.Sprintf("v2/%s", GitHubDataSource), os.Getenv("STAGE"))
 	j.cacheProvider = *cacheProvider
 }
 
-// IssueAssignees ...
-type IssueAssignees struct {
-	Assignees []string `json:"assignees"`
-}
-
-// IssueReactions ...
-type IssueReactions struct {
-	Reactions []string `json:"reactions"`
-}
-
-// IssueComments ...
-type IssueComments struct {
-	Comments []IssueComment
-}
-
-// IssueComment ...
-type IssueComment struct {
-	ID   string `json:"id"`
-	Body string `json:"body"`
-}
-
-// IssueCommentReactions ...
-type IssueCommentReactions struct {
-	Reactions map[string][]string `json:"reactions"`
-}
-
-// PullrequestReviewers ...
-type PullrequestReviewers struct {
-	Reviewers []string `json:"reviewers"`
-}
-
-func (j *DSGitHub) cacheCreatedPullrequest(v []interface{}, path string) ([]map[string]interface{}, error) {
-	cacheData := make([]map[string]interface{}, 0)
+func (j *DSGitHub) cacheCreatedPullrequest(v []interface{}, path string) error {
 	for _, val := range v {
 		pr := val.(igh.PullRequestCreatedEvent).Payload
-		cacheID := fmt.Sprintf("%s-%s", GitHubPullrequest, val.(igh.PullRequestCreatedEvent).Payload.ID)
-		p := igh.PullRequest{
-			ID:            pr.ID,
-			RepositoryID:  pr.RepositoryID,
-			RepositoryURL: pr.RepositoryURL,
-			Repository:    pr.Repository,
-			Organization:  pr.Organization,
-			Labels:        pr.Labels,
-			Contributors:  pr.Contributors,
-			MergedBy:      pr.MergedBy,
-			ClosedBy:      pr.ClosedBy,
-			Commits:       pr.Commits,
-			ChangeRequest: insights.ChangeRequest{
-				Title:            pr.ChangeRequest.Title,
-				Body:             pr.ChangeRequest.Body,
-				ChangeRequestURL: pr.ChangeRequest.ChangeRequestURL,
-				ChangeRequestID:  pr.ChangeRequest.ChangeRequestID,
-				State:            pr.ChangeRequest.State,
-				Orphaned:         pr.ChangeRequest.Orphaned,
-			},
-		}
-		b, err := json.Marshal(p)
+		prID, err := strconv.ParseInt(pr.ChangeRequestID, 10, 64)
+		rawPull := rawItems[prID]
+		b, err := json.Marshal(rawPull)
 		if err != nil {
-			return cacheData, err
+			return err
 		}
 		contentHash := fmt.Sprintf("%x", sha256.Sum256(b))
-		cacheData = append(cacheData, map[string]interface{}{
-			"id": cacheID,
-			"data": map[string]interface{}{
-				contentHashField: contentHash,
-				"paths":          []string{path},
-			},
-		})
+		cachedPulls[pr.ID] = ItemCache{
+			Timestamp:      fmt.Sprintf("%v", pr.SyncTimestamp.Unix()),
+			EntityID:       pr.ID,
+			SourceEntityID: pr.ChangeRequestID,
+			FileLocation:   path,
+			Hash:           contentHash,
+			Orphaned:       false,
+		}
 	}
-	return cacheData, nil
+	return nil
 }
 
-func (j *DSGitHub) preventUpdatePullrequestDuplication(v []interface{}, event string) ([]interface{}, []map[string]interface{}, error) {
+func (j *DSGitHub) preventUpdatePullrequestDuplication(v []interface{}, event string) ([]interface{}, []ItemCache, error) {
 	updates := make([]interface{}, 0, len(v))
-	cacheData := make([]map[string]interface{}, 0)
+	cacheData := make([]ItemCache, 0)
 	for _, val := range v {
 		pr := igh.PullRequest{}
 		switch event {
@@ -8946,97 +8935,55 @@ func (j *DSGitHub) preventUpdatePullrequestDuplication(v []interface{}, event st
 		default:
 			return updates, cacheData, fmt.Errorf("event: %s is not recognized", event)
 		}
-		p := igh.PullRequest{
-			ID:            pr.ID,
-			RepositoryID:  pr.RepositoryID,
-			RepositoryURL: pr.RepositoryURL,
-			Repository:    pr.Repository,
-			Organization:  pr.Organization,
-			Labels:        pr.Labels,
-			Contributors:  pr.Contributors,
-			MergedBy:      pr.MergedBy,
-			ClosedBy:      pr.ClosedBy,
-			Commits:       pr.Commits,
-			ChangeRequest: insights.ChangeRequest{
-				Title:            pr.ChangeRequest.Title,
-				Body:             pr.ChangeRequest.Body,
-				ChangeRequestURL: pr.ChangeRequest.ChangeRequestURL,
-				ChangeRequestID:  pr.ChangeRequest.ChangeRequestID,
-				State:            pr.ChangeRequest.State,
-				Orphaned:         pr.ChangeRequest.Orphaned,
-			},
+		issID, err := strconv.ParseInt(pr.ChangeRequestID, 10, 64)
+		if err != nil {
+			return updates, cacheData, err
 		}
-		b, err := json.Marshal(p)
+		rawIssue := rawItems[issID]
+		b, err := json.Marshal(rawIssue)
 		if err != nil {
 			return updates, cacheData, err
 		}
 		contentHash := fmt.Sprintf("%x", sha256.Sum256(b))
-		cacheID := fmt.Sprintf("%s-%s", GitHubPullrequest, pr.ID)
+		pull := cachedPulls[pr.ID]
 
-		byt, err := j.cacheProvider.GetFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest), cacheID)
-		if err != nil {
-			return updates, cacheData, err
-		}
-		cachedHash := make(map[string]interface{})
-		err = json.Unmarshal(byt, &cachedHash)
-		if contentHash != cachedHash["contentHash"] {
-			paths := cachedHash["paths"]
+		if contentHash != pull.Hash {
+			pull.Hash = contentHash
 			updates = append(updates, val)
-			cacheData = append(cacheData, map[string]interface{}{
-				"id": cacheID,
-				"data": map[string]interface{}{
-					contentHashField: contentHash,
-					"paths":          paths,
-				},
-			})
+			cacheData = append(cacheData, pull)
 		}
 	}
 	return updates, cacheData, nil
 }
 
-func (j *DSGitHub) cacheCreatedIssues(v []interface{}, path string) ([]map[string]interface{}, error) {
-	cacheData := make([]map[string]interface{}, 0)
+func (j *DSGitHub) cacheCreatedIssues(v []interface{}, path string) error {
 	for _, val := range v {
 		issue := val.(igh.IssueCreatedEvent).Payload
-		cacheID := fmt.Sprintf("%s-%s", "issue", val.(igh.IssueCreatedEvent).Payload.ID)
-		i := igh.Issue{
-			ID:            issue.ID,
-			RepositoryID:  issue.RepositoryID,
-			RepositoryURL: issue.RepositoryURL,
-			Repository:    issue.Repository,
-			Organization:  issue.Organization,
-			IsPullRequest: false,
-			Labels:        issue.Labels,
-			Contributors:  issue.Contributors,
-			ClosedBy:      issue.ClosedBy,
-			Issue: insights.Issue{
-				Title:    issue.Issue.Title,
-				Body:     issue.Issue.Body,
-				IssueURL: issue.Issue.IssueURL,
-				IssueID:  issue.Issue.IssueID,
-				State:    issue.Issue.State,
-				Orphaned: issue.Issue.Orphaned,
-			},
-		}
-		b, err := json.Marshal(i)
+		issID, err := strconv.ParseInt(issue.IssueID, 10, 64)
 		if err != nil {
-			return cacheData, err
+			return err
+		}
+		rawIssue := rawItems[issID]
+		b, err := json.Marshal(rawIssue)
+		if err != nil {
+			return err
 		}
 		contentHash := fmt.Sprintf("%x", sha256.Sum256(b))
-		cacheData = append(cacheData, map[string]interface{}{
-			"id": cacheID,
-			"data": map[string]interface{}{
-				contentHashField: contentHash,
-				"paths":          []string{path},
-			},
-		})
+		cachedIssues[issue.ID] = ItemCache{
+			Timestamp:      fmt.Sprintf("%v", issue.SyncTimestamp.Unix()),
+			EntityID:       issue.ID,
+			SourceEntityID: issue.IssueID,
+			FileLocation:   path,
+			Hash:           contentHash,
+			Orphaned:       false,
+		}
 	}
-	return cacheData, nil
+	return nil
 }
 
-func (j *DSGitHub) preventUpdateIssueDuplication(v []interface{}, event string) ([]interface{}, []map[string]interface{}, error) {
+func (j *DSGitHub) preventUpdateIssueDuplication(v []interface{}, event string) ([]interface{}, []ItemCache, error) {
 	updates := make([]interface{}, 0, len(v))
-	cacheData := make([]map[string]interface{}, 0)
+	cacheData := make([]ItemCache, 0)
 	for _, val := range v {
 		issue := igh.Issue{}
 		switch event {
@@ -9047,49 +8994,226 @@ func (j *DSGitHub) preventUpdateIssueDuplication(v []interface{}, event string) 
 		default:
 			return updates, cacheData, fmt.Errorf("event: %s is not recognized", event)
 		}
-		i := igh.Issue{
-			ID:            issue.ID,
-			RepositoryID:  issue.RepositoryID,
-			RepositoryURL: issue.RepositoryURL,
-			Repository:    issue.Repository,
-			Organization:  issue.Organization,
-			IsPullRequest: false,
-			Labels:        issue.Labels,
-			Contributors:  issue.Contributors,
-			ClosedBy:      issue.ClosedBy,
-			Issue: insights.Issue{
-				Title:    issue.Issue.Title,
-				Body:     issue.Issue.Body,
-				IssueURL: issue.Issue.IssueURL,
-				IssueID:  issue.Issue.IssueID,
-				State:    issue.Issue.State,
-				Orphaned: issue.Issue.Orphaned,
-			},
+		issID, err := strconv.ParseInt(issue.IssueID, 10, 64)
+		if err != nil {
+			return updates, cacheData, err
 		}
-		b, err := json.Marshal(i)
+		rawIssue := rawItems[issID]
+		b, err := json.Marshal(rawIssue)
 		if err != nil {
 			return updates, cacheData, err
 		}
 		contentHash := fmt.Sprintf("%x", sha256.Sum256(b))
-		cacheID := fmt.Sprintf("%s-%s", GitHubIssue, issue.ID)
+		iss := cachedIssues[issue.ID]
 
-		byt, err := j.cacheProvider.GetFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue), cacheID)
-		if err != nil {
-			return updates, cacheData, err
-		}
-		cachedHash := make(map[string]interface{})
-		err = json.Unmarshal(byt, &cachedHash)
-		if contentHash != cachedHash[contentHashField] {
-			paths := cachedHash["paths"]
+		if contentHash != iss.Hash {
+			iss.Hash = contentHash
 			updates = append(updates, val)
-			cacheData = append(cacheData, map[string]interface{}{
-				"id": cacheID,
-				"data": map[string]interface{}{
-					contentHashField: contentHash,
-					"paths":          paths,
-				},
-			})
+			cacheData = append(cacheData, iss)
 		}
 	}
 	return updates, cacheData, nil
+}
+
+func (j *DSGitHub) getClosedBy(ctx *shared.Ctx, id int, org string) (*insights.Contributor, error) {
+	c := j.Clients[j.Hint]
+	iss, _, err := c.Issues.Get(j.Context, org, j.Repo, id)
+	if err != nil {
+		return nil, err
+	}
+	if iss.ClosedBy == nil {
+		return nil, nil
+	}
+	closerLogin := ""
+	if iss.ClosedBy != nil && iss.ClosedBy.Login != nil {
+		closerLogin = *iss.ClosedBy.Login
+	}
+	u, _, err := j.githubUser(ctx, closerLogin)
+	if err != nil {
+		return nil, err
+	}
+	name, _ := u["name"].(string)
+	email, _ := u["email"].(string)
+	source := GitHubDataSource
+	userID, err := user.GenerateIdentity(&source, &email, &name, &closerLogin)
+	if err != nil {
+		j.log.WithFields(logrus.Fields{"operation": "getClosedBy"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v", source, email, name, closerLogin, err)
+		return nil, err
+	}
+	isBotIdentity := shared.IsBotIdentity(name, closerLogin, email, GitHubDataSource, os.Getenv("BOT_NAME_REGEX"), os.Getenv("BOT_USERNAME_REGEX"), os.Getenv("BOT_EMAIL_REGEX"))
+	closedBY := insights.Contributor{
+		Role:   insights.CloseAuthorRole,
+		Weight: 1.0,
+		Identity: user.UserIdentityObjectBase{
+			ID:         userID,
+			Avatar:     *iss.ClosedBy.AvatarURL,
+			Email:      email,
+			IsVerified: false,
+			Name:       name,
+			Username:   closerLogin,
+			Source:     source,
+			IsBot:      isBotIdentity,
+		},
+	}
+	return &closedBY, nil
+}
+
+func (j *DSGitHub) getAssignees(category string) error {
+	assigneeB, err := j.cacheProvider.GetFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, category), assigneesCacheFile)
+	if err != nil {
+		return err
+	}
+	records := make(map[string][]ItemCache)
+	if assigneeB != nil {
+		if err = json.Unmarshal(assigneeB, &records); err != nil {
+			return err
+		}
+	}
+	for key, val := range records {
+		cachedAssignees[key] = val
+	}
+	return nil
+}
+
+func (j *DSGitHub) getComments(category string) error {
+	commentsB, err := j.cacheProvider.GetFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, category), commentsCacheFile)
+	records := make(map[string][]ItemCache)
+	if commentsB != nil {
+		if err = json.Unmarshal(commentsB, &records); err != nil {
+			return err
+		}
+	}
+	for key, val := range records {
+		cachedComments[key] = val
+	}
+	return nil
+}
+
+func (j *DSGitHub) getReviewers(category string) error {
+	assigneeB, err := j.cacheProvider.GetFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, category), reviewersCacheFile)
+	if err != nil {
+		return err
+	}
+	records := make(map[string][]ItemCache)
+	if assigneeB != nil {
+		if err = json.Unmarshal(assigneeB, &records); err != nil {
+			return err
+		}
+	}
+	for key, val := range records {
+		cachedReviewers[key] = val
+	}
+	return nil
+}
+
+func (j *DSGitHub) getCommentReactions(category string) error {
+	commentReactionsB, err := j.cacheProvider.GetFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, category), commentReactionsCacheFile)
+	if err != nil {
+		return err
+	}
+	records := make(map[string]map[string][]ItemCache)
+	if commentReactionsB != nil {
+		if err = json.Unmarshal(commentReactionsB, &records); err != nil {
+			return err
+		}
+	}
+	for key, val := range records {
+		cachedCommentReactions[key] = val
+	}
+	return nil
+}
+
+func (j *DSGitHub) getReactions(category string) error {
+	reactionsB, err := j.cacheProvider.GetFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, category), reactionsCacheFile)
+	if err != nil {
+		return err
+	}
+	records := make(map[string][]ItemCache)
+	if reactionsB != nil {
+		if err = json.Unmarshal(reactionsB, &records); err != nil {
+			return err
+		}
+	}
+
+	for key, val := range records {
+		cachedReactions[key] = val
+	}
+	return nil
+}
+
+func isParentKeyCreated(element map[string]ItemCache, id string) bool {
+	_, ok := element[id]
+	if ok {
+		return true
+	}
+	return false
+}
+
+func (j *DSGitHub) updateRemoteCache(cacheFile string, cacheType string) error {
+	records := [][]string{
+		{"timestamp", "entity_id", "source_entity_id", "file_location", "hash", "orphaned"},
+	}
+	category := ""
+	switch cacheType {
+	case GitHubPullrequest:
+		category = GitHubPullrequest
+		for _, c := range cachedPulls {
+			records = append(records, []string{c.Timestamp, c.EntityID, c.SourceEntityID, c.FileLocation, c.Hash, strconv.FormatBool(c.Orphaned)})
+		}
+	case GitHubIssue:
+		category = GitHubIssue
+		for _, c := range cachedIssues {
+			records = append(records, []string{c.Timestamp, c.EntityID, c.SourceEntityID, c.FileLocation, c.Hash, strconv.FormatBool(c.Orphaned)})
+		}
+	default:
+		return fmt.Errorf("cache must be one of issue or pullrequest")
+	}
+
+	csvFile, err := os.Create(cacheFile)
+	if err != nil {
+		return err
+	}
+
+	w := csv.NewWriter(csvFile)
+	err = w.WriteAll(records)
+	if err != nil {
+		return err
+	}
+	err = csvFile.Close()
+	if err != nil {
+		return err
+	}
+	file, err := os.ReadFile(cacheFile)
+	if err != nil {
+		return err
+	}
+	err = os.Remove(cacheFile)
+	if err != nil {
+		return err
+	}
+	err = j.cacheProvider.UpdateFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, category), cacheFile, file)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func isChildKeyCreated(element []ItemCache, id string) bool {
+	for _, el := range element {
+		if el.EntityID == id {
+			return true
+		}
+	}
+	return false
+}
+
+// ItemCache ...
+type ItemCache struct {
+	Timestamp      string `json:"timestamp"`
+	EntityID       string `json:"entity_id"`
+	SourceEntityID string `json:"source_entity_id"`
+	FileLocation   string `json:"file_location"`
+	Hash           string `json:"hash"`
+	Orphaned       bool   `json:"orphaned"`
 }
