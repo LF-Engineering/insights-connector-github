@@ -7748,7 +7748,12 @@ func (j *DSGitHub) GetModelDataRepository(ctx *shared.Ctx, docs []interface{}) (
 		stargazers, _ := doc["stargazers_count"].(float64)
 		description, _ := doc["description"].(string)
 		sCreatedAt, _ := doc["created_at"].(string)
-		createdAt, _ := shared.TimeParseES(sCreatedAt)
+		tCreatedAt, _ := shared.TimeParseES(sCreatedAt)
+		createdAt := shared.ConvertTimeToFloat(tCreatedAt)
+		sUpdatedAt, _ := doc["updated_at"].(string)
+		tUpdatedAt, _ := shared.TimeParseES(sUpdatedAt)
+		updatedAt := shared.ConvertTimeToFloat(tUpdatedAt)
+		defaultBranch, _ := doc["default_branch"].(string)
 		// id is github repository id
 		id, _ := doc["id"].(float64)
 		sid := fmt.Sprintf("%.0f", id)
@@ -7765,6 +7770,7 @@ func (j *DSGitHub) GetModelDataRepository(ctx *shared.Ctx, docs []interface{}) (
 			SourceID:        sid,
 			URL:             j.URL,
 			Description:     description,
+			DefaultBranch:   defaultBranch,
 			ReportingSource: repository.InsightsService,
 			EnabledServices: []string{string(repository.InsightsService)},
 			Source:          GitHubDataSource,
@@ -7776,8 +7782,10 @@ func (j *DSGitHub) GetModelDataRepository(ctx *shared.Ctx, docs []interface{}) (
 					Subscribers:  int(subscribers),
 				},
 			},
-			CreatedAt: createdAt,
-			UpdatedAt: time.Now(),
+			SourceCreatedAt: int64(createdAt),
+			SourceUpdatedAt: int64(updatedAt),
+			CreatedAt:       tCreatedAt,
+			UpdatedAt:       time.Now(),
 		}
 		data = append(data, repository.RepositoryUpdatedEvent{
 			RepositoryBaseEvent: repositoryBaseEvent,
