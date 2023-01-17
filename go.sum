@@ -46,8 +46,8 @@ github.com/LF-Engineering/dev-analytics-libraries v1.1.28/go.mod h1:O+9mOX1nf6qG
 github.com/LF-Engineering/insights-datasource-shared v1.5.18-0.20221031165121-cb720cbf98a9 h1:FBZZ1+Znl6t5JZoO9UMUQhF9VsGBI4YIs67U8DfLDEU=
 github.com/LF-Engineering/insights-datasource-shared v1.5.18-0.20221031165121-cb720cbf98a9/go.mod h1:9DmFQbC8nnm1C7k+/tDo3Rmqzzx7AzmhPBlFouXaBZ8=
 github.com/LF-Engineering/lfx-event-schema v0.1.14/go.mod h1:CfFIZ4mwzo88umf5+KxDQEzqlVkPG7Vx8eLK2oDfWIs=
-github.com/LF-Engineering/lfx-event-schema v0.1.33 h1:5Yk20tPkPbyOKEckcEF87qEQtl1H8l6TyA9wjKi+cl0=
-github.com/LF-Engineering/lfx-event-schema v0.1.33/go.mod h1:CfFIZ4mwzo88umf5+KxDQEzqlVkPG7Vx8eLK2oDfWIs=
+github.com/LF-Engineering/lfx-event-schema v0.1.36 h1:JshYAFzOVEiDnreGbo63ifAN8aDFtTnbyDCVRYack+s=
+github.com/LF-Engineering/lfx-event-schema v0.1.36/go.mod h1:CfFIZ4mwzo88umf5+KxDQEzqlVkPG7Vx8eLK2oDfWIs=
 github.com/Microsoft/go-winio v0.5.0/go.mod h1:JPGBdM1cNvN/6ISo+n8V5iA4v8pBzdOpzfwIujj1a84=
 github.com/Microsoft/go-winio v0.5.1 h1:aPJp2QD7OOrhO5tQXqQoGSJc+DjDtWTGLOmNyAm6FgY=
 github.com/Microsoft/go-winio v0.5.1/go.mod h1:JPGBdM1cNvN/6ISo+n8V5iA4v8pBzdOpzfwIujj1a84=
