@@ -7783,9 +7783,11 @@ func (j *DSGitHub) GetModelDataRepository(ctx *shared.Ctx, docs []interface{}) (
 				},
 			},
 			SourceCreatedAt: int64(createdAt),
-			SourceUpdatedAt: int64(updatedAt),
 			CreatedAt:       tCreatedAt,
 			UpdatedAt:       time.Now(),
+		}
+		if sUpdatedAt != "" {
+			repo.SourceUpdatedAt = int64(updatedAt)
 		}
 		data = append(data, repository.RepositoryUpdatedEvent{
 			RepositoryBaseEvent: repositoryBaseEvent,
