@@ -5921,6 +5921,7 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 						case "created":
 							ev, _ := v[0].(igh.PullRequestCreatedEvent)
 							path, err := j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							fmt.Println("prs created: ", len(v))
 							err = j.cacheCreatedPullrequest(v, path)
 							if err != nil {
 								j.log.WithFields(logrus.Fields{"operation": "OutputDocs"}).Errorf("cacheCreatedPullrequest error: %+v", err)
@@ -5945,25 +5946,13 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 							}
 
 						case "closed":
-							updates, _, err := j.preventUpdatePullrequestDuplication(v, "closed")
-							if err != nil {
-								j.log.WithFields(logrus.Fields{"operation": "OutputDocs"}).Errorf("preventUpdatePullrequestDuplication error: %+v", err)
-								return
-							}
-							if len(updates) > 0 {
-								ev, _ := updates[0].(igh.PullRequestClosedEvent)
-								_, err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, updates)
-							}
+							ev, _ := v[0].(igh.PullRequestClosedEvent)
+							_, err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							fmt.Println("prs closed: ", len(v))
 						case "merged":
-							updates, _, err := j.preventUpdatePullrequestDuplication(v, "merged")
-							if err != nil {
-								j.log.WithFields(logrus.Fields{"operation": "OutputDocs"}).Errorf("preventUpdatePullrequestDuplication error: %+v", err)
-								return
-							}
-							if len(updates) > 0 {
-								ev, _ := updates[0].(igh.PullRequestMergedEvent)
-								_, err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, updates)
-							}
+							ev, _ := v[0].(igh.PullRequestMergedEvent)
+							_, err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
+							fmt.Println("prs merged: ", len(v))
 						case "assignee_added":
 							ev, _ := v[0].(igh.PullRequestAssigneeAddedEvent)
 							_, err = j.Publisher.PushEvents(ev.Event(), insightsStr, GitHubDataSource, pullsStr, envStr, v)
