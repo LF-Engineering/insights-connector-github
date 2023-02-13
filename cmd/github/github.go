@@ -6129,6 +6129,11 @@ func (j *DSGitHub) Sync(ctx *shared.Ctx, category string) (err error) {
 	if ctx.DateTo != nil {
 		j.log.WithFields(logrus.Fields{"operation": "Sync"}).Infof("%s fetching till %v (%d threads)", j.Endpoint(), ctx.DateTo, j.ThrN)
 	}
+	sourceID, err := j.gitRepoSourceID()
+	if err != nil {
+		return err
+	}
+	j.SourceID = sourceID
 	// NOTE: Non-generic starts here
 	err = j.SyncCurrentCategory(ctx)
 	if err != nil {
@@ -9262,6 +9267,16 @@ func (j *DSGitHub) updateRemoteCache(cacheFile string, cacheType string) error {
 	}
 
 	return nil
+}
+
+func (j *DSGitHub) gitRepoSourceID() (string, error) {
+	client := j.Clients[j.Hint]
+	repo, _, err := client.Repositories.Get(j.Context, j.Org, j.Repo)
+	if err != nil {
+		return "", err
+	}
+	id := strconv.FormatInt(*repo.ID, 10)
+	return id, nil
 }
 
 func isChildKeyCreated(element []ItemCache, id string) bool {
