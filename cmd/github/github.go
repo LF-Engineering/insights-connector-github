@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/LF-Engineering/insights-connector-github/build"
+	"github.com/LF-Engineering/insights-datasource-shared/aws"
 	"github.com/LF-Engineering/insights-datasource-shared/cache"
 	"github.com/LF-Engineering/insights-datasource-shared/cryptography"
 	"github.com/LF-Engineering/lfx-event-schema/service"
@@ -182,6 +183,7 @@ var (
 	createdIssues                = make(map[string]bool)
 	createdActions               = make(map[string]bool)
 	cachedActions                = make(map[string]ItemCache)
+	usersCache                   = make(map[string]*github.User)
 )
 
 // Publisher - for streaming data to Kinesis
@@ -296,12 +298,11 @@ func (j *DSGitHub) WriteLog(ctx *shared.Ctx, timestamp time.Time, status, messag
 	if err != nil {
 		return err
 	}
-	/*	arn, err := aws.GetContainerARN()
-		if err != nil {
-			j.log.WithFields(logrus.Fields{"operation": "WriteLog"}).Errorf("getContainerMetadata Error : %+v", err)
-			return err
-		}*/
-	arn := "arn:aws:ecs:us-east-2:716487311010:task/insights-ecs-cluster/4c2921c0b25245b79f34d43e17c9adda"
+	arn, err := aws.GetContainerARN()
+	if err != nil {
+		j.log.WithFields(logrus.Fields{"operation": "WriteLog"}).Errorf("getContainerMetadata Error : %+v", err)
+		return err
+	}
 	err = j.Logger.Write(&logger.Log{
 		Connector: GitHubDataSource,
 		TaskARN:   arn,
@@ -3009,31 +3010,36 @@ func (j *DSGitHub) ProcessPull(ctx *shared.Ctx, inPull map[string]interface{}) (
 // FetchItemsActions - implement raw actions data for GitHub datasource
 func (j *DSGitHub) FetchItemsActions(ctx *shared.Ctx) error {
 	j.getCachedActions()
-	opt := &github.ListWorkflowRunsOptions{}
-	opt.PerPage = ItemsPerPage
 	from := *ctx.DateFrom
 	remoteLastSync := *ctx.DateFrom
 	epocDate := time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
 	if epocDate != from {
 		from = from.Add(time.Hour * -24)
 	}
+	opt := &github.ListWorkflowRunsOptions{}
+	opt.PerPage = ItemsPerPage
 	opt.Created = fmt.Sprintf("updated>%s", from.Format(time.RFC3339))
+
 	eventsCreate := make([]interface{}, 0)
 	eventsUpdate := make([]interface{}, 0)
 
 	count := 0
 	totalFetched := 0
 	c := j.Clients[j.Hint]
+	var updateAt, latestUpdateAt time.Time
 	for {
 		if count == 1000 {
 			j.log.WithFields(logrus.Fields{"operation": "FetchItemsActions"}).Infof("fetched %d runs", totalFetched)
-			opt.Created = fmt.Sprintf("updated<%s", eventsCreate[len(eventsCreate)-1].(igh.ActionCreatedEvent).Payload.StartedAt.Format(time.RFC3339))
+			opt.Created = fmt.Sprintf("updated<%s", updateAt.Format(time.RFC3339))
 			opt.Page = 1
 			count = 0
 		}
 		runs, response, err := c.Actions.ListRepositoryWorkflowRuns(j.Context, j.Org, j.Repo, opt)
 		retry := false
-
+		updateAt = runs.WorkflowRuns[len(runs.WorkflowRuns)-1].UpdatedAt.Time
+		if totalFetched == 0 {
+			latestUpdateAt = runs.WorkflowRuns[0].UpdatedAt.Time
+		}
 		if err != nil && !retry {
 			j.log.WithFields(logrus.Fields{"operation": "getModelDataWorkflowRun"}).Warningf("Unable to get workflow jobs: response: %+v, because: %+v, retrying rate", response, err)
 			j.log.WithFields(logrus.Fields{"operation": "getModelDataWorkflowRun"}).Info("ListWorkflowJobs: handle rate")
@@ -3086,6 +3092,14 @@ func (j *DSGitHub) FetchItemsActions(ctx *shared.Ctx) error {
 
 	endpoint := fmt.Sprintf("%s-%s", j.Org, j.Repo)
 
+	if len(eventsCreate) == 0 && len(eventsUpdate) == 0 {
+		err := j.cacheProvider.SetLastSync(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubActions), latestUpdateAt)
+		if err != nil {
+			j.log.WithFields(logrus.Fields{"operation": "FetchItemsActions"}).Errorf("unable to set last sync date to cache.error: %v", err)
+			return err
+		}
+	}
+
 	for len(eventsCreate) > 0 {
 		createdEvents := make([]interface{}, 0)
 		if len(eventsCreate) > 1000 {
@@ -3102,6 +3116,7 @@ func (j *DSGitHub) FetchItemsActions(ctx *shared.Ctx) error {
 			j.log.WithFields(logrus.Fields{"operation": "FetchItemsActions"}).Errorf("push actions created eventsCreate error: %+v", err)
 			return err
 		}
+		j.log.WithFields(logrus.Fields{"operation": "FetchItemsActions"}).Infof("pushed %d create run events", len(createdEvents))
 
 		// create and push cache
 		if err = j.cacheCreatedActions(createdEvents, path); err != nil {
@@ -3116,7 +3131,7 @@ func (j *DSGitHub) FetchItemsActions(ctx *shared.Ctx) error {
 
 		// update last sync
 		lastSync := createdEvents[0].(igh.ActionCreatedEvent).Payload.UpdatedAt
-		if remoteLastSync.After(lastSync) {
+		if remoteLastSync.Before(lastSync) {
 			err = j.cacheProvider.SetLastSync(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubActions), lastSync)
 			if err != nil {
 				j.log.WithFields(logrus.Fields{"operation": "FetchItemsActions"}).Errorf("unable to set last sync date to cache.error: %v", err)
@@ -3143,6 +3158,7 @@ func (j *DSGitHub) FetchItemsActions(ctx *shared.Ctx) error {
 			j.log.WithFields(logrus.Fields{"operation": "FetchItemsActions"}).Errorf("push actions update error: %+v", err)
 			return err
 		}
+		j.log.WithFields(logrus.Fields{"operation": "FetchItemsActions"}).Infof("pushed %d update run events", len(ev))
 
 		// create and push cache
 		if err = j.cacheUpdatedActions(ev, path); err != nil {
@@ -3157,7 +3173,7 @@ func (j *DSGitHub) FetchItemsActions(ctx *shared.Ctx) error {
 
 		// update last sync
 		lastSync := ev[0].(igh.ActionUpdatedEvent).Payload.UpdatedAt
-		if remoteLastSync.After(lastSync) {
+		if remoteLastSync.Before(lastSync) {
 			err = j.cacheProvider.SetLastSync(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubActions), lastSync)
 			if err != nil {
 				j.log.WithFields(logrus.Fields{"operation": "FetchItemsActions"}).Errorf("unable to set last sync date to cache.error: %v", err)
@@ -3203,83 +3219,71 @@ func (j *DSGitHub) getModelDataWorkflowSteps(job *github.WorkflowJob, jobID stri
 }
 
 func (j *DSGitHub) getModelDataWorkflowJobs(ctx *shared.Ctx, client *github.Client, runID int64, repoID string, runSourceID string) ([]igh.Job, error) {
-	jobs, res, err := client.Actions.ListWorkflowJobs(j.Context, j.Org, j.Repo, runID, nil)
+	jobsSchema := make([]igh.Job, 0)
+	opt := &github.ListWorkflowJobsOptions{}
+	opt.PerPage = ItemsPerPage
 	retry := false
-	if err != nil && !retry {
-		j.log.WithFields(logrus.Fields{"operation": "getModelDataWorkflowRun"}).Warningf("Unable to get workflow jobs: response: %+v, because: %+v, retrying rate", res, err)
-		j.log.WithFields(logrus.Fields{"operation": "getModelDataWorkflowRun"}).Info("ListWorkflowJobs: handle rate")
-		abuse, rateLimit := j.isAbuse(err)
-		if abuse {
-			sleepFor := AbuseWaitSeconds + rand.Intn(AbuseWaitSeconds)
-			j.log.WithFields(logrus.Fields{"operation": "githubUserOrgs"}).Infof("GitHub detected abuse (get workflow jobs), waiting for %ds", sleepFor)
-			time.Sleep(time.Duration(sleepFor) * time.Second)
+	for {
+		jobs, response, err := client.Actions.ListWorkflowJobs(j.Context, j.Org, j.Repo, runID, opt)
+		if err != nil && !retry {
+			j.log.WithFields(logrus.Fields{"operation": "getModelDataWorkflowJobs"}).Warningf("Unable to get workflow jobs: response: %+v, because: %+v, retrying rate", response, err)
+			j.log.WithFields(logrus.Fields{"operation": "getModelDataWorkflowJobs"}).Info("ListWorkflowJobs: handle rate")
+			abuse, rateLimit := j.isAbuse(err)
+			if abuse {
+				sleepFor := AbuseWaitSeconds + rand.Intn(AbuseWaitSeconds)
+				j.log.WithFields(logrus.Fields{"operation": "getModelDataWorkflowJobs"}).Infof("GitHub detected abuse (get workflow jobs), waiting for %ds", sleepFor)
+				time.Sleep(time.Duration(sleepFor) * time.Second)
+			}
+			if rateLimit {
+				j.log.WithFields(logrus.Fields{"operation": "getModelDataWorkflowJobs"}).Info("Rate limit reached on a token (get workflow jobs) waiting 1s before token switch")
+				time.Sleep(time.Duration(1) * time.Second)
+			}
+
+			j.Hint, _, err = j.handleRate(ctx)
+			if err != nil {
+				return []igh.Job{}, err
+			}
+			client = j.Clients[j.Hint]
+			if !abuse && !rateLimit {
+				retry = true
+			}
+			continue
 		}
-		if rateLimit {
-			j.log.WithFields(logrus.Fields{"operation": "githubUserOrgs"}).Info("Rate limit reached on a token (get workflow jobs) waiting 1s before token switch")
-			time.Sleep(time.Duration(1) * time.Second)
+		if err != nil {
+			return []igh.Job{}, err
+		}
+		for _, job := range jobs.Jobs {
+			jobSourceID := strconv.FormatInt(*job.ID, 10)
+			jobID, err := igh.GenerateGithubActionJobID(repoID, runSourceID)
+			if err != nil {
+				return []igh.Job{}, err
+			}
+			stepsSchema, err := j.getModelDataWorkflowSteps(job, jobID)
+			if err != nil {
+				return []igh.Job{}, err
+			}
+			jobsSchema = append(jobsSchema, igh.Job{
+				ID:          jobID,
+				JobID:       jobSourceID,
+				Name:        *job.Name,
+				Status:      *job.Status,
+				Conclusion:  *job.Conclusion,
+				StartedAt:   job.StartedAt.Time,
+				CompletedAt: job.CompletedAt.Time,
+				Steps:       stepsSchema,
+			})
 		}
 
-		j.Hint, _, err = j.handleRate(ctx)
-		if err != nil {
-			return []igh.Job{}, err
+		if response.NextPage == 0 {
+			break
 		}
-		client = j.Clients[j.Hint]
-		if !abuse && !rateLimit {
-			retry = true
+		opt.Page = response.NextPage
+		if ctx.Debug > 0 {
+			j.log.WithFields(logrus.Fields{"operation": "getModelDataWorkflowJobs"}).Debugf("processing next action run: %d", opt.Page)
 		}
+		retry = false
 	}
-	if err != nil {
-		return []igh.Job{}, err
-	}
-	jobsSchema := make([]igh.Job, 0)
-	for _, job := range jobs.Jobs {
-		jobSourceID := strconv.FormatInt(*job.ID, 10)
-		jobID, err := igh.GenerateGithubActionJobID(repoID, runSourceID)
-		if err != nil {
-			return []igh.Job{}, err
-		}
-		/*		for _, step := range job.Steps {
-					stepID, err := igh.GenerateGithubActionStepID(jobID, *step.Name)
-					if err != nil {
-						return err
-					}
-					conclusion := ""
-					if step.Conclusion != nil {
-						conclusion = *step.Conclusion
-					}
-					completedAt, startedAt := time.Time{}, time.Time{}
-					if step.CompletedAt != nil {
-						completedAt = step.CompletedAt.Time
-					}
-					if step.StartedAt != nil {
-						startedAt = step.StartedAt.Time
-					}
-					stepsSchema = append(stepsSchema, igh.Step{
-						ID:     stepID,
-						Name:   *step.Name,
-						Status: *step.Status,
-						Number:      int(*step.Number),
-						Conclusion:  conclusion,
-						StartedAt:   startedAt,
-						CompletedAt: completedAt,
-					})
-				}
-		*/
-		stepsSchema, err := j.getModelDataWorkflowSteps(job, jobID)
-		if err != nil {
-			return []igh.Job{}, err
-		}
-		jobsSchema = append(jobsSchema, igh.Job{
-			ID:          jobID,
-			JobID:       jobSourceID,
-			Name:        *job.Name,
-			Status:      *job.Status,
-			Conclusion:  *job.Conclusion,
-			StartedAt:   job.StartedAt.Time,
-			CompletedAt: job.CompletedAt.Time,
-			Steps:       stepsSchema,
-		})
-	}
+
 	return jobsSchema, nil
 }
 
@@ -3308,23 +3312,24 @@ func (j *DSGitHub) getModelDataWorkflowRun(ctx *shared.Ctx, workflowRuns *github
 			return []interface{}{}, []interface{}{}, err
 		}
 		workflowSourceID := strconv.FormatInt(*workflowRun.ID, 10)
-		usr, _, err := j.getUser(ctx, *workflowRun.Actor.Login)
+		usr, err := j.getUser(ctx, *workflowRun.Actor.Login)
 		if err != nil {
-			return []interface{}{}, []interface{}{}, err
-		}
-		contributors := make([]insights.Contributor, 0)
-		userID, err := user.GenerateIdentity(&source, usr.Email, usr.Name, workflowRun.Actor.Login)
-		if err != nil {
-			j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, *usr.Email, *usr.Name, *workflowRun.Actor.Login, err, *workflowRun.Actor)
 			return []interface{}{}, []interface{}{}, err
 		}
 		email, name := "", ""
-		if usr.Email != nil {
+		if usr != nil && usr.Email != nil {
 			email = *usr.Email
 		}
-		if usr.Name != nil {
+		if usr != nil && usr.Name != nil {
 			name = *usr.Name
 		}
+		contributors := make([]insights.Contributor, 0)
+		userID, err := user.GenerateIdentity(&source, &email, &name, workflowRun.Actor.Login)
+		if err != nil {
+			j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, *workflowRun.Actor.Login, err, *workflowRun.Actor)
+			return []interface{}{}, []interface{}{}, err
+		}
+
 		contributors = append(contributors, insights.Contributor{
 			Identity: user.UserIdentityObjectBase{
 				ID:         userID,
@@ -3332,7 +3337,7 @@ func (j *DSGitHub) getModelDataWorkflowRun(ctx *shared.Ctx, workflowRuns *github
 				Email:      email,
 				IsVerified: false,
 				Name:       name,
-				Username:   *usr.Login,
+				Username:   *workflowRun.Actor.Login,
 				Source:     source,
 			},
 			Role:   insights.ActorRole,
@@ -3400,7 +3405,12 @@ func (j *DSGitHub) getModelDataWorkflowRun(ctx *shared.Ctx, workflowRuns *github
 	return actionCreatedEvents, actionUpdatedEvents, nil
 }
 
-func (j *DSGitHub) getUser(ctx *shared.Ctx, login string) (*github.User, bool, error) {
+func (j *DSGitHub) getUser(ctx *shared.Ctx, login string) (*github.User, error) {
+	usr, ok := usersCache[login]
+	if ok {
+		return usr, nil
+	}
+
 	// Try GitHub API 3rd
 	var c *github.Client
 	if j.GitHubMtx != nil {
@@ -3410,25 +3420,14 @@ func (j *DSGitHub) getUser(ctx *shared.Ctx, login string) (*github.User, bool, e
 	if j.GitHubMtx != nil {
 		j.GitHubMtx.RUnlock()
 	}
+
 	retry := false
 	usr, response, err := c.Users.Get(j.Context, login)
 	if ctx.Debug > 2 {
 		j.log.WithFields(logrus.Fields{"operation": "getUser"}).Debugf("GET %s -> {%+v, %+v, %+v}\n", login, usr, response, err)
 	}
 	if err != nil && strings.Contains(err.Error(), "404 Not Found") {
-		if CacheGitHubUser {
-			if j.GitHubUserMtx != nil {
-				j.GitHubUserMtx.Lock()
-			}
-			if ctx.Debug > 0 {
-				j.log.WithFields(logrus.Fields{"operation": "getUser"}).Debugf("user not found using API: %s", login)
-			}
-			j.GitHubUser[login] = map[string]interface{}{}
-			if j.GitHubUserMtx != nil {
-				j.GitHubUserMtx.Unlock()
-			}
-		}
-		return usr, false, err
+		return usr, err
 	}
 	if err != nil && !retry {
 		j.log.WithFields(logrus.Fields{"operation": "githubUser"}).Warningf("Unable to get %s user: response: %+v, because: %+v, retrying rate", login, response, err)
@@ -3448,7 +3447,7 @@ func (j *DSGitHub) getUser(ctx *shared.Ctx, login string) (*github.User, bool, e
 		}
 		j.Hint, _, err = j.handleRate(ctx)
 		if err != nil {
-			return usr, true, err
+			return usr, err
 		}
 		c = j.Clients[j.Hint]
 		if j.GitHubMtx != nil {
@@ -3459,13 +3458,11 @@ func (j *DSGitHub) getUser(ctx *shared.Ctx, login string) (*github.User, bool, e
 		}
 	}
 	if err != nil {
-		return usr, false, err
-	}
-	if usr != nil {
-		return usr, true, nil
+		return usr, err
 	}
 
-	return nil, false, nil
+	usersCache[login] = usr
+	return usr, nil
 }
 
 // FetchItemsRepository - implement raw repository data for GitHub datasource
