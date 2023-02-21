@@ -130,7 +130,8 @@ const (
 	// GitHubPullrequest ...
 	GitHubPullrequest = "pullrequest"
 	// GitHubIssue ...
-	GitHubIssue   = "issue"
+	GitHubIssue = "issue"
+	// GitHubActions ...
 	GitHubActions = "actions"
 )
 
@@ -3388,9 +3389,9 @@ func (j *DSGitHub) getModelDataWorkflowRun(ctx *shared.Ctx, workflowRuns *github
 			return []interface{}{}, []interface{}{}, err
 		}
 		contributors := make([]insights.Contributor, 0)
-		userID, err := user.GenerateIdentity(&source, usr.Email, usr.Name, usr.Login)
+		userID, err := user.GenerateIdentity(&source, usr.Email, usr.Name, workflowRun.Actor.Login)
 		if err != nil {
-			j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
+			j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, *usr.Email, *usr.Name, *workflowRun.Actor.Login, err, *workflowRun.Actor)
 			return []interface{}{}, []interface{}{}, err
 		}
 		contributors = append(contributors, insights.Contributor{
