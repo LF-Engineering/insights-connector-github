@@ -3027,6 +3027,7 @@ func (j *DSGitHub) FetchItemsActions(ctx *shared.Ctx) error {
 	totalFetched := 0
 	c := j.Clients[j.Hint]
 	var updateAt, latestUpdateAt time.Time
+	retry := false
 	for {
 		if count == 1000 {
 			j.log.WithFields(logrus.Fields{"operation": "FetchItemsActions"}).Infof("fetched %d runs", totalFetched)
@@ -3035,11 +3036,6 @@ func (j *DSGitHub) FetchItemsActions(ctx *shared.Ctx) error {
 			count = 0
 		}
 		runs, response, err := c.Actions.ListRepositoryWorkflowRuns(j.Context, j.Org, j.Repo, opt)
-		retry := false
-		updateAt = runs.WorkflowRuns[len(runs.WorkflowRuns)-1].UpdatedAt.Time
-		if totalFetched == 0 {
-			latestUpdateAt = runs.WorkflowRuns[0].UpdatedAt.Time
-		}
 		if err != nil && !retry {
 			j.log.WithFields(logrus.Fields{"operation": "getModelDataWorkflowRun"}).Warningf("Unable to get workflow jobs: response: %+v, because: %+v, retrying rate", response, err)
 			j.log.WithFields(logrus.Fields{"operation": "getModelDataWorkflowRun"}).Info("ListWorkflowJobs: handle rate")
@@ -3066,6 +3062,10 @@ func (j *DSGitHub) FetchItemsActions(ctx *shared.Ctx) error {
 		}
 		if err != nil {
 			return err
+		}
+		updateAt = runs.WorkflowRuns[len(runs.WorkflowRuns)-1].UpdatedAt.Time
+		if totalFetched == 0 {
+			latestUpdateAt = runs.WorkflowRuns[0].UpdatedAt.Time
 		}
 		count += len(runs.WorkflowRuns)
 		totalFetched += len(runs.WorkflowRuns)
@@ -3262,14 +3262,26 @@ func (j *DSGitHub) getModelDataWorkflowJobs(ctx *shared.Ctx, client *github.Clie
 			if err != nil {
 				return []igh.Job{}, err
 			}
+
+			conclusion := ""
+			if job.Conclusion != nil {
+				conclusion = *job.Conclusion
+			}
+			completedAt, startedAt := time.Time{}, time.Time{}
+			if job.CompletedAt != nil {
+				completedAt = job.CompletedAt.Time
+			}
+			if job.StartedAt != nil {
+				startedAt = job.StartedAt.Time
+			}
 			jobsSchema = append(jobsSchema, igh.Job{
 				ID:          jobID,
 				JobID:       jobSourceID,
 				Name:        *job.Name,
 				Status:      *job.Status,
-				Conclusion:  *job.Conclusion,
-				StartedAt:   job.StartedAt.Time,
-				CompletedAt: job.CompletedAt.Time,
+				Conclusion:  conclusion,
+				StartedAt:   startedAt,
+				CompletedAt: completedAt,
 				Steps:       stepsSchema,
 			})
 		}
