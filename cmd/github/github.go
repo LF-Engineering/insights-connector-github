@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"github.com/LF-Engineering/insights-connector-github/build"
-	"github.com/LF-Engineering/insights-datasource-shared/aws"
 	"github.com/LF-Engineering/insights-datasource-shared/cache"
 	"github.com/LF-Engineering/insights-datasource-shared/cryptography"
 	"github.com/LF-Engineering/lfx-event-schema/service"
@@ -40,7 +39,7 @@ import (
 	logger "github.com/LF-Engineering/insights-datasource-shared/ingestjob"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
-	"github.com/google/go-github/v43/github"
+	"github.com/google/go-github/v50/github"
 	jsoniter "github.com/json-iterator/go"
 	"golang.org/x/oauth2"
 	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
@@ -131,13 +130,13 @@ const (
 	// GitHubPullrequest ...
 	GitHubPullrequest = "pullrequest"
 	// GitHubIssue ...
-	GitHubIssue      = "issue"
-	contentHashField = "contentHash"
+	GitHubIssue   = "issue"
+	GitHubActions = "actions"
 )
 
 var (
 	// GitHubCategories - categories defined for GitHub
-	GitHubCategories = map[string]struct{}{"issue": {}, "pull_request": {}, "repository": {}}
+	GitHubCategories = map[string]struct{}{"issue": {}, "pull_request": {}, "repository": {}, "actions": {}}
 	// GitHubIssueRoles - roles to fetch affiliation data for github issue
 	GitHubIssueRoles = []string{"user_data", "assignee_data", "closed_by_data"}
 	// GitHubIssueCommentRoles - roles to fetch affiliation data for github issue comment
@@ -180,6 +179,8 @@ var (
 	reviewersCacheFile           = "reviewers-cache"
 	createdPulls                 = make(map[string]bool)
 	createdIssues                = make(map[string]bool)
+	createdActions               = make(map[string]bool)
+	cachedActions                = make(map[string]ItemCache)
 )
 
 // Publisher - for streaming data to Kinesis
@@ -294,11 +295,12 @@ func (j *DSGitHub) WriteLog(ctx *shared.Ctx, timestamp time.Time, status, messag
 	if err != nil {
 		return err
 	}
-	arn, err := aws.GetContainerARN()
-	if err != nil {
-		j.log.WithFields(logrus.Fields{"operation": "WriteLog"}).Errorf("getContainerMetadata Error : %+v", err)
-		return err
-	}
+	/*	arn, err := aws.GetContainerARN()
+		if err != nil {
+			j.log.WithFields(logrus.Fields{"operation": "WriteLog"}).Errorf("getContainerMetadata Error : %+v", err)
+			return err
+		}*/
+	arn := "arn:aws:ecs:us-east-2:716487311010:task/insights-ecs-cluster/4c2921c0b25245b79f34d43e17c9adda"
 	err = j.Logger.Write(&logger.Log{
 		Connector: GitHubDataSource,
 		TaskARN:   arn,
@@ -3001,6 +3003,537 @@ func (j *DSGitHub) ProcessPull(ctx *shared.Ctx, inPull map[string]interface{}) (
 		pull["assignees_data"] = assigneesAry
 	}
 	return
+}
+
+// FetchItemsActions - implement raw actions data for GitHub datasource
+func (j *DSGitHub) FetchItemsActions(ctx *shared.Ctx) error {
+	j.getCachedActions()
+	opt := &github.ListWorkflowRunsOptions{}
+	opt.PerPage = ItemsPerPage
+	from := *ctx.DateFrom
+	remoteLastSync := *ctx.DateFrom
+	epocDate := time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
+	if epocDate != from {
+		from = from.Add(time.Hour * -24)
+	}
+	opt.Created = fmt.Sprintf("updated>%s", from.Format(time.RFC3339))
+	eventsCreate := make([]interface{}, 0)
+	eventsUpdate := make([]interface{}, 0)
+
+	count := 0
+	totalFetched := 0
+	c := j.Clients[j.Hint]
+	for {
+		if count == 1000 {
+			opt.Created = fmt.Sprintf("updated<%s", eventsCreate[len(eventsCreate)-1].(igh.ActionCreatedEvent).Payload.StartedAt.Format(time.RFC3339))
+			opt.Page = 1
+			count = 0
+		}
+		runs, response, err := c.Actions.ListRepositoryWorkflowRuns(j.Context, j.Org, j.Repo, opt)
+		retry := false
+
+		if err != nil && !retry {
+			j.log.WithFields(logrus.Fields{"operation": "getModelDataWorkflowRun"}).Warningf("Unable to get workflow jobs: response: %+v, because: %+v, retrying rate", response, err)
+			j.log.WithFields(logrus.Fields{"operation": "getModelDataWorkflowRun"}).Info("ListWorkflowJobs: handle rate")
+			abuse, rateLimit := j.isAbuse(err)
+			if abuse {
+				sleepFor := AbuseWaitSeconds + rand.Intn(AbuseWaitSeconds)
+				j.log.WithFields(logrus.Fields{"operation": "githubUserOrgs"}).Infof("GitHub detected abuse (get workflow jobs), waiting for %ds", sleepFor)
+				time.Sleep(time.Duration(sleepFor) * time.Second)
+			}
+			if rateLimit {
+				j.log.WithFields(logrus.Fields{"operation": "githubUserOrgs"}).Info("Rate limit reached on a token (get workflow jobs) waiting 1s before token switch")
+				time.Sleep(time.Duration(1) * time.Second)
+			}
+
+			j.Hint, _, err = j.handleRate(ctx)
+			if err != nil {
+				return err
+			}
+			c = j.Clients[j.Hint]
+			if !abuse && !rateLimit {
+				retry = true
+			}
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		count += len(runs.WorkflowRuns)
+		totalFetched += len(runs.WorkflowRuns)
+		createdEvents, updatedEvents, err := j.getModelDataWorkflowRun(ctx, runs, c)
+		if err != nil {
+			return err
+		}
+		if len(createdEvents) > 0 {
+			eventsCreate = append(eventsCreate, createdEvents...)
+		}
+		if len(updatedEvents) > 0 {
+			eventsUpdate = append(eventsUpdate, updatedEvents...)
+		}
+
+		if response.NextPage == 0 {
+			break
+		}
+		opt.Page = response.NextPage
+		if ctx.Debug > 0 {
+			j.log.WithFields(logrus.Fields{"operation": "FetchItemsActions"}).Debugf("processing next action run: %d", opt.Page)
+		}
+	}
+	j.log.WithFields(logrus.Fields{"operation": "FetchItemsActions"}).Infof("total count of fetched runs: %d", totalFetched)
+
+	endpoint := fmt.Sprintf("%s-%s", j.Org, j.Repo)
+
+	for len(eventsCreate) > 0 {
+		createdEvents := make([]interface{}, 0)
+		if len(eventsCreate) > 1000 {
+			createdEvents = eventsCreate[len(eventsCreate)-1000:]
+			eventsCreate = eventsCreate[:len(eventsCreate)-1000]
+		} else {
+			createdEvents = eventsCreate
+			eventsCreate = eventsCreate[:0]
+		}
+
+		// push create events
+		path, err := j.Publisher.PushEvents(createdEvents[0].(igh.ActionCreatedEvent).Event(), "insights", GitHubDataSource, GitHubActions, os.Getenv("STAGE"), createdEvents, endpoint)
+		if err != nil {
+			j.log.WithFields(logrus.Fields{"operation": "FetchItemsActions"}).Errorf("push actions created eventsCreate error: %+v", err)
+			return err
+		}
+
+		// create and push cache
+		if err = j.cacheCreatedActions(createdEvents, path); err != nil {
+			j.log.WithFields(logrus.Fields{"operation": "FetchItemsActions"}).Errorf("unable to cache created eventsCreate data to cache.error: %v", err)
+			return err
+		}
+
+		if err = j.updateRemoteCache("actions-cache.csv", GitHubActions); err != nil {
+			j.log.WithFields(logrus.Fields{"operation": "FetchItemsActions"}).Errorf("unable to update remote cache.error: %v", err)
+			return err
+		}
+
+		// update last sync
+		lastSync := createdEvents[0].(igh.ActionCreatedEvent).Payload.UpdatedAt
+		if remoteLastSync.After(lastSync) {
+			err = j.cacheProvider.SetLastSync(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubActions), lastSync)
+			if err != nil {
+				j.log.WithFields(logrus.Fields{"operation": "FetchItemsActions"}).Errorf("unable to set last sync date to cache.error: %v", err)
+				return err
+			}
+			remoteLastSync = lastSync
+		}
+
+	}
+
+	for len(eventsUpdate) > 0 {
+		ev := make([]interface{}, 0)
+		if len(eventsUpdate) > 1000 {
+			ev = eventsUpdate[len(eventsUpdate)-1000:]
+			eventsUpdate = eventsUpdate[:len(eventsUpdate)-1000]
+		} else {
+			ev = eventsUpdate
+			eventsUpdate = eventsUpdate[:0]
+		}
+
+		// push events Update
+		path, err := j.Publisher.PushEvents(ev[0].(igh.ActionUpdatedEvent).Event(), "insights", GitHubDataSource, GitHubActions, os.Getenv("STAGE"), ev, endpoint)
+		if err != nil {
+			j.log.WithFields(logrus.Fields{"operation": "FetchItemsActions"}).Errorf("push actions update error: %+v", err)
+			return err
+		}
+
+		// create and push cache
+		if err = j.cacheUpdatedActions(ev, path); err != nil {
+			j.log.WithFields(logrus.Fields{"operation": "FetchItemsActions"}).Errorf("unable to cache updated events data to cache.error: %v", err)
+			return err
+		}
+
+		if err = j.updateRemoteCache("actions-cache.csv", GitHubActions); err != nil {
+			j.log.WithFields(logrus.Fields{"operation": "FetchItemsActions"}).Errorf("unable to update remote cache.error: %v", err)
+			return err
+		}
+
+		// update last sync
+		lastSync := ev[0].(igh.ActionUpdatedEvent).Payload.UpdatedAt
+		if remoteLastSync.After(lastSync) {
+			err = j.cacheProvider.SetLastSync(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubActions), lastSync)
+			if err != nil {
+				j.log.WithFields(logrus.Fields{"operation": "FetchItemsActions"}).Errorf("unable to set last sync date to cache.error: %v", err)
+				return err
+			}
+			remoteLastSync = lastSync
+		}
+
+	}
+
+	return nil
+}
+
+func (j *DSGitHub) getModelDataWorkflowSteps(job *github.WorkflowJob, jobID string) ([]igh.Step, error) {
+	stepsSchema := make([]igh.Step, 0)
+	for _, step := range job.Steps {
+		stepID, err := igh.GenerateGithubActionStepID(jobID, *step.Name)
+		if err != nil {
+			return []igh.Step{}, err
+		}
+		conclusion := ""
+		if step.Conclusion != nil {
+			conclusion = *step.Conclusion
+		}
+		completedAt, startedAt := time.Time{}, time.Time{}
+		if step.CompletedAt != nil {
+			completedAt = step.CompletedAt.Time
+		}
+		if step.StartedAt != nil {
+			startedAt = step.StartedAt.Time
+		}
+		stepsSchema = append(stepsSchema, igh.Step{
+			ID:          stepID,
+			Name:        *step.Name,
+			Status:      *step.Status,
+			Number:      int(*step.Number),
+			Conclusion:  conclusion,
+			StartedAt:   startedAt,
+			CompletedAt: completedAt,
+		})
+	}
+	return stepsSchema, nil
+}
+
+func (j *DSGitHub) getModelDataWorkflowJobs(ctx *shared.Ctx, client *github.Client, runID int64, repoID string, runSourceID string) ([]igh.Job, error) {
+	jobs, res, err := client.Actions.ListWorkflowJobs(j.Context, j.Org, j.Repo, runID, nil)
+	retry := false
+	if err != nil && !retry {
+		j.log.WithFields(logrus.Fields{"operation": "getModelDataWorkflowRun"}).Warningf("Unable to get workflow jobs: response: %+v, because: %+v, retrying rate", res, err)
+		j.log.WithFields(logrus.Fields{"operation": "getModelDataWorkflowRun"}).Info("ListWorkflowJobs: handle rate")
+		abuse, rateLimit := j.isAbuse(err)
+		if abuse {
+			sleepFor := AbuseWaitSeconds + rand.Intn(AbuseWaitSeconds)
+			j.log.WithFields(logrus.Fields{"operation": "githubUserOrgs"}).Infof("GitHub detected abuse (get workflow jobs), waiting for %ds", sleepFor)
+			time.Sleep(time.Duration(sleepFor) * time.Second)
+		}
+		if rateLimit {
+			j.log.WithFields(logrus.Fields{"operation": "githubUserOrgs"}).Info("Rate limit reached on a token (get workflow jobs) waiting 1s before token switch")
+			time.Sleep(time.Duration(1) * time.Second)
+		}
+
+		j.Hint, _, err = j.handleRate(ctx)
+		if err != nil {
+			return []igh.Job{}, err
+		}
+		client = j.Clients[j.Hint]
+		if !abuse && !rateLimit {
+			retry = true
+		}
+	}
+	if err != nil {
+		return []igh.Job{}, err
+	}
+	jobsSchema := make([]igh.Job, 0)
+	for _, job := range jobs.Jobs {
+		jobSourceID := strconv.FormatInt(*job.ID, 10)
+		jobID, err := igh.GenerateGithubActionJobID(repoID, runSourceID)
+		if err != nil {
+			return []igh.Job{}, err
+		}
+		/*		for _, step := range job.Steps {
+					stepID, err := igh.GenerateGithubActionStepID(jobID, *step.Name)
+					if err != nil {
+						return err
+					}
+					conclusion := ""
+					if step.Conclusion != nil {
+						conclusion = *step.Conclusion
+					}
+					completedAt, startedAt := time.Time{}, time.Time{}
+					if step.CompletedAt != nil {
+						completedAt = step.CompletedAt.Time
+					}
+					if step.StartedAt != nil {
+						startedAt = step.StartedAt.Time
+					}
+					stepsSchema = append(stepsSchema, igh.Step{
+						ID:     stepID,
+						Name:   *step.Name,
+						Status: *step.Status,
+						Number:      int(*step.Number),
+						Conclusion:  conclusion,
+						StartedAt:   startedAt,
+						CompletedAt: completedAt,
+					})
+				}
+		*/
+		stepsSchema, err := j.getModelDataWorkflowSteps(job, jobID)
+		if err != nil {
+			return []igh.Job{}, err
+		}
+		jobsSchema = append(jobsSchema, igh.Job{
+			ID:          jobID,
+			JobID:       jobSourceID,
+			Name:        *job.Name,
+			Status:      *job.Status,
+			Conclusion:  *job.Conclusion,
+			StartedAt:   job.StartedAt.Time,
+			CompletedAt: job.CompletedAt.Time,
+			Steps:       stepsSchema,
+		})
+	}
+	return jobsSchema, nil
+}
+
+func (j *DSGitHub) getModelDataWorkflowRun(ctx *shared.Ctx, workflowRuns *github.WorkflowRuns, client *github.Client) ([]interface{}, []interface{}, error) {
+	source := GitHubDataSource
+	repoID, err := repository.GenerateRepositoryID(j.SourceID, j.URL, source)
+	if err != nil {
+		j.log.WithFields(logrus.Fields{"operation": "getModelDataWorkflowRun"}).Errorf("GenerateRepositoryID(%s,%s,%s): %+v ", j.SourceID, j.URL, source, err)
+		return []interface{}{}, []interface{}{}, err
+	}
+	actionBaseEvent := igh.ActionBaseEvent{
+		Connector:        insights.GithubConnector,
+		ConnectorVersion: GitHubBackendVersion,
+		Source:           insights.GithubSource,
+	}
+	actionCreatedEvents := make([]interface{}, 0)
+	actionUpdatedEvents := make([]interface{}, 0)
+	for _, workflowRun := range workflowRuns.WorkflowRuns {
+		runSourceID := strconv.FormatInt(*workflowRun.WorkflowID, 10)
+		runID, err := igh.GenerateGithubActionRunID(repoID, runSourceID)
+		if err != nil {
+			return []interface{}{}, []interface{}{}, err
+		}
+		/*		jobs, res, err := client.Actions.ListWorkflowJobs(j.Context, j.Org, j.Repo, *workflowRun.ID, nil)
+				retry := false
+				if err != nil && !retry {
+					j.log.WithFields(logrus.Fields{"operation": "getModelDataWorkflowRun"}).Warningf("Unable to get workflow jobs: response: %+v, because: %+v, retrying rate", res, err)
+					j.log.WithFields(logrus.Fields{"operation": "getModelDataWorkflowRun"}).Info("ListWorkflowJobs: handle rate")
+					abuse, rateLimit := j.isAbuse(err)
+					if abuse {
+						sleepFor := AbuseWaitSeconds + rand.Intn(AbuseWaitSeconds)
+						j.log.WithFields(logrus.Fields{"operation": "githubUserOrgs"}).Infof("GitHub detected abuse (get workflow jobs), waiting for %ds", sleepFor)
+						time.Sleep(time.Duration(sleepFor) * time.Second)
+					}
+					if rateLimit {
+						j.log.WithFields(logrus.Fields{"operation": "githubUserOrgs"}).Info("Rate limit reached on a token (get workflow jobs) waiting 1s before token switch")
+						time.Sleep(time.Duration(1) * time.Second)
+					}
+
+					j.Hint, _, err = j.handleRate(ctx)
+					if err != nil {
+						return []interface{}{}, []interface{}{}, err
+					}
+					client = j.Clients[j.Hint]
+					if !abuse && !rateLimit {
+						retry = true
+					}
+					continue
+				}
+				if err != nil {
+					return []interface{}{}, []interface{}{}, err
+				}
+
+				jobsSchema := make([]igh.Job, 0)
+				for _, job := range jobs.Jobs {
+					stepsSchema := make([]igh.Step, 0)
+					jobSourceID := strconv.FormatInt(*job.ID, 10)
+					jobID, err := igh.GenerateGithubActionJobID(repoID, runSourceID)
+					if err != nil {
+						return []interface{}{}, []interface{}{}, err
+					}
+					for _, step := range job.Steps {
+						stepID, err := igh.GenerateGithubActionStepID(jobID, *step.Name)
+						if err != nil {
+							return []interface{}{}, []interface{}{}, err
+						}
+						conclusion := ""
+						if step.Conclusion != nil {
+							conclusion = *step.Conclusion
+						}
+						completedAt, startedAt := time.Time{}, time.Time{}
+						if step.CompletedAt != nil {
+							completedAt = step.CompletedAt.Time
+						}
+						if step.StartedAt != nil {
+							startedAt = step.StartedAt.Time
+						}
+						stepsSchema = append(stepsSchema, igh.Step{
+							ID:     stepID,
+							Name:   *step.Name,
+							Status: *step.Status,
+							// todo: should we make Number int64
+							Number:      int(*step.Number),
+							Conclusion:  conclusion,
+							StartedAt:   startedAt,
+							CompletedAt: completedAt,
+						})
+					}
+
+					jobsSchema = append(jobsSchema, igh.Job{
+						ID:          jobID,
+						JobID:       jobSourceID,
+						Name:        *job.Name,
+						Status:      *job.Status,
+						Conclusion:  *job.Conclusion,
+						StartedAt:   job.StartedAt.Time,
+						CompletedAt: job.CompletedAt.Time,
+						Steps:       stepsSchema,
+					})
+				}*/
+		jobsSchema, err := j.getModelDataWorkflowJobs(ctx, client, *workflowRun.ID, repoID, runSourceID)
+		if err != nil {
+			return []interface{}{}, []interface{}{}, err
+		}
+		workflowSourceID := strconv.FormatInt(*workflowRun.ID, 10)
+		usr, _, err := j.getUser(ctx, *workflowRun.Actor.Login)
+		if err != nil {
+			return []interface{}{}, []interface{}{}, err
+		}
+		contributors := make([]insights.Contributor, 0)
+		userID, err := user.GenerateIdentity(&source, usr.Email, usr.Name, usr.Login)
+		if err != nil {
+			j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
+			return []interface{}{}, []interface{}{}, err
+		}
+		contributors = append(contributors, insights.Contributor{
+			Identity: user.UserIdentityObjectBase{
+				ID:         userID,
+				Avatar:     *workflowRun.Actor.AvatarURL,
+				Email:      *usr.Email,
+				IsVerified: false,
+				Name:       *usr.Name,
+				Username:   *usr.Login,
+				Source:     source,
+			},
+			Role:   insights.ActorRole,
+			Weight: 1,
+		})
+
+		runPayload := igh.Run{
+			ID:            runID,
+			RepositoryID:  repoID,
+			RepositoryURL: *workflowRun.URL,
+			RunID:         workflowSourceID,
+			RunNumber:     *workflowRun.RunNumber,
+			Name:          *workflowRun.Name,
+			Status:        *workflowRun.Status,
+			Conclusion:    *workflowRun.Conclusion,
+			RunAttempt:    *workflowRun.RunAttempt,
+			Event:         *workflowRun.Event,
+			StartedAt:     workflowRun.RunStartedAt.Time,
+			UpdatedAt:     workflowRun.UpdatedAt.Time,
+			Contributors:  contributors,
+			Jobs:          jobsSchema,
+		}
+		runB, err := jsoniter.Marshal(runPayload)
+		if err != nil {
+			return []interface{}{}, []interface{}{}, err
+		}
+		contentHash := fmt.Sprintf("%x", sha256.Sum256(runB))
+		_, updateExist := cachedActions[contentHash]
+		_, isCreated := createdActions[runID]
+		if isCreated && !updateExist {
+			actionUpdatedEvent := igh.ActionUpdatedEvent{
+				ActionBaseEvent: actionBaseEvent,
+				BaseEvent: service.BaseEvent{
+					Type: service.EventType(igh.ActionUpdatedEvent{}.Event()),
+					CRUDInfo: service.CRUDInfo{
+						CreatedBy: GitHubConnector,
+						UpdatedBy: GitHubConnector,
+						CreatedAt: time.Now().Unix(),
+						UpdatedAt: time.Now().Unix(),
+					},
+				},
+				Payload: runPayload,
+			}
+			actionUpdatedEvents = append(actionUpdatedEvents, actionUpdatedEvent)
+		}
+		if !isCreated {
+			actionCreatedEvent := igh.ActionCreatedEvent{
+				ActionBaseEvent: actionBaseEvent,
+				BaseEvent: service.BaseEvent{
+					Type: service.EventType(igh.ActionCreatedEvent{}.Event()),
+					CRUDInfo: service.CRUDInfo{
+						CreatedBy: GitHubConnector,
+						UpdatedBy: GitHubConnector,
+						CreatedAt: time.Now().Unix(),
+						UpdatedAt: time.Now().Unix(),
+					},
+				},
+				Payload: runPayload,
+			}
+			actionCreatedEvents = append(actionCreatedEvents, actionCreatedEvent)
+		}
+
+	}
+
+	return actionCreatedEvents, actionUpdatedEvents, nil
+}
+
+func (j *DSGitHub) getUser(ctx *shared.Ctx, login string) (*github.User, bool, error) {
+	// Try GitHub API 3rd
+	var c *github.Client
+	if j.GitHubMtx != nil {
+		j.GitHubMtx.RLock()
+	}
+	c = j.Clients[j.Hint]
+	if j.GitHubMtx != nil {
+		j.GitHubMtx.RUnlock()
+	}
+	retry := false
+	usr, response, err := c.Users.Get(j.Context, login)
+	if ctx.Debug > 2 {
+		j.log.WithFields(logrus.Fields{"operation": "getUser"}).Debugf("GET %s -> {%+v, %+v, %+v}\n", login, usr, response, err)
+	}
+	if err != nil && strings.Contains(err.Error(), "404 Not Found") {
+		if CacheGitHubUser {
+			if j.GitHubUserMtx != nil {
+				j.GitHubUserMtx.Lock()
+			}
+			if ctx.Debug > 0 {
+				j.log.WithFields(logrus.Fields{"operation": "getUser"}).Debugf("user not found using API: %s", login)
+			}
+			j.GitHubUser[login] = map[string]interface{}{}
+			if j.GitHubUserMtx != nil {
+				j.GitHubUserMtx.Unlock()
+			}
+		}
+		return usr, false, err
+	}
+	if err != nil && !retry {
+		j.log.WithFields(logrus.Fields{"operation": "githubUser"}).Warningf("Unable to get %s user: response: %+v, because: %+v, retrying rate", login, response, err)
+		j.log.WithFields(logrus.Fields{"operation": "githubUser"}).Info("handle rate")
+		abuse, rateLimit := j.isAbuse(err)
+		if abuse {
+			sleepFor := AbuseWaitSeconds + rand.Intn(AbuseWaitSeconds)
+			j.log.WithFields(logrus.Fields{"operation": "githubUser"}).Infof("GitHub detected abuse (get user %s), waiting for %ds", login, sleepFor)
+			time.Sleep(time.Duration(sleepFor) * time.Second)
+		}
+		if rateLimit {
+			j.log.WithFields(logrus.Fields{"operation": "githubUser"}).Infof("Rate limit reached on a token (get user %s) waiting 1s before token switch", login)
+			time.Sleep(time.Duration(1) * time.Second)
+		}
+		if j.GitHubMtx != nil {
+			j.GitHubMtx.Lock()
+		}
+		j.Hint, _, err = j.handleRate(ctx)
+		if err != nil {
+			return usr, true, err
+		}
+		c = j.Clients[j.Hint]
+		if j.GitHubMtx != nil {
+			j.GitHubMtx.Unlock()
+		}
+		if !abuse && !rateLimit {
+			retry = true
+		}
+	}
+	if err != nil {
+		return usr, false, err
+	}
+	if usr != nil {
+		return usr, true, nil
+	}
+
+	return nil, false, nil
 }
 
 // FetchItemsRepository - implement raw repository data for GitHub datasource
@@ -6092,6 +6625,8 @@ func (j *DSGitHub) SyncCurrentCategory(ctx *shared.Ctx) (err error) {
 		return j.FetchItemsIssue(ctx)
 	case "pull_request":
 		return j.FetchItemsPullRequest(ctx)
+	case "actions":
+		return j.FetchItemsActions(ctx)
 	}
 	return
 }
@@ -8896,6 +9431,48 @@ func (j *DSGitHub) AddCacheProvider() {
 	j.cacheProvider = *cacheProvider
 }
 
+func (j *DSGitHub) cacheCreatedActions(v []interface{}, path string) error {
+	for _, val := range v {
+		runAction := val.(igh.ActionCreatedEvent).Payload
+		b, err := json.Marshal(runAction)
+		if err != nil {
+			return err
+		}
+		contentHash := fmt.Sprintf("%x", sha256.Sum256(b))
+		cachedActions[contentHash] = ItemCache{
+			Timestamp:      fmt.Sprintf("%v", runAction.UpdatedAt.Unix()),
+			EntityID:       runAction.ID,
+			SourceEntityID: runAction.RunID,
+			FileLocation:   path,
+			Hash:           contentHash,
+			Orphaned:       false,
+		}
+		createdActions[runAction.ID] = true
+	}
+	return nil
+}
+
+func (j *DSGitHub) cacheUpdatedActions(v []interface{}, path string) error {
+	for _, val := range v {
+		runAction := val.(igh.ActionUpdatedEvent).Payload
+		b, err := json.Marshal(runAction)
+		if err != nil {
+			return err
+		}
+		contentHash := fmt.Sprintf("%x", sha256.Sum256(b))
+		cachedActions[contentHash] = ItemCache{
+			Timestamp:      fmt.Sprintf("%v", runAction.UpdatedAt.Unix()),
+			EntityID:       runAction.ID,
+			SourceEntityID: runAction.RunID,
+			FileLocation:   path,
+			Hash:           contentHash,
+			Orphaned:       false,
+		}
+		createdActions[runAction.ID] = true
+	}
+	return nil
+}
+
 func (j *DSGitHub) cacheCreatedPullrequest(v []interface{}, path string) error {
 	for _, val := range v {
 		pr := val.(igh.PullRequestCreatedEvent).Payload
@@ -9203,6 +9780,37 @@ func (j *DSGitHub) getCachedIssues() {
 	}
 }
 
+func (j *DSGitHub) getCachedActions() {
+	actionsB, err := j.cacheProvider.GetFileByKey(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubActions), "actions-cache.csv")
+	if err != nil {
+		return
+	}
+	reader := csv.NewReader(bytes.NewBuffer(actionsB))
+	records, err := reader.ReadAll()
+	if err != nil {
+		return
+	}
+	for i, record := range records {
+		if i == 0 {
+			continue
+		}
+		orphaned, err := strconv.ParseBool(record[5])
+		if err != nil {
+			orphaned = false
+		}
+		cachedActions[record[4]] = ItemCache{
+			Timestamp:      record[0],
+			EntityID:       record[1],
+			SourceEntityID: record[2],
+			FileLocation:   record[3],
+			Hash:           record[4],
+			Orphaned:       orphaned,
+		}
+		createdActions[record[1]] = true
+
+	}
+}
+
 func isParentKeyCreated(element map[string]bool, id string) bool {
 	_, ok := element[id]
 	if ok {
@@ -9233,6 +9841,11 @@ func (j *DSGitHub) updateRemoteCache(cacheFile string, cacheType string) error {
 	case GitHubIssue:
 		category = GitHubIssue
 		for _, c := range cachedIssues {
+			records = append(records, []string{c.Timestamp, c.EntityID, c.SourceEntityID, c.FileLocation, c.Hash, strconv.FormatBool(c.Orphaned)})
+		}
+	case GitHubActions:
+		category = GitHubActions
+		for _, c := range cachedActions {
 			records = append(records, []string{c.Timestamp, c.EntityID, c.SourceEntityID, c.FileLocation, c.Hash, strconv.FormatBool(c.Orphaned)})
 		}
 	default:
