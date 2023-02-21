@@ -3026,6 +3026,7 @@ func (j *DSGitHub) FetchItemsActions(ctx *shared.Ctx) error {
 	c := j.Clients[j.Hint]
 	for {
 		if count == 1000 {
+			j.log.WithFields(logrus.Fields{"operation": "FetchItemsActions"}).Infof("fetched %d runs", totalFetched)
 			opt.Created = fmt.Sprintf("updated<%s", eventsCreate[len(eventsCreate)-1].(igh.ActionCreatedEvent).Payload.StartedAt.Format(time.RFC3339))
 			opt.Page = 1
 			count = 0
@@ -3302,83 +3303,6 @@ func (j *DSGitHub) getModelDataWorkflowRun(ctx *shared.Ctx, workflowRuns *github
 		if err != nil {
 			return []interface{}{}, []interface{}{}, err
 		}
-		/*		jobs, res, err := client.Actions.ListWorkflowJobs(j.Context, j.Org, j.Repo, *workflowRun.ID, nil)
-				retry := false
-				if err != nil && !retry {
-					j.log.WithFields(logrus.Fields{"operation": "getModelDataWorkflowRun"}).Warningf("Unable to get workflow jobs: response: %+v, because: %+v, retrying rate", res, err)
-					j.log.WithFields(logrus.Fields{"operation": "getModelDataWorkflowRun"}).Info("ListWorkflowJobs: handle rate")
-					abuse, rateLimit := j.isAbuse(err)
-					if abuse {
-						sleepFor := AbuseWaitSeconds + rand.Intn(AbuseWaitSeconds)
-						j.log.WithFields(logrus.Fields{"operation": "githubUserOrgs"}).Infof("GitHub detected abuse (get workflow jobs), waiting for %ds", sleepFor)
-						time.Sleep(time.Duration(sleepFor) * time.Second)
-					}
-					if rateLimit {
-						j.log.WithFields(logrus.Fields{"operation": "githubUserOrgs"}).Info("Rate limit reached on a token (get workflow jobs) waiting 1s before token switch")
-						time.Sleep(time.Duration(1) * time.Second)
-					}
-
-					j.Hint, _, err = j.handleRate(ctx)
-					if err != nil {
-						return []interface{}{}, []interface{}{}, err
-					}
-					client = j.Clients[j.Hint]
-					if !abuse && !rateLimit {
-						retry = true
-					}
-					continue
-				}
-				if err != nil {
-					return []interface{}{}, []interface{}{}, err
-				}
-
-				jobsSchema := make([]igh.Job, 0)
-				for _, job := range jobs.Jobs {
-					stepsSchema := make([]igh.Step, 0)
-					jobSourceID := strconv.FormatInt(*job.ID, 10)
-					jobID, err := igh.GenerateGithubActionJobID(repoID, runSourceID)
-					if err != nil {
-						return []interface{}{}, []interface{}{}, err
-					}
-					for _, step := range job.Steps {
-						stepID, err := igh.GenerateGithubActionStepID(jobID, *step.Name)
-						if err != nil {
-							return []interface{}{}, []interface{}{}, err
-						}
-						conclusion := ""
-						if step.Conclusion != nil {
-							conclusion = *step.Conclusion
-						}
-						completedAt, startedAt := time.Time{}, time.Time{}
-						if step.CompletedAt != nil {
-							completedAt = step.CompletedAt.Time
-						}
-						if step.StartedAt != nil {
-							startedAt = step.StartedAt.Time
-						}
-						stepsSchema = append(stepsSchema, igh.Step{
-							ID:     stepID,
-							Name:   *step.Name,
-							Status: *step.Status,
-							// todo: should we make Number int64
-							Number:      int(*step.Number),
-							Conclusion:  conclusion,
-							StartedAt:   startedAt,
-							CompletedAt: completedAt,
-						})
-					}
-
-					jobsSchema = append(jobsSchema, igh.Job{
-						ID:          jobID,
-						JobID:       jobSourceID,
-						Name:        *job.Name,
-						Status:      *job.Status,
-						Conclusion:  *job.Conclusion,
-						StartedAt:   job.StartedAt.Time,
-						CompletedAt: job.CompletedAt.Time,
-						Steps:       stepsSchema,
-					})
-				}*/
 		jobsSchema, err := j.getModelDataWorkflowJobs(ctx, client, *workflowRun.ID, repoID, runSourceID)
 		if err != nil {
 			return []interface{}{}, []interface{}{}, err
@@ -3394,13 +3318,20 @@ func (j *DSGitHub) getModelDataWorkflowRun(ctx *shared.Ctx, workflowRuns *github
 			j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, *usr.Email, *usr.Name, *workflowRun.Actor.Login, err, *workflowRun.Actor)
 			return []interface{}{}, []interface{}{}, err
 		}
+		email, name := "", ""
+		if usr.Email != nil {
+			email = *usr.Email
+		}
+		if usr.Name != nil {
+			name = *usr.Name
+		}
 		contributors = append(contributors, insights.Contributor{
 			Identity: user.UserIdentityObjectBase{
 				ID:         userID,
 				Avatar:     *workflowRun.Actor.AvatarURL,
-				Email:      *usr.Email,
+				Email:      email,
 				IsVerified: false,
-				Name:       *usr.Name,
+				Name:       name,
 				Username:   *usr.Login,
 				Source:     source,
 			},
