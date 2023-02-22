@@ -5,10 +5,10 @@ go 1.17
 require (
 	github.com/LF-Engineering/dev-analytics-libraries v1.1.28
 	github.com/LF-Engineering/insights-datasource-shared v1.5.18-0.20221031165121-cb720cbf98a9
-	github.com/LF-Engineering/lfx-event-schema v0.1.37
+	github.com/LF-Engineering/lfx-event-schema v0.1.39-0.20230217151211-c9422c4a36bc
 	github.com/aws/aws-lambda-go v1.28.0
 	github.com/aws/aws-sdk-go v1.43.22
-	github.com/google/go-github/v43 v43.0.0
+	github.com/google/go-github/v50 v50.0.0
 	github.com/json-iterator/go v1.1.12
 	github.com/sirupsen/logrus v1.8.1
 	golang.org/x/oauth2 v0.0.0-20220309155454-6242fa91716a
@@ -51,10 +51,12 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/tinylib/msgp v1.1.2 // indirect
 	golang.org/x/crypto v0.0.0-20220214200702-86341886e292 // indirect
-	golang.org/x/net v0.0.0-20220722155237-a158d28d115b // indirect
-	golang.org/x/sys v0.0.0-20220722155257-8c9f86f7a55f // indirect
-	golang.org/x/text v0.3.7 // indirect
+	golang.org/x/lint v0.0.0-20210508222113-6edffad5e616 // indirect
+	golang.org/x/net v0.6.0 // indirect
+	golang.org/x/sys v0.5.0 // indirect
+	golang.org/x/text v0.7.0 // indirect
 	golang.org/x/time v0.0.0-20211116232009-f0f3c7e86c11 // indirect
+	golang.org/x/tools v0.6.0 // indirect
 	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
 	google.golang.org/protobuf v1.28.0 // indirect
