@@ -40,7 +40,7 @@ import (
 	logger "github.com/LF-Engineering/insights-datasource-shared/ingestjob"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
-	"github.com/google/go-github/v43/github"
+	"github.com/google/go-github/v50/github"
 	jsoniter "github.com/json-iterator/go"
 	"golang.org/x/oauth2"
 	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
@@ -128,6 +128,8 @@ const (
 	GitHubPullRequestDefaultStream = "PUT-S3-github-pull-requests"
 	// GitHubConnector ...
 	GitHubConnector = "github-connector"
+	// GitHubRepository ...
+	GitHubRepository = "repository"
 	// GitHubPullrequest ...
 	GitHubPullrequest = "pullrequest"
 	// GitHubIssue ...
@@ -3246,7 +3248,7 @@ func (j *DSGitHub) FetchItemsIssue(ctx *shared.Ctx) (err error) {
 			break
 		}
 		if len(issues) == int(Pages)*ItemsPerPage {
-			*dateFrom, er = j.cacheProvider.GetLastSync(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue))
+			*dateFrom, er = j.getLastSync(GitHubIssue)
 			if er != nil {
 				return err
 			}
@@ -3476,7 +3478,7 @@ func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 		}
 
 		if len(issues) == int(Pages)*ItemsPerPage {
-			*dateFrom, er = j.cacheProvider.GetLastSync(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest))
+			*dateFrom, er = j.getLastSync(GitHubPullrequest)
 			if er != nil {
 				return err
 			}
@@ -6039,17 +6041,11 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 			j.log.WithFields(logrus.Fields{"operation": "OutputDocs"}).Infof("publisher does not exist.fetch data are: %s", string(jsonBytes))
 		}
 		*docs = []interface{}{}
-		gMaxUpstreamDtMtx.Lock()
-		defer gMaxUpstreamDtMtx.Unlock()
-		cat := j.CurrentCategory
-		if cat == "pull_request" {
-			cat = GitHubPullrequest
-		}
-		err = j.cacheProvider.SetLastSync(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, cat), gMaxUpstreamDt)
+		err = j.setLastSync()
 		if err != nil {
 			j.log.WithFields(logrus.Fields{"operation": "OutputDocs"}).Errorf("unable to set last sync date to cache.error: %v", err)
 		}
-		j.log.WithFields(logrus.Fields{"operation": "SetLastSync"}).Info("OutputDocs: last sync date has been updated successfully")
+		j.log.WithFields(logrus.Fields{"operation": "setLastSync"}).Info("OutputDocs: last sync date has been updated successfully")
 	}
 }
 
@@ -6116,7 +6112,7 @@ func (j *DSGitHub) Sync(ctx *shared.Ctx, category string) (err error) {
 		if cat == "pull_request" {
 			cat = GitHubPullrequest
 		}
-		cachedLastSync, er := j.cacheProvider.GetLastSync(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, cat))
+		cachedLastSync, er := j.getLastSync(cat)
 		if er != nil {
 			err = er
 			return
@@ -6140,16 +6136,9 @@ func (j *DSGitHub) Sync(ctx *shared.Ctx, category string) (err error) {
 		return err
 	}
 	// NOTE: Non-generic ends here
-	gMaxUpstreamDtMtx.Lock()
-	defer gMaxUpstreamDtMtx.Unlock()
-	cat := j.CurrentCategory
-	if cat == "pull_request" {
-		cat = GitHubPullrequest
-	}
-	if !gMaxUpstreamDt.IsZero() {
-		err = j.cacheProvider.SetLastSync(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, cat), gMaxUpstreamDt)
-		j.log.WithFields(logrus.Fields{"operation": "SetLastSync"}).Info("Sync: last sync date has been updated successfully")
-	}
+	err = j.setLastSync()
+	j.log.WithFields(logrus.Fields{"operation": "SetLastSync"}).Info("Sync: last sync date has been updated successfully")
+
 	return
 }
 
@@ -9279,6 +9268,97 @@ func (j *DSGitHub) gitRepoSourceID() (string, error) {
 	return id, nil
 }
 
+func (j *DSGitHub) getLastSync(category string) (time.Time, error) {
+	lastSyncDataB, err := j.cacheProvider.GetLastSyncFile(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, category))
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	var lastSyncData lastSyncFile
+	if err = json.Unmarshal(lastSyncDataB, &lastSyncData); err != nil {
+		var cachedLastSync time.Time
+		err = json.Unmarshal(lastSyncDataB, &cachedLastSync)
+		if err != nil {
+			return time.Time{}, err
+		}
+		lastSyncData = lastSyncFile{
+			LastSync: cachedLastSync,
+		}
+	}
+	return lastSyncData.LastSync, nil
+}
+
+func (j *DSGitHub) setLastSync() error {
+	category := j.CurrentCategory
+	itemsCount, latestItem, err := j.getItemsCount()
+	if err != nil {
+		return err
+	}
+
+	gMaxUpstreamDtMtx.Lock()
+	defer gMaxUpstreamDtMtx.Unlock()
+
+	if category != GitHubIssue && category != "pull_request" {
+		err = j.cacheProvider.SetLastSync(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, j.CurrentCategory), gMaxUpstreamDt)
+		return err
+	}
+
+	createdItems := 0
+	if category == GitHubIssue {
+		createdItems = len(createdIssues)
+	}
+	if category == "pull_request" {
+		category = GitHubPullrequest
+		createdItems = len(createdPulls)
+	}
+	lastSyncData := lastSyncFile{
+		LastSync: gMaxUpstreamDt,
+		Target:   itemsCount,
+		Total:    createdItems,
+		Head:     latestItem,
+	}
+
+	lastSyncDataB, err := jsoniter.Marshal(lastSyncData)
+	if err != nil {
+		return err
+	}
+
+	if !gMaxUpstreamDt.IsZero() {
+		err = j.cacheProvider.SetLastSyncFile(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, category), lastSyncDataB)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (j *DSGitHub) getItemsCount() (int, int, error) {
+	client := j.Clients[j.Hint]
+	category := j.CurrentCategory
+	if category == "pull_request" {
+		category = "pull-request"
+	}
+	if j.CurrentCategory != GitHubIssue && j.CurrentCategory != "pull_request" {
+		return 0, 0, nil
+	}
+	opt := &github.SearchOptions{
+		Sort:  "updated",
+		Order: "desc",
+	}
+
+	itemNumber := 0
+	query := fmt.Sprintf("repo:%s/%s is:%s", j.Org, j.Repo, category)
+	i, _, err := client.Search.Issues(j.Context, query, opt)
+	if err != nil {
+		return i.GetTotal(), itemNumber, err
+	}
+	if i != nil && len(i.Issues) > 0 && i.Issues[0].Number != nil {
+		itemNumber = *i.Issues[0].Number
+	}
+	return i.GetTotal(), itemNumber, nil
+}
+
 func isChildKeyCreated(element []ItemCache, id string) bool {
 	for _, el := range element {
 		if el.EntityID == id {
@@ -9296,4 +9376,11 @@ type ItemCache struct {
 	FileLocation   string `json:"file_location"`
 	Hash           string `json:"hash"`
 	Orphaned       bool   `json:"orphaned"`
+}
+
+type lastSyncFile struct {
+	LastSync time.Time `json:"last_sync"`
+	Target   int       `json:"target,omitempty"`
+	Total    int       `json:"total,omitempty"`
+	Head     int       `json:"head,omitempty"`
 }
