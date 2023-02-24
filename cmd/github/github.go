@@ -3256,36 +3256,6 @@ func (j *DSGitHub) FetchItemsIssue(ctx *shared.Ctx) (err error) {
 	return
 }
 
-func (j *DSGitHub) getCachedPullsData() error {
-	j.getCachedPulls()
-
-	err := j.getAssignees(j.Categories[0])
-	if err != nil {
-		return err
-	}
-
-	err = j.getComments(j.Categories[0])
-	if err != nil {
-		return err
-	}
-
-	err = j.getCommentReactions(j.Categories[0])
-	if err != nil {
-		return err
-	}
-
-	err = j.getReactions(j.Categories[0])
-	if err != nil {
-		return err
-	}
-
-	err = j.getReviewers(j.Categories[0])
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
 // FetchItemsPullRequest - implement raw issue data for GitHub datasource
 func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 	// Process pull requests (possibly in threads)
@@ -9315,6 +9285,36 @@ func (j *DSGitHub) setLastSync() error {
 		}
 	}
 
+	return nil
+}
+
+func (j *DSGitHub) getCachedPullsData() error {
+	j.getCachedPulls()
+
+	err := j.getAssignees(j.Categories[0])
+	if err != nil {
+		return err
+	}
+
+	err = j.getComments(j.Categories[0])
+	if err != nil {
+		return err
+	}
+
+	err = j.getCommentReactions(j.Categories[0])
+	if err != nil {
+		return err
+	}
+
+	err = j.getReactions(j.Categories[0])
+	if err != nil {
+		return err
+	}
+
+	err = j.getReviewers(j.Categories[0])
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
