@@ -3422,7 +3422,6 @@ func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 		count += len(pulls.Issues)
 		totalFetched += len(pulls.Issues)
 		pullrequests = append(pullrequests, pulls.Issues...)
-		j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Infof("%s/%s: got %d pulls", j.URL, j.CurrentCategory, len(pulls.Issues))
 		if len(pullrequests) == 1000 || response.NextPage == 0 {
 			for _, pull := range pullrequests {
 				pr := map[string]interface{}{}

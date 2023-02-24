@@ -90,7 +90,7 @@ workflows:
             - build
           filters:
             branches:
-              only: use-new-last-sync-file #main
+              only: main
             tags:
               ignore: /.*/
       - approve_prod:
