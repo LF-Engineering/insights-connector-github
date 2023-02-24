@@ -9,7 +9,6 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
-	"math"
 	"math/rand"
 	"os"
 	"runtime"
@@ -40,7 +39,7 @@ import (
 	logger "github.com/LF-Engineering/insights-datasource-shared/ingestjob"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
-	"github.com/google/go-github/v43/github"
+	"github.com/google/go-github/v50/github"
 	jsoniter "github.com/json-iterator/go"
 	"golang.org/x/oauth2"
 	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
@@ -128,6 +127,8 @@ const (
 	GitHubPullRequestDefaultStream = "PUT-S3-github-pull-requests"
 	// GitHubConnector ...
 	GitHubConnector = "github-connector"
+	// GitHubRepository ...
+	GitHubRepository = "repository"
 	// GitHubPullrequest ...
 	GitHubPullrequest = "pullrequest"
 	// GitHubIssue ...
@@ -3246,7 +3247,7 @@ func (j *DSGitHub) FetchItemsIssue(ctx *shared.Ctx) (err error) {
 			break
 		}
 		if len(issues) == int(Pages)*ItemsPerPage {
-			*dateFrom, er = j.cacheProvider.GetLastSync(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubIssue))
+			*dateFrom, er = j.getLastSync(GitHubIssue)
 			if er != nil {
 				return err
 			}
@@ -3259,44 +3260,18 @@ func (j *DSGitHub) FetchItemsIssue(ctx *shared.Ctx) (err error) {
 func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 	// Process pull requests (possibly in threads)
 	var (
-		ch           chan error
 		allDocs      []interface{}
 		allPulls     []interface{}
 		allPullsMtx  *sync.Mutex
-		escha        []chan error
-		eschaMtx     *sync.Mutex
 		pullsProcMtx *sync.Mutex
 	)
-	j.getCachedPulls()
 
-	err = j.getAssignees(j.Categories[0])
-	if err != nil {
-		return err
-	}
-	err = j.getComments(j.Categories[0])
-	if err != nil {
-		return err
-	}
-	err = j.getCommentReactions(j.Categories[0])
-	if err != nil {
-		return err
-	}
-	err = j.getReactions(j.Categories[0])
-	if err != nil {
-		return err
-	}
-	err = j.getReviewers(j.Categories[0])
+	err = j.getCachedPullsData()
 	if err != nil {
 		return err
 	}
 
-	if j.ThrN > 1 {
-		ch = make(chan error)
-		allPullsMtx = &sync.Mutex{}
-		eschaMtx = &sync.Mutex{}
-		pullsProcMtx = &sync.Mutex{}
-	}
-	nThreads, pullsProcessed, nPRs := 0, 0, 0
+	pullsProcessed, nPRs := 0, 0
 	processPull := func(c chan error, pull map[string]interface{}) (wch chan error, e error) {
 		defer func() {
 			if c != nil {
@@ -3346,17 +3321,12 @@ func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 				}
 				return
 			}
-			if j.ThrN > 1 {
-				wch = make(chan error)
-				go func() {
-					_ = sendToQueue(wch)
-				}()
-			} else {
-				e = sendToQueue(nil)
-				if e != nil {
-					return
-				}
+
+			e = sendToQueue(nil)
+			if e != nil {
+				return
 			}
+
 		} else {
 			if allPullsMtx != nil {
 				allPullsMtx.Unlock()
@@ -3368,120 +3338,110 @@ func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 	// If it would we could use Pulls API to fetch all pulls when no date from is specified
 	// If there is a date from Pulls API doesn't support Since parameter
 	// if ctx.DateFrom != nil {
-	dateFrom := ctx.DateFrom
-	PagesCount := os.Getenv("FETCH_PAGES")
-	Pages, err := strconv.ParseInt(PagesCount, 10, 32)
-	if err != nil {
-		Pages = 100
+	client := j.Clients[j.Hint]
+	opt := &github.SearchOptions{
+		Sort:  "updated",
+		Order: "asc",
 	}
+	opt.PerPage = 100
+	category := j.CurrentCategory
+	if category == "pull_request" {
+		category = "pull-request"
+	}
+
+	count, totalFetched := 0, 0
+	dateFrom := *ctx.DateFrom
+	var updateAt, latestUpdateAt time.Time
+	retry := false
+	pullrequests := make([]*github.Issue, 0)
 	for {
-		issues, er := j.githubIssues(ctx, j.Org, j.Repo, dateFrom, ctx.DateTo)
-		if er != nil {
-			return er
+		query := fmt.Sprintf("repo:%s/%s is:%s updated:>%v", j.Org, j.Repo, category, dateFrom.Format(time.RFC3339))
+		pulls, response, err := client.Search.Issues(j.Context, query, opt)
+		if err != nil && !retry {
+			j.log.WithFields(logrus.Fields{"operation": "getModelDataWorkflowRun"}).Warningf("Unable to get workflow jobs: response: %+v, because: %+v, retrying rate", response, err)
+			j.log.WithFields(logrus.Fields{"operation": "getModelDataWorkflowRun"}).Info("ListWorkflowJobs: handle rate")
+			abuse, rateLimit := j.isAbuse(err)
+			if abuse {
+				sleepFor := AbuseWaitSeconds + rand.Intn(AbuseWaitSeconds)
+				j.log.WithFields(logrus.Fields{"operation": "githubUserOrgs"}).Infof("GitHub detected abuse (get workflow jobs), waiting for %ds", sleepFor)
+				time.Sleep(time.Duration(sleepFor) * time.Second)
+			}
+			if rateLimit {
+				j.log.WithFields(logrus.Fields{"operation": "githubUserOrgs"}).Info("Rate limit reached on a token (get workflow jobs) waiting 1s before token switch")
+				time.Sleep(time.Duration(1) * time.Second)
+			}
+
+			j.Hint, _, err = j.handleRate(ctx)
+			if err != nil {
+				return err
+			}
+			client = j.Clients[j.Hint]
+			if !abuse && !rateLimit {
+				retry = true
+			}
+			continue
 		}
-		pageSize := 1000
-		pages := int(math.Ceil(float64(len(issues)) / float64(pageSize)))
-		page := 1
-		for i := 0; i < pages; i++ {
-			limit := page * pageSize
-			if len(issues) < limit {
-				limit = len(issues)
-			}
-			iss := issues[i*pageSize : limit]
-			ps, err := j.githubPullsFromIssues(ctx, j.Org, j.Repo, ctx.DateFrom, ctx.DateTo, iss)
-			page++
-			runtime.GC()
-			nPRs := len(ps)
-			j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Infof("%s/%s: got %d pulls", j.URL, j.CurrentCategory, nPRs)
-			if j.ThrN > 1 {
-				for _, pull := range ps {
-					go func(pr map[string]interface{}) {
-						var (
-							e    error
-							esch chan error
-						)
-						esch, e = processPull(ch, pr)
-						if e != nil {
-							j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Errorf("%s/%s: pulls process error: %v", j.URL, j.CurrentCategory, e)
-							return
-						}
-						if esch != nil {
-							if eschaMtx != nil {
-								eschaMtx.Lock()
-							}
-							escha = append(escha, esch)
-							if eschaMtx != nil {
-								eschaMtx.Unlock()
-							}
-						}
-					}(pull)
-					nThreads++
-					if nThreads == j.ThrN {
-						err = <-ch
-						if err != nil {
-							return err
-						}
-						if pullsProcMtx != nil {
-							pullsProcMtx.Lock()
-						}
-						pullsProcessed++
-						if pullsProcMtx != nil {
-							pullsProcMtx.Unlock()
-						}
-						nThreads--
+		if err != nil {
+			return err
+		}
+
+		updateAt = pulls.Issues[len(pulls.Issues)-1].UpdatedAt.Time
+		if totalFetched == 0 {
+			latestUpdateAt = pulls.Issues[len(pulls.Issues)-1].UpdatedAt.Time
+		}
+		count += len(pulls.Issues)
+		totalFetched += len(pulls.Issues)
+		pullrequests = append(pullrequests, pulls.Issues...)
+		if len(pullrequests) == 1000 || response.NextPage == 0 {
+			for _, pull := range pullrequests {
+				pr := map[string]interface{}{}
+				jm, _ := jsoniter.Marshal(pull)
+				_ = jsoniter.Unmarshal(jm, &pr)
+				body, ok := shared.Dig(pr, []string{"body"}, false, true)
+				if ok {
+					nBody := len(body.(string))
+					if nBody > MaxIssueBodyLength {
+						pr["body"] = body.(string)[:MaxIssueBodyLength]
 					}
 				}
-				for nThreads > 0 {
-					err = <-ch
-					nThreads--
-					if err != nil {
-						return err
-					}
-					if pullsProcMtx != nil {
-						pullsProcMtx.Lock()
-					}
-					pullsProcessed++
-					if pullsProcMtx != nil {
-						pullsProcMtx.Unlock()
-					}
-				}
-			} else {
-				for _, pull := range ps {
-					_, err = processPull(nil, pull)
-					if err != nil {
-						return err
-					}
-					pullsProcessed++
-				}
-			}
-			for _, esch := range escha {
-				err = <-esch
+				pr["body_analyzed"], _ = pr["body"]
+				pr["is_pull"] = true
+				number, _ := pr["number"]
+				p, err := j.githubPull(ctx, j.Org, j.Repo, int(number.(float64)))
 				if err != nil {
 					return err
 				}
+				_, err = processPull(nil, p)
+				if err != nil {
+					return err
+				}
+				pullsProcessed++
 			}
-			nPulls := len(allPulls)
-			if ctx.Debug > 0 {
-				j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Debugf("%d remaining pulls to send to queue", nPulls)
-			}
-			err = j.GitHubEnrichItems(ctx, allPulls, &allDocs, true)
-			//err = SendToQueue(ctx, j, true, UUID, allPulls)
-			if err != nil {
-				j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Errorf("%s/%s: error %v sending %d pulls to queue", j.URL, j.CurrentCategory, err, len(allPulls))
-			}
-			allPulls = make([]interface{}, 0)
+			pullrequests = pullrequests[:0]
 		}
-		if len(issues) < int(Pages)*ItemsPerPage {
+		nPulls := len(allPulls)
+		if ctx.Debug > 0 {
+			j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Debugf("%d remaining pulls to send to queue", nPulls)
+		}
+		err = j.GitHubEnrichItems(ctx, allPulls, &allDocs, true)
+		//err = SendToQueue(ctx, j, true, UUID, allPulls)
+		if err != nil {
+			j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Errorf("%s/%s: error %v sending %d pulls to queue", j.URL, j.CurrentCategory, err, len(allPulls))
+		}
+		allPulls = make([]interface{}, 0)
+		if count == 1000 {
+			j.log.WithFields(logrus.Fields{"operation": "FetchItemsActions"}).Infof("fetched %d pulls", totalFetched)
+			dateFrom = updateAt
+			opt.Page = 1
+			count = 0
+			continue
+		}
+		if response.NextPage == 0 {
 			break
 		}
-
-		if len(issues) == int(Pages)*ItemsPerPage {
-			*dateFrom, er = j.cacheProvider.GetLastSync(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest))
-			if er != nil {
-				return err
-			}
-		}
+		opt.Page = response.NextPage
 	}
+	j.log.WithFields(logrus.Fields{"operation": "FetchItemsActions"}).Infof("total count of fetched pulls: %d, fetched till: %v", totalFetched, latestUpdateAt)
 
 	return
 }
@@ -6039,17 +5999,11 @@ func (j *DSGitHub) OutputDocs(ctx *shared.Ctx, items []interface{}, docs *[]inte
 			j.log.WithFields(logrus.Fields{"operation": "OutputDocs"}).Infof("publisher does not exist.fetch data are: %s", string(jsonBytes))
 		}
 		*docs = []interface{}{}
-		gMaxUpstreamDtMtx.Lock()
-		defer gMaxUpstreamDtMtx.Unlock()
-		cat := j.CurrentCategory
-		if cat == "pull_request" {
-			cat = GitHubPullrequest
-		}
-		err = j.cacheProvider.SetLastSync(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, cat), gMaxUpstreamDt)
+		err = j.setLastSync()
 		if err != nil {
 			j.log.WithFields(logrus.Fields{"operation": "OutputDocs"}).Errorf("unable to set last sync date to cache.error: %v", err)
 		}
-		j.log.WithFields(logrus.Fields{"operation": "SetLastSync"}).Info("OutputDocs: last sync date has been updated successfully")
+		j.log.WithFields(logrus.Fields{"operation": "setLastSync"}).Info("OutputDocs: last sync date has been updated successfully")
 	}
 }
 
@@ -6116,7 +6070,7 @@ func (j *DSGitHub) Sync(ctx *shared.Ctx, category string) (err error) {
 		if cat == "pull_request" {
 			cat = GitHubPullrequest
 		}
-		cachedLastSync, er := j.cacheProvider.GetLastSync(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, cat))
+		cachedLastSync, er := j.getLastSync(cat)
 		if er != nil {
 			err = er
 			return
@@ -6140,16 +6094,9 @@ func (j *DSGitHub) Sync(ctx *shared.Ctx, category string) (err error) {
 		return err
 	}
 	// NOTE: Non-generic ends here
-	gMaxUpstreamDtMtx.Lock()
-	defer gMaxUpstreamDtMtx.Unlock()
-	cat := j.CurrentCategory
-	if cat == "pull_request" {
-		cat = GitHubPullrequest
-	}
-	if !gMaxUpstreamDt.IsZero() {
-		err = j.cacheProvider.SetLastSync(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, cat), gMaxUpstreamDt)
-		j.log.WithFields(logrus.Fields{"operation": "SetLastSync"}).Info("Sync: last sync date has been updated successfully")
-	}
+	err = j.setLastSync()
+	j.log.WithFields(logrus.Fields{"operation": "SetLastSync"}).Info("Sync: last sync date has been updated successfully")
+
 	return
 }
 
@@ -7651,14 +7598,6 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 				Orphaned:         false,
 			},
 		}
-		if isClosed && !isMerged {
-			issID, _ := doc["id_in_repo"].(int)
-			closedBY, eror := j.getClosedBy(ctx, issID, org)
-			if eror != nil {
-				return
-			}
-			pullRequest.ClosedBy = closedBY
-		}
 		key := "updated"
 		if isCreated := isParentKeyCreated(createdPulls, pullRequest.ID); !isCreated {
 			key = "created"
@@ -7671,33 +7610,39 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 			ary = append(ary, pullRequest)
 		}
 		data[key] = ary
+
 		// Fake merge "event"
 		if isMerged {
 			// pullRequest.Contributors = []insights.Contributor{}
-			pullRequest.SyncTimestamp = time.Now()
 			pullRequest.SourceTimestamp = *mergedOn
-			key := "merged"
-			ary, ok := data[key]
+			k := "merged"
+			ary, ok := data[k]
 			if !ok {
 				ary = []interface{}{pullRequest}
 			} else {
 				ary = append(ary, pullRequest)
 			}
-			data[key] = ary
+			data[k] = ary
 		}
+
 		// Fake "close" event (not merged and closed)
 		if isClosed && !isMerged {
+			issID, _ := doc["id_in_repo"].(int)
+			closedBY, eror := j.getClosedBy(ctx, issID, org)
+			if eror != nil {
+				return
+			}
+			pullRequest.ClosedBy = closedBY
 			// pullRequest.Contributors = []insights.Contributor{}
-			pullRequest.SyncTimestamp = time.Now()
 			pullRequest.SourceTimestamp = *closedOn
-			key := "closed"
-			ary, ok := data[key]
+			k := "closed"
+			ary, ok := data[k]
 			if !ok {
 				ary = []interface{}{pullRequest}
 			} else {
 				ary = append(ary, pullRequest)
 			}
-			data[key] = ary
+			data[k] = ary
 		}
 		gMaxUpstreamDtMtx.Lock()
 		if updatedOn.After(gMaxUpstreamDt) {
@@ -8899,9 +8844,8 @@ func (j *DSGitHub) AddCacheProvider() {
 func (j *DSGitHub) cacheCreatedPullrequest(v []interface{}, path string) error {
 	for _, val := range v {
 		pr := val.(igh.PullRequestCreatedEvent).Payload
-		prID, err := strconv.ParseInt(pr.ChangeRequestID, 10, 64)
-		rawPull := rawPulls[prID]
-		b, err := json.Marshal(rawPull)
+		pr.SyncTimestamp = time.Time{}
+		b, err := json.Marshal(pr)
 		if err != nil {
 			return err
 		}
@@ -9279,6 +9223,127 @@ func (j *DSGitHub) gitRepoSourceID() (string, error) {
 	return id, nil
 }
 
+func (j *DSGitHub) getLastSync(category string) (time.Time, error) {
+	lastSyncDataB, err := j.cacheProvider.GetLastSyncFile(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, category))
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	var lastSyncData lastSyncFile
+	if err = json.Unmarshal(lastSyncDataB, &lastSyncData); err != nil {
+		var cachedLastSync time.Time
+		err = json.Unmarshal(lastSyncDataB, &cachedLastSync)
+		if err != nil {
+			return time.Time{}, err
+		}
+		lastSyncData = lastSyncFile{
+			LastSync: cachedLastSync,
+		}
+	}
+	return lastSyncData.LastSync, nil
+}
+
+func (j *DSGitHub) setLastSync() error {
+	category := j.CurrentCategory
+	itemsCount, latestItem, err := j.getItemsCount()
+	if err != nil {
+		return err
+	}
+
+	gMaxUpstreamDtMtx.Lock()
+	defer gMaxUpstreamDtMtx.Unlock()
+
+	if category != GitHubIssue && category != "pull_request" {
+		err = j.cacheProvider.SetLastSync(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, j.CurrentCategory), gMaxUpstreamDt)
+		return err
+	}
+
+	createdItems := 0
+	if category == GitHubIssue {
+		createdItems = len(createdIssues)
+	}
+	if category == "pull_request" {
+		category = GitHubPullrequest
+		createdItems = len(createdPulls)
+	}
+	lastSyncData := lastSyncFile{
+		LastSync: gMaxUpstreamDt,
+		Target:   itemsCount,
+		Total:    createdItems,
+		Head:     latestItem,
+	}
+
+	lastSyncDataB, err := jsoniter.Marshal(lastSyncData)
+	if err != nil {
+		return err
+	}
+
+	if !gMaxUpstreamDt.IsZero() {
+		err = j.cacheProvider.SetLastSyncFile(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, category), lastSyncDataB)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (j *DSGitHub) getCachedPullsData() error {
+	j.getCachedPulls()
+
+	err := j.getAssignees(j.Categories[0])
+	if err != nil {
+		return err
+	}
+
+	err = j.getComments(j.Categories[0])
+	if err != nil {
+		return err
+	}
+
+	err = j.getCommentReactions(j.Categories[0])
+	if err != nil {
+		return err
+	}
+
+	err = j.getReactions(j.Categories[0])
+	if err != nil {
+		return err
+	}
+
+	err = j.getReviewers(j.Categories[0])
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (j *DSGitHub) getItemsCount() (int, int, error) {
+	client := j.Clients[j.Hint]
+	category := j.CurrentCategory
+	if category == "pull_request" {
+		category = "pull-request"
+	}
+	if j.CurrentCategory != GitHubIssue && j.CurrentCategory != "pull_request" {
+		return 0, 0, nil
+	}
+	opt := &github.SearchOptions{
+		Sort:  "updated",
+		Order: "desc",
+	}
+
+	itemNumber := 0
+	query := fmt.Sprintf("repo:%s/%s is:%s", j.Org, j.Repo, category)
+	i, _, err := client.Search.Issues(j.Context, query, opt)
+	if err != nil {
+		return i.GetTotal(), itemNumber, err
+	}
+	if i != nil && len(i.Issues) > 0 && i.Issues[0].Number != nil {
+		itemNumber = *i.Issues[0].Number
+	}
+	return i.GetTotal(), itemNumber, nil
+}
+
 func isChildKeyCreated(element []ItemCache, id string) bool {
 	for _, el := range element {
 		if el.EntityID == id {
@@ -9296,4 +9361,11 @@ type ItemCache struct {
 	FileLocation   string `json:"file_location"`
 	Hash           string `json:"hash"`
 	Orphaned       bool   `json:"orphaned"`
+}
+
+type lastSyncFile struct {
+	LastSync time.Time `json:"last_sync"`
+	Target   int       `json:"target,omitempty"`
+	Total    int       `json:"total,omitempty"`
+	Head     int       `json:"head,omitempty"`
 }
