@@ -1811,7 +1811,6 @@ func (j *DSGitHub) githubPull(ctx *shared.Ctx, org, repo string, number int) (pu
 			e        error
 		)
 		pull, response, e = c.PullRequests.Get(j.Context, org, repo, number)
-		rawPulls[*pull.ID] = *pull
 		if ctx.Debug > 2 {
 			j.log.WithFields(logrus.Fields{"operation": "githubPull"}).Debugf("GET %s/%s/%d -> {%+v, %+v, %+v}", org, repo, number, pull, response, e)
 		}
