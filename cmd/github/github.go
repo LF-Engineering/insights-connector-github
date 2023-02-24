@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/LF-Engineering/insights-connector-github/build"
+	"github.com/LF-Engineering/insights-datasource-shared/aws"
 	"github.com/LF-Engineering/insights-datasource-shared/cache"
 	"github.com/LF-Engineering/insights-datasource-shared/cryptography"
 	"github.com/LF-Engineering/lfx-event-schema/service"
@@ -294,12 +295,11 @@ func (j *DSGitHub) WriteLog(ctx *shared.Ctx, timestamp time.Time, status, messag
 	if err != nil {
 		return err
 	}
-	/*	arn, err := aws.GetContainerARN()
-		if err != nil {
-			j.log.WithFields(logrus.Fields{"operation": "WriteLog"}).Errorf("getContainerMetadata Error : %+v", err)
-			return err
-		}*/
-	arn := "arn:aws:ecs:us-east-2:395594542180:task/insights-ecs-cluster/3edde95f9c524983521e134cf993c905"
+	arn, err := aws.GetContainerARN()
+	if err != nil {
+		j.log.WithFields(logrus.Fields{"operation": "WriteLog"}).Errorf("getContainerMetadata Error : %+v", err)
+		return err
+	}
 	err = j.Logger.Write(&logger.Log{
 		Connector: GitHubDataSource,
 		TaskARN:   arn,
