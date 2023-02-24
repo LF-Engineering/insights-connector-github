@@ -9,7 +9,6 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
-	"math"
 	"math/rand"
 	"os"
 	"runtime"
@@ -20,7 +19,6 @@ import (
 	"time"
 
 	"github.com/LF-Engineering/insights-connector-github/build"
-	"github.com/LF-Engineering/insights-datasource-shared/aws"
 	"github.com/LF-Engineering/insights-datasource-shared/cache"
 	"github.com/LF-Engineering/insights-datasource-shared/cryptography"
 	"github.com/LF-Engineering/lfx-event-schema/service"
@@ -296,11 +294,12 @@ func (j *DSGitHub) WriteLog(ctx *shared.Ctx, timestamp time.Time, status, messag
 	if err != nil {
 		return err
 	}
-	arn, err := aws.GetContainerARN()
-	if err != nil {
-		j.log.WithFields(logrus.Fields{"operation": "WriteLog"}).Errorf("getContainerMetadata Error : %+v", err)
-		return err
-	}
+	/*	arn, err := aws.GetContainerARN()
+		if err != nil {
+			j.log.WithFields(logrus.Fields{"operation": "WriteLog"}).Errorf("getContainerMetadata Error : %+v", err)
+			return err
+		}*/
+	arn := "arn:aws:ecs:us-east-2:395594542180:task/insights-ecs-cluster/3edde95f9c524983521e134cf993c905"
 	err = j.Logger.Write(&logger.Log{
 		Connector: GitHubDataSource,
 		TaskARN:   arn,
@@ -3257,7 +3256,303 @@ func (j *DSGitHub) FetchItemsIssue(ctx *shared.Ctx) (err error) {
 	return
 }
 
+func (j *DSGitHub) getCachedPullsData() error {
+	j.getCachedPulls()
+
+	err := j.getAssignees(j.Categories[0])
+	if err != nil {
+		return err
+	}
+
+	err = j.getComments(j.Categories[0])
+	if err != nil {
+		return err
+	}
+
+	err = j.getCommentReactions(j.Categories[0])
+	if err != nil {
+		return err
+	}
+
+	err = j.getReactions(j.Categories[0])
+	if err != nil {
+		return err
+	}
+
+	err = j.getReviewers(j.Categories[0])
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (j *DSGitHub) FetchItemsPullRequest2(ctx *shared.Ctx) error {
+	err := j.getCachedPullsData()
+	if err != nil {
+		return err
+	}
+	client := j.Clients[j.Hint]
+	opt := &github.SearchOptions{
+		Sort:  "updated",
+		Order: "asc",
+	}
+	opt.PerPage = 100
+	category := j.CurrentCategory
+	if category == "pull_request" {
+		category = "pull-request"
+	}
+
+	count, totalFetched := 0, 0
+	dateFrom := *ctx.DateFrom
+	var updateAt, latestUpdateAt time.Time
+	retry := false
+	for {
+		query := fmt.Sprintf("repo:%s/%s is:%s updated:>%v", j.Org, j.Repo, category, dateFrom.Format(time.RFC3339))
+		pulls, response, err := client.Search.Issues(j.Context, query, opt)
+		if err != nil && !retry {
+			j.log.WithFields(logrus.Fields{"operation": "getModelDataWorkflowRun"}).Warningf("Unable to get workflow jobs: response: %+v, because: %+v, retrying rate", response, err)
+			j.log.WithFields(logrus.Fields{"operation": "getModelDataWorkflowRun"}).Info("ListWorkflowJobs: handle rate")
+			abuse, rateLimit := j.isAbuse(err)
+			if abuse {
+				sleepFor := AbuseWaitSeconds + rand.Intn(AbuseWaitSeconds)
+				j.log.WithFields(logrus.Fields{"operation": "githubUserOrgs"}).Infof("GitHub detected abuse (get workflow jobs), waiting for %ds", sleepFor)
+				time.Sleep(time.Duration(sleepFor) * time.Second)
+			}
+			if rateLimit {
+				j.log.WithFields(logrus.Fields{"operation": "githubUserOrgs"}).Info("Rate limit reached on a token (get workflow jobs) waiting 1s before token switch")
+				time.Sleep(time.Duration(1) * time.Second)
+			}
+
+			j.Hint, _, err = j.handleRate(ctx)
+			if err != nil {
+				return err
+			}
+			client = j.Clients[j.Hint]
+			if !abuse && !rateLimit {
+				retry = true
+			}
+			continue
+		}
+		if err != nil {
+			return err
+		}
+
+		updateAt = pulls.Issues[len(pulls.Issues)-1].UpdatedAt.Time
+		if totalFetched == 0 {
+			latestUpdateAt = pulls.Issues[len(pulls.Issues)-1].UpdatedAt.Time
+		}
+		count += len(pulls.Issues)
+		totalFetched += len(pulls.Issues)
+		fmt.Println("next page: ", response.NextPage, " last page: ", response.LastPage)
+		if count == 1000 {
+			j.log.WithFields(logrus.Fields{"operation": "FetchItemsActions"}).Infof("fetched %d pulls", totalFetched)
+			dateFrom = updateAt
+			opt.Page = 1
+			count = 0
+			continue
+		}
+		if response.NextPage == 0 {
+			break
+		}
+		opt.Page = response.NextPage
+	}
+	j.log.WithFields(logrus.Fields{"operation": "FetchItemsActions"}).Infof("total count of fetched pulls: %d, fetched till: %v", totalFetched, latestUpdateAt)
+
+	return nil
+}
+
 // FetchItemsPullRequest - implement raw issue data for GitHub datasource
+func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
+	// Process pull requests (possibly in threads)
+	var (
+		allDocs      []interface{}
+		allPulls     []interface{}
+		allPullsMtx  *sync.Mutex
+		pullsProcMtx *sync.Mutex
+	)
+
+	err = j.getCachedPullsData()
+	if err != nil {
+		return err
+	}
+
+	pullsProcessed, nPRs := 0, 0
+	processPull := func(c chan error, pull map[string]interface{}) (wch chan error, e error) {
+		defer func() {
+			if c != nil {
+				c <- e
+			}
+		}()
+		item, e := j.ProcessPull(ctx, pull)
+		if e != nil {
+			err = e
+			return
+		}
+		esItem := j.AddMetadata(ctx, item)
+		if ctx.Project != "" {
+			item["project"] = ctx.Project
+		}
+		if pullsProcMtx != nil {
+			pullsProcMtx.Lock()
+		}
+		pullsProc := pullsProcessed
+		if pullsProcMtx != nil {
+			pullsProcMtx.Unlock()
+		}
+		esItem["data"] = item
+		if pullsProc%ItemsPerPage == 0 {
+			j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Infof("%s/%s: processed %d/%d pulls", j.URL, j.CurrentCategory, pullsProc, nPRs)
+		}
+		if allPullsMtx != nil {
+			allPullsMtx.Lock()
+		}
+		allPulls = append(allPulls, esItem)
+		nPulls := len(allPulls)
+		if nPulls >= ctx.PackSize {
+			sendToQueue := func(c chan error) (ee error) {
+				defer func() {
+					if c != nil {
+						c <- ee
+					}
+				}()
+				ee = j.GitHubEnrichItems(ctx, allPulls, &allDocs, false)
+				//ee = SendToQueue(ctx, j, true, UUID, allPulls)
+				if ee != nil {
+					j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Errorf("%s/%s: error %v sending %d pulls to queue", j.URL, j.CurrentCategory, ee, len(allPulls))
+				}
+				allPulls = []interface{}{}
+				if allPullsMtx != nil {
+					allPullsMtx.Unlock()
+				}
+				return
+			}
+
+			e = sendToQueue(nil)
+			if e != nil {
+				return
+			}
+
+		} else {
+			if allPullsMtx != nil {
+				allPullsMtx.Unlock()
+			}
+		}
+		return
+	}
+	// PullRequests.List doesn't return merged_by data, we need to use PullRequests.Get on each pull
+	// If it would we could use Pulls API to fetch all pulls when no date from is specified
+	// If there is a date from Pulls API doesn't support Since parameter
+	// if ctx.DateFrom != nil {
+	client := j.Clients[j.Hint]
+	opt := &github.SearchOptions{
+		Sort:  "updated",
+		Order: "asc",
+	}
+	opt.PerPage = 100
+	category := j.CurrentCategory
+	if category == "pull_request" {
+		category = "pull-request"
+	}
+
+	count, totalFetched := 0, 0
+	dateFrom := *ctx.DateFrom
+	var updateAt, latestUpdateAt time.Time
+	retry := false
+	pullrequests := make([]*github.Issue, 0)
+	for {
+		query := fmt.Sprintf("repo:%s/%s is:%s updated:>%v", j.Org, j.Repo, category, dateFrom.Format(time.RFC3339))
+		pulls, response, err := client.Search.Issues(j.Context, query, opt)
+		if err != nil && !retry {
+			j.log.WithFields(logrus.Fields{"operation": "getModelDataWorkflowRun"}).Warningf("Unable to get workflow jobs: response: %+v, because: %+v, retrying rate", response, err)
+			j.log.WithFields(logrus.Fields{"operation": "getModelDataWorkflowRun"}).Info("ListWorkflowJobs: handle rate")
+			abuse, rateLimit := j.isAbuse(err)
+			if abuse {
+				sleepFor := AbuseWaitSeconds + rand.Intn(AbuseWaitSeconds)
+				j.log.WithFields(logrus.Fields{"operation": "githubUserOrgs"}).Infof("GitHub detected abuse (get workflow jobs), waiting for %ds", sleepFor)
+				time.Sleep(time.Duration(sleepFor) * time.Second)
+			}
+			if rateLimit {
+				j.log.WithFields(logrus.Fields{"operation": "githubUserOrgs"}).Info("Rate limit reached on a token (get workflow jobs) waiting 1s before token switch")
+				time.Sleep(time.Duration(1) * time.Second)
+			}
+
+			j.Hint, _, err = j.handleRate(ctx)
+			if err != nil {
+				return err
+			}
+			client = j.Clients[j.Hint]
+			if !abuse && !rateLimit {
+				retry = true
+			}
+			continue
+		}
+		if err != nil {
+			return err
+		}
+
+		updateAt = pulls.Issues[len(pulls.Issues)-1].UpdatedAt.Time
+		if totalFetched == 0 {
+			latestUpdateAt = pulls.Issues[len(pulls.Issues)-1].UpdatedAt.Time
+		}
+		count += len(pulls.Issues)
+		totalFetched += len(pulls.Issues)
+		pullrequests = append(pullrequests, pulls.Issues...)
+		j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Infof("%s/%s: got %d pulls", j.URL, j.CurrentCategory, len(pulls.Issues))
+		if len(pullrequests) == 1000 || response.NextPage == 0 {
+			for _, pull := range pullrequests {
+				pr := map[string]interface{}{}
+				jm, _ := jsoniter.Marshal(pull)
+				_ = jsoniter.Unmarshal(jm, &pr)
+				body, ok := shared.Dig(pr, []string{"body"}, false, true)
+				if ok {
+					nBody := len(body.(string))
+					if nBody > MaxIssueBodyLength {
+						pr["body"] = body.(string)[:MaxIssueBodyLength]
+					}
+				}
+				pr["body_analyzed"], _ = pr["body"]
+				pr["is_pull"] = true
+				number, _ := pr["number"]
+				p, err := j.githubPull(ctx, j.Org, j.Repo, int(number.(float64)))
+				if err != nil {
+					return err
+				}
+				_, err = processPull(nil, p)
+				if err != nil {
+					return err
+				}
+				pullsProcessed++
+			}
+			pullrequests = pullrequests[:0]
+		}
+		nPulls := len(allPulls)
+		if ctx.Debug > 0 {
+			j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Debugf("%d remaining pulls to send to queue", nPulls)
+		}
+		err = j.GitHubEnrichItems(ctx, allPulls, &allDocs, true)
+		//err = SendToQueue(ctx, j, true, UUID, allPulls)
+		if err != nil {
+			j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Errorf("%s/%s: error %v sending %d pulls to queue", j.URL, j.CurrentCategory, err, len(allPulls))
+		}
+		allPulls = make([]interface{}, 0)
+		if count == 1000 {
+			j.log.WithFields(logrus.Fields{"operation": "FetchItemsActions"}).Infof("fetched %d pulls", totalFetched)
+			dateFrom = updateAt
+			opt.Page = 1
+			count = 0
+			continue
+		}
+		if response.NextPage == 0 {
+			break
+		}
+		opt.Page = response.NextPage
+	}
+	j.log.WithFields(logrus.Fields{"operation": "FetchItemsActions"}).Infof("total count of fetched pulls: %d, fetched till: %v", totalFetched, latestUpdateAt)
+
+	return
+}
+
+/*
 func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 	// Process pull requests (possibly in threads)
 	var (
@@ -3478,7 +3773,7 @@ func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 		}
 
 		if len(issues) == int(Pages)*ItemsPerPage {
-			*dateFrom, er = j.getLastSync(GitHubPullrequest)
+			*dateFrom, er = j.cacheProvider.GetLastSync(fmt.Sprintf("%s/%s/%s", j.Org, j.Repo, GitHubPullrequest))
 			if er != nil {
 				return err
 			}
@@ -3487,6 +3782,8 @@ func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 
 	return
 }
+
+*/
 
 // GetRoles - return identities for given roles
 func (j *DSGitHub) GetRoles(ctx *shared.Ctx, item map[string]interface{}, roles []string, dt time.Time) (identities []map[string]interface{}) {
@@ -7640,14 +7937,6 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 				Orphaned:         false,
 			},
 		}
-		if isClosed && !isMerged {
-			issID, _ := doc["id_in_repo"].(int)
-			closedBY, eror := j.getClosedBy(ctx, issID, org)
-			if eror != nil {
-				return
-			}
-			pullRequest.ClosedBy = closedBY
-		}
 		key := "updated"
 		if isCreated := isParentKeyCreated(createdPulls, pullRequest.ID); !isCreated {
 			key = "created"
@@ -7660,33 +7949,39 @@ func (j *DSGitHub) GetModelDataPullRequest(ctx *shared.Ctx, docs []interface{}) 
 			ary = append(ary, pullRequest)
 		}
 		data[key] = ary
+
 		// Fake merge "event"
 		if isMerged {
 			// pullRequest.Contributors = []insights.Contributor{}
-			pullRequest.SyncTimestamp = time.Now()
 			pullRequest.SourceTimestamp = *mergedOn
-			key := "merged"
-			ary, ok := data[key]
+			k := "merged"
+			ary, ok := data[k]
 			if !ok {
 				ary = []interface{}{pullRequest}
 			} else {
 				ary = append(ary, pullRequest)
 			}
-			data[key] = ary
+			data[k] = ary
 		}
+
 		// Fake "close" event (not merged and closed)
 		if isClosed && !isMerged {
+			issID, _ := doc["id_in_repo"].(int)
+			closedBY, eror := j.getClosedBy(ctx, issID, org)
+			if eror != nil {
+				return
+			}
+			pullRequest.ClosedBy = closedBY
 			// pullRequest.Contributors = []insights.Contributor{}
-			pullRequest.SyncTimestamp = time.Now()
 			pullRequest.SourceTimestamp = *closedOn
-			key := "closed"
-			ary, ok := data[key]
+			k := "closed"
+			ary, ok := data[k]
 			if !ok {
 				ary = []interface{}{pullRequest}
 			} else {
 				ary = append(ary, pullRequest)
 			}
-			data[key] = ary
+			data[k] = ary
 		}
 		gMaxUpstreamDtMtx.Lock()
 		if updatedOn.After(gMaxUpstreamDt) {
@@ -8888,9 +9183,8 @@ func (j *DSGitHub) AddCacheProvider() {
 func (j *DSGitHub) cacheCreatedPullrequest(v []interface{}, path string) error {
 	for _, val := range v {
 		pr := val.(igh.PullRequestCreatedEvent).Payload
-		prID, err := strconv.ParseInt(pr.ChangeRequestID, 10, 64)
-		rawPull := rawPulls[prID]
-		b, err := json.Marshal(rawPull)
+		pr.SyncTimestamp = time.Time{}
+		b, err := json.Marshal(pr)
 		if err != nil {
 			return err
 		}
