@@ -3422,12 +3422,7 @@ func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 		if ctx.Debug > 0 {
 			j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Debugf("%d remaining pulls to send to queue", nPulls)
 		}
-		err = j.GitHubEnrichItems(ctx, allPulls, &allDocs, true)
-		//err = SendToQueue(ctx, j, true, UUID, allPulls)
-		if err != nil {
-			j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Errorf("%s/%s: error %v sending %d pulls to queue", j.URL, j.CurrentCategory, err, len(allPulls))
-		}
-		allPulls = make([]interface{}, 0)
+
 		if count == 1000 {
 			j.log.WithFields(logrus.Fields{"operation": "FetchItemsActions"}).Infof("fetched %d pulls", totalFetched)
 			dateFrom = updateAt
@@ -8843,6 +8838,7 @@ func (j *DSGitHub) AddCacheProvider() {
 func (j *DSGitHub) cacheCreatedPullrequest(v []interface{}, path string) error {
 	for _, val := range v {
 		pr := val.(igh.PullRequestCreatedEvent).Payload
+		syncTimestamp := fmt.Sprintf("%v", pr.SyncTimestamp.Unix())
 		pr.SyncTimestamp = time.Time{}
 		b, err := json.Marshal(pr)
 		if err != nil {
@@ -8850,7 +8846,7 @@ func (j *DSGitHub) cacheCreatedPullrequest(v []interface{}, path string) error {
 		}
 		contentHash := fmt.Sprintf("%x", sha256.Sum256(b))
 		cachedPulls[contentHash] = ItemCache{
-			Timestamp:      fmt.Sprintf("%v", pr.SyncTimestamp.Unix()),
+			Timestamp:      syncTimestamp,
 			EntityID:       pr.ID,
 			SourceEntityID: pr.ChangeRequestID,
 			FileLocation:   path,
