@@ -3139,6 +3139,15 @@ func (j *DSGitHub) FetchItemsIssue(ctx *shared.Ctx) (err error) {
 	if err != nil {
 		Pages = 100
 	}
+	// check if there is issues to process
+	issuesCount, _, err := j.getItemsCount()
+	if err != nil {
+		return
+	}
+	if issuesCount == 0 {
+		return
+	}
+
 	for {
 		issues, er := j.githubIssues(ctx, j.Org, j.Repo, dateFrom, ctx.DateTo)
 		if er != nil {
