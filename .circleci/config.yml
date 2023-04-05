@@ -90,7 +90,7 @@ workflows:
             - build
           filters:
             branches:
-              only: handle-pack-size-missings #main
+              only: main
             tags:
               ignore: /.*/
       - approve_prod:
