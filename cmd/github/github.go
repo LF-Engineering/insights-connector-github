@@ -3400,7 +3400,7 @@ func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 		count += len(pulls.Issues)
 		totalFetched += len(pulls.Issues)
 		pullrequests = append(pullrequests, pulls.Issues...)
-		if len(pullrequests) == 1000 || response.NextPage == 0 {
+		if len(pullrequests) == ctx.PackSize || response.NextPage == 0 {
 			for _, pull := range pullrequests {
 				pr := map[string]interface{}{}
 				jm, _ := jsoniter.Marshal(pull)
@@ -3432,19 +3432,23 @@ func (j *DSGitHub) FetchItemsPullRequest(ctx *shared.Ctx) (err error) {
 			j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Debugf("%d remaining pulls to send to queue", nPulls)
 		}
 
-		if count == 1000 {
-			j.log.WithFields(logrus.Fields{"operation": "FetchItemsActions"}).Infof("fetched %d pulls", totalFetched)
+		if count == ctx.PackSize {
+			j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Infof("fetched %d pulls", totalFetched)
 			dateFrom = updateAt
 			opt.Page = 1
 			count = 0
 			continue
 		}
 		if response.NextPage == 0 {
+			err = j.GitHubEnrichItems(ctx, allPulls, &allDocs, true)
+			if err != nil {
+				j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Errorf("%s/%s: error %v sending %d pulls to queue", j.URL, j.CurrentCategory, err, len(allPulls))
+			}
 			break
 		}
 		opt.Page = response.NextPage
 	}
-	j.log.WithFields(logrus.Fields{"operation": "FetchItemsActions"}).Infof("total count of fetched pulls: %d, fetched till: %v", totalFetched, latestUpdateAt)
+	j.log.WithFields(logrus.Fields{"operation": "FetchItemsPullRequest"}).Infof("total count of fetched pulls: %d, fetched till: %v", totalFetched, latestUpdateAt)
 
 	return
 }
@@ -6098,6 +6102,9 @@ func (j *DSGitHub) Sync(ctx *shared.Ctx, category string) (err error) {
 	}
 	// NOTE: Non-generic ends here
 	err = j.setLastSync()
+	if err != nil {
+		return
+	}
 	j.log.WithFields(logrus.Fields{"operation": "SetLastSync"}).Info("Sync: last sync date has been updated successfully")
 
 	return
