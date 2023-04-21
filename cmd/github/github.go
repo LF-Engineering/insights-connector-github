@@ -9296,6 +9296,10 @@ func (j *DSGitHub) setLastSync() error {
 		}
 	}
 
+	//j.log.WithFields(j.log.Fields{
+	//	"connector": "github",
+	//	"int": 1, "float": 1.1}).Info("Last sync info")
+
 	return nil
 }
 
